@@ -24,8 +24,8 @@ A one-year preparatory programme at KTH that gives students the mathematics, phy
 |---|---|---|---|
 | [`Kemi 1/`](Kemi%201/) | Kemi 1 (Chemistry 1) | HF0023 | ✅ Complete |
 | [`Fysik 1/`](Fysik%201/) | Fysik för basår I (Physics 1) | HF0022 | ✅ Complete |
+| [`Matematik 1/`](Matematik%201/) | Matematik för basår I (Mathematics 1) | HF0021 | ✅ Delkurs A (of A+B) |
 | `Fysik 2/` | Fysik för basår II (Physics 2) | HF0025 | 📋 Planned |
-| `Matematik 1/` | Matematik för basår I (Mathematics 1) | HF0021 | 📋 Planned |
 | `Matematik 2/` | Matematik för basår II (Mathematics 2) | HF0024 | 📋 Planned |
 
 Start at the `README.md` inside a course directory — it is the index for that course.
@@ -46,7 +46,7 @@ Every course follows the same structure, so once you know one you know them all.
 └── tentor-och-kontrollskrivningar.md  past exams and quizzes
 ```
 
-**Topics, not weeks.** The backbone is the subject matter — chemical bonding, forces, electricity — not week numbers, because week numbers shift every year while the physics does not. Lesson order is preserved exactly as the course schedules it; the topic files are contiguous blocks, not a reordering.
+**Topics, not weeks.** The backbone is the subject matter — chemical bonding, forces, electricity — not week numbers, because week numbers shift every year while the physics does not. Lesson order is preserved exactly as the course schedules it; the topic files are contiguous blocks, not a reordering. Where a course divides itself by examination rather than by date (as Matematik 1 does, around its two kontrollskrivningar), each topic file is labelled with the test it is examined on.
 
 **Every lesson looks the same:**
 
