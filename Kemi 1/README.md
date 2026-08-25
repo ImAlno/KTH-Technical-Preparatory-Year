@@ -1,6 +1,6 @@
 # Kemi 1 – videobaserad studieplan
 
-**Kurs:** HF0023, Kemi 1 · KTH Tekniskt basår
+**Kurs:** Kemi 1 · KTH Tekniskt basår
 
 En studieplan för dig som vill läsa Kemi 1 med **video som huvudsaklig teorikälla** och boken som stöd för läsning och räkning. Planen följer kursens egen ordning moment för moment.
 
