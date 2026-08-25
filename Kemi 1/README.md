@@ -13,6 +13,7 @@ En studieplan för dig som vill läsa Kemi 1 med **video som huvudsaklig teorik�
 | 📖 **Läsning** | *Syntes kemi 1 Gy25* — ISBN 978-91-511-1246-6 |
 | ✏️ **Övningsuppgifter** | *Kemi 1000* — Thylander & Johansson, ISBN 978-91-973708-4-4 |
 | 🎬 **Video** | Magnus Ehinger, [undervisning.ehinger.nu](https://undervisning.ehinger.nu) |
+| 📝 **Gamla tentor** | [tentor-och-kontrollskrivningar.md](tentor-och-kontrollskrivningar.md) |
 
 Sidhänvisningar (`s. 83–91`) syftar alltid på **Syntes**. Uppgiftsnummer (`kap. 4: 1–7`) syftar alltid på **Kemi 1000**. De två böckerna har olika kapitelindelning — blanda inte ihop dem.
 
@@ -59,6 +60,7 @@ Bocka av videorna i kryssrutorna allteftersom.
 | 07 | [Organisk kemi](07-organisk-kemi.md) | F32–F35 | Kolväten, alkoholer, karboxylsyror, halogenalkaner |
 | 08 | [Repetition och examination](08-repetition-och-examination.md) | F23, F36–F38 | Kontrollskrivning och tentamen |
 | 🧪 | [Laborationer](laborationer.md) | F11 + Lab 1–5 | Obligatoriska laborativa moment och labbrapport |
+| 📝 | [Tentor och kontrollskrivningar](tentor-och-kontrollskrivningar.md) | — | Gamla KS och tentor från Canvas, de flesta med lösningar |
 
 ---
 

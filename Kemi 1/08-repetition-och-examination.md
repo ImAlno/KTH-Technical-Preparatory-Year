@@ -6,6 +6,8 @@ Kursens två repetitionsblock och de skriftliga examinationerna. Lektionerna lig
 
 > **Den enda regeln som räknas dessa veckor:** repetera genom att *räkna*, inte genom att titta om videor. Att se en genomgång igen känns produktivt men testar ingenting. Att räkna en uppgift du inte klarar visar exakt var luckan sitter.
 
+Gamla KS och tentor — de flesta med lösningsförslag — finns i [tentor-och-kontrollskrivningar.md](tentor-och-kontrollskrivningar.md). De är det bästa sättet att kalibrera nivån.
+
 ---
 
 ## F23 · Repetition inför kontrollskrivningen
@@ -30,6 +32,8 @@ Ligger i repetitionsveckan efter syror och baser, före termokemin.
 ### 📝 Kontrollskrivning
 
 - [ ] **Kontrollskrivning** — se [kursdata i README](README.md#kursdata) för datum
+
+📝 Gamla KS: [tentor-och-kontrollskrivningar.md](tentor-och-kontrollskrivningar.md#kontrollskrivningar-ks) — höstskrivningarna 251013 och 241014 ligger närmast i tid och innehåll
 
 ---
 
@@ -67,6 +71,8 @@ Kursschemat listar dessa två lektioner men anger varken avsnitt, sidor eller up
 - [ ] **Tentamen** — se [kursdata i README](README.md#kursdata) för datum
 
 Sista veckans repetition bör bestå av problemlösning, inte maratontittande på teori.
+
+📝 Gamla tentor: [tentor-och-kontrollskrivningar.md](tentor-och-kontrollskrivningar.md#tentamen-tena) — december-tentorna 251208 och 241209 är de ordinarie för höstterminen
 
 ---
 
