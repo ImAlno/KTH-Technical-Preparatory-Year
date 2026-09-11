@@ -1,11 +1,15 @@
 (function (root, factory) {
-  const api = factory(typeof module === "object" && module.exports ? require("./units.js") : root && root.KS && root.KS.units);
-  if (typeof module === "object" && module.exports) module.exports = api;
+  const isCommonJS = typeof module === "object" && module.exports && typeof require === "function";
+  const api = factory(
+    isCommonJS ? require("./units.js") : root && root.KS && root.KS.units,
+    isCommonJS ? require("./expression-parser.js") : root && root.KS && root.KS.expression
+  );
+  if (isCommonJS) module.exports = api;
   if (root) {
     root.KS = root.KS || {};
     root.KS.grading = api;
   }
-})(typeof window !== "undefined" ? window : null, function (units) {
+})(typeof window !== "undefined" ? window : null, function (units, expression) {
   function parseNumeric(raw) {
     if (typeof raw !== "string") return { ok: false, reason: "invalid-input" };
     const match = raw.trim().match(/^([+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:(?:[eE][+-]?\d+)|(?:(?:·|\*)\s*10\s*\^\s*[+-]?\d+))?)(?:\s*(.*))?$/);
@@ -99,5 +103,98 @@
     }
   }
 
-  return { parseNumeric, gradeNumeric, gradeAliases };
+  function validPoints(spec) {
+    return spec && Number.isFinite(spec.points) && spec.points >= 0;
+  }
+
+  function solutionTolerance(spec) {
+    if (spec.tolerance === undefined || spec.tolerance === null) return { absolute: 1e-9, relative: 0 };
+    if (Number.isFinite(spec.tolerance) && spec.tolerance >= 0) return { absolute: spec.tolerance, relative: 0 };
+    if (!spec.tolerance || typeof spec.tolerance !== "object") return null;
+    const absolute = spec.tolerance.absolute === undefined ? 0 : spec.tolerance.absolute;
+    const relative = spec.tolerance.relative === undefined ? 0 : spec.tolerance.relative;
+    if (!Number.isFinite(absolute) || absolute < 0 || !Number.isFinite(relative) || relative < 0) return null;
+    return { absolute: absolute, relative: relative };
+  }
+
+  function valuesClose(left, right, tolerance) {
+    const allowed = Math.max(tolerance.absolute, Math.max(Math.abs(left), Math.abs(right)) * tolerance.relative);
+    return Math.abs(left - right) <= allowed;
+  }
+
+  function mergeSortedValues(values, tolerance) {
+    return values.slice().sort(function (left, right) { return left - right; }).reduce(function (merged, value) {
+      if (!merged.length || !valuesClose(merged[merged.length - 1], value, tolerance)) merged.push(value);
+      return merged;
+    }, []);
+  }
+
+  function formatSolutionSet(variable, values) {
+    return variable + " ∈ {" + values.join(", ") + "}";
+  }
+
+  function gradeSolutionSet(spec, raw) {
+    try {
+      if (!validPoints(spec) || !Array.isArray(spec.expected) || spec.expected.some(function (value) { return !Number.isFinite(value); })) {
+        return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom uppgiften saknar giltiga rättningsuppgifter.");
+      }
+      const tolerance = solutionTolerance(spec);
+      if (!tolerance || !expression || typeof expression.parseSolutionSet !== "function") {
+        return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom uppgiften saknar giltiga rättningsuppgifter.");
+      }
+      const variable = spec.variable === undefined ? "x" : spec.variable;
+      const parsed = expression.parseSolutionSet(raw, variable);
+      if (!parsed.ok) return result("self", spec, 0, null, "Lösningsmängden kunde inte tolkas säkert.");
+
+      const actual = mergeSortedValues(parsed.values, tolerance);
+      const expected = mergeSortedValues(spec.expected, tolerance);
+      const interpreted = formatSolutionSet(variable, actual);
+      if (actual.length !== expected.length) {
+        return result("incorrect", spec, 0, interpreted, "Lösningsmängden har fel antal värden.");
+      }
+      const matches = expected.every(function (value, index) { return valuesClose(actual[index], value, tolerance); });
+      return matches
+        ? result("correct", spec, spec.points, interpreted, "Rätt svar.")
+        : result("incorrect", spec, 0, interpreted, "Lösningsmängden stämmer inte.");
+    } catch (error) {
+      return result("self", spec, 0, null, "Svaret kunde inte rättas automatiskt.");
+    }
+  }
+
+  function collectExpressionVariables(ast, names) {
+    if (!ast || typeof ast !== "object") return;
+    if (ast.type === "variable") names.add(ast.name);
+    if (ast.type === "unary") collectExpressionVariables(ast.operand, names);
+    if (ast.type === "function") collectExpressionVariables(ast.argument, names);
+    if (ast.type === "binary") {
+      collectExpressionVariables(ast.left, names);
+      collectExpressionVariables(ast.right, names);
+    }
+  }
+
+  function gradeExpression(spec, raw) {
+    try {
+      if (!validPoints(spec) || typeof spec.expected !== "string" || !expression || typeof expression.parse !== "function" || typeof expression.equivalent !== "function") {
+        return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom uppgiften saknar giltiga rättningsuppgifter.");
+      }
+      const expected = expression.parse(spec.expected);
+      if (!expected.ok) return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom facit inte kunde tolkas.");
+      const inferredVariables = new Set();
+      collectExpressionVariables(expected.ast, inferredVariables);
+      const variables = spec.variables === undefined ? Array.from(inferredVariables).sort() : spec.variables;
+      const comparison = expression.equivalent(raw, spec.expected, {
+        variables: variables,
+        exclude: spec.exclude
+      });
+      if (comparison.equivalent === null) {
+        return result("self", spec, 0, null, "Uttrycket kunde inte jämföras med tillräcklig säkerhet.");
+      }
+      if (comparison.equivalent) return result("correct", spec, spec.points, raw, "Rätt svar.");
+      return result("incorrect", spec, 0, raw, "Uttrycket är inte ekvivalent med facit.");
+    } catch (error) {
+      return result("self", spec, 0, null, "Svaret kunde inte rättas automatiskt.");
+    }
+  }
+
+  return { parseNumeric, gradeNumeric, gradeAliases, gradeSolutionSet, gradeExpression };
 });

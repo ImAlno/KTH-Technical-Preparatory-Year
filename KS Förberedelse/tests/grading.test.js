@@ -1,5 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
 const grading = require("../assets/js/grading.js");
 
 test("parses decimal comma and scientific notation", () => {
@@ -91,4 +94,55 @@ test("returns self review for malformed numeric grading specifications", () => {
     grading.gradeNumeric({ expected: 10, points: 1, tolerance: { absolute: -1 }, targetUnit: "m" }, "10 m").status,
     "self"
   );
+});
+
+test("grades solution sets without order and merges roots within tolerance", () => {
+  const spec = { expected: [1, 6], points: 2, tolerance: { absolute: 0.001 }, variable: "x" };
+
+  assert.equal(grading.gradeSolutionSet(spec, "x=6 eller x=1").status, "correct");
+  assert.equal(grading.gradeSolutionSet(spec, "1; 1,0004; 6").status, "correct");
+  assert.equal(grading.gradeSolutionSet(spec, "1; 6; 9").status, "incorrect");
+});
+
+test("grades documented empty solution sets only when expected is empty", () => {
+  assert.equal(grading.gradeSolutionSet({ expected: [], points: 1, variable: "x" }, "saknar reella lösningar").status, "correct");
+  assert.equal(grading.gradeSolutionSet({ expected: [1], points: 1, variable: "x" }, "∅").status, "incorrect");
+});
+
+test("returns self review for uncertain solution-set input or specifications", () => {
+  assert.equal(grading.gradeSolutionSet({ expected: [1], points: 1, variable: "x" }, "x är ett").status, "self");
+  assert.equal(grading.gradeSolutionSet({ expected: [Infinity], points: 1, variable: "x" }, "1").status, "self");
+});
+
+test("grades equivalent and non-equivalent algebraic expressions", () => {
+  const spec = { expected: "x^2+x-2", points: 2, variables: ["x"] };
+
+  assert.equal(grading.gradeExpression(spec, "(x-1)(x+2)").status, "correct");
+  assert.equal(grading.gradeExpression(spec, "x^2+x-3").status, "incorrect");
+});
+
+test("unknown or insufficient-confidence expression syntax falls back to self assessment", () => {
+  assert.equal(grading.gradeExpression({ expected: "x+1", points: 2, variables: ["x"] }, "x plus ett").status, "self");
+  assert.equal(grading.gradeExpression({ expected: "sqrt(x)", points: 2, variables: ["x"] }, "x^(1/2)").status, "self");
+});
+
+test("algebra graders preserve the existing numeric and alias API", () => {
+  assert.equal(typeof grading.parseNumeric, "function");
+  assert.equal(typeof grading.gradeNumeric, "function");
+  assert.equal(typeof grading.gradeAliases, "function");
+  assert.equal(grading.gradeNumeric({ expected: 10, points: 1, targetUnit: "m" }, "10 m").status, "correct");
+  assert.equal(grading.gradeAliases({ expected: "ja", points: 1 }, "ja").status, "correct");
+});
+
+test("browser scripts resolve expression grading through the KS namespace", () => {
+  const context = vm.createContext({ window: {} });
+  ["units.js", "expression-parser.js", "grading.js"].forEach((file) => {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, "../assets/js", file), "utf8"), context, { filename: file });
+  });
+
+  assert.equal(context.window.KS.grading.gradeExpression(
+    { expected: "x+1", points: 1, variables: ["x"] },
+    "1+x"
+  ).status, "correct");
+  assert.equal(typeof context.window.KS.grading.gradeNumeric, "function");
 });
