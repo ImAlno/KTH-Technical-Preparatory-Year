@@ -113,8 +113,8 @@
       drawing = '<path d="M75 190 L440 190 L440 65 Z" fill="#f5f5f7" stroke="#1d1d1f" stroke-width="3"/><rect x="285" y="100" width="75" height="48" fill="#dbeafe" stroke="#1d1d1f" transform="rotate(-19 322 124)"/><path d="M110 188 A45 45 0 0 1 153 173" fill="none" stroke="#6e6e73"/><text x="147" y="174">' + clean(p.angleDeg) + '°</text><text x="210" y="40">m = ' + clean(p.massKg) + ' kg, Fᶠ = ' + clean(p.frictionForceN) + " N</text>";
       desc = "En kropp rör sig nedför ett lutande plan. Massan, lutningsvinkeln och den kinetiska friktionskraften är utskrivna.";
     } else if (family === "connected-masses") {
-      drawing = '<line x1="65" y1="135" x2="365" y2="135" stroke="#1d1d1f" stroke-width="4"/><rect data-role="table-body" x="145" y="75" width="85" height="60" fill="#dbeafe" stroke="#1d1d1f"/><circle data-role="pulley" cx="365" cy="105" r="30" fill="#f5f5f7" stroke="#1d1d1f"/><path data-role="rope" d="M230 75 L365 75 A30 30 0 0 1 395 105 L395 160" fill="none" stroke="#0071e3" stroke-width="4"/><rect data-role="hanging-body" x="360" y="160" width="70" height="48" fill="#dbeafe" stroke="#1d1d1f"/><text x="120" y="55">m₁ = ' + clean(p.tableMassKg) + ' kg, μ = ' + clean(p.frictionCoefficient) + '</text><text x="355" y="232">m₂ = ' + clean(p.hangingMassKg) + " kg</text>";
-      desc = "En kropp på ett horisontellt bord är kopplad över en ideal trissa till en hängande kropp. Massor och friktionstal är utskrivna.";
+      drawing = '<line x1="65" y1="135" x2="365" y2="135" stroke="#1d1d1f" stroke-width="4"/><rect data-role="table-body" x="145" y="75" width="85" height="60" fill="#dbeafe" stroke="#1d1d1f"/><circle data-role="pulley" cx="365" cy="105" r="30" fill="#f5f5f7" stroke="#1d1d1f"/><path data-role="rope" d="M230 75 L365 75 A30 30 0 0 1 395 105 L395 160" fill="none" stroke="#0071e3" stroke-width="4"/><rect data-role="hanging-body" x="360" y="160" width="70" height="48" fill="#dbeafe" stroke="#1d1d1f"/><text x="120" y="55">m₁ = ' + clean(p.tableMassKg) + ' kg, μₖ = ' + clean(p.frictionCoefficient) + '</text><text x="355" y="232">m₂ = ' + clean(p.hangingMassKg) + " kg</text>";
+      desc = "En kropp på ett horisontellt bord är kopplad över en ideal trissa till en hängande kropp. Kropparna har börjat röra sig, och massor samt kinetiskt friktionstal är utskrivna.";
     } else {
       const force = family === "horizontal-pull" ? p.pullForceN : family === "unknown-friction" ? p.driveForceN : null;
       drawing = '<line x1="60" y1="165" x2="460" y2="165" stroke="#1d1d1f" stroke-width="4"/><rect x="185" y="95" width="125" height="70" fill="#dbeafe" stroke="#1d1d1f"/><line x1="310" y1="130" x2="410" y2="130" stroke="#0071e3" stroke-width="4"/><path d="M413 130 l-16 -8 v16 z" fill="#0071e3"/><text x="325" y="112">' + (force === null ? "F söks" : "F = " + clean(force) + " N") + '</text><text x="250" y="205" text-anchor="middle">m = ' + clean(p.massKg) + " kg</text>";
@@ -130,7 +130,7 @@
     const p = row.givens;
     if (family === "horizontal-pull") return row.object.charAt(0).toUpperCase() + row.object.slice(1) + " med massan " + clean(p.massKg) + " kg dras åt höger av den horisontella kraften " + clean(p.pullForceN) + " N. Det kinetiska friktionstalet är " + clean(p.frictionCoefficient) + ". Bestäm accelerationen.";
     if (family === "inclined-plane") return row.object.charAt(0).toUpperCase() + row.object.slice(1) + " med massan " + clean(p.massKg) + " kg glider nedför ett plan som lutar " + clean(p.angleDeg) + "°. Den kinetiska friktionskraften är " + clean(p.frictionForceN) + " N uppför planet. Bestäm accelerationen nedför planet.";
-    if (family === "connected-masses") return row.object.charAt(0).toUpperCase() + row.object.slice(1) + " är kopplade med en masslös tråd över en ideal trissa. Kroppen på bordet har massan " + clean(p.tableMassKg) + " kg och friktionstalet " + clean(p.frictionCoefficient) + "; den hängande kroppen har massan " + clean(p.hangingMassKg) + " kg. Systemet släpps från vila. Bestäm accelerationens storlek.";
+    if (family === "connected-masses") return row.object.charAt(0).toUpperCase() + row.object.slice(1) + " är kopplade med en masslös tråd över en ideal trissa. Kroppen på bordet har massan " + clean(p.tableMassKg) + " kg, och det kinetiska friktionstalet mellan kroppen och bordet är " + clean(p.frictionCoefficient) + "; den hängande kroppen har massan " + clean(p.hangingMassKg) + " kg. Den hängande kroppen börjar röra sig nedåt och bordskroppen börjar samtidigt glida åt höger. Bestäm accelerationens storlek.";
     if (family === "unknown-pull") return row.object.charAt(0).toUpperCase() + row.object.slice(1) + " med massan " + clean(p.massKg) + " kg ska accelerera åt höger med " + clean(p.accelerationMps2) + " m/s² på ett horisontellt underlag där det kinetiska friktionstalet är " + clean(p.frictionCoefficient) + ". Bestäm den horisontella dragkraften.";
     return row.object.charAt(0).toUpperCase() + row.object.slice(1) + " med massan " + clean(p.massKg) + " kg startar från vila och påverkas av en konstant drivkraft på " + clean(p.driveForceN) + " N åt höger. Efter " + clean(p.elapsedS) + " s är farten " + clean(p.finalSpeedMps) + " m/s. Bestäm den konstanta kinetiska friktionskraftens storlek.";
   }
@@ -145,8 +145,8 @@
       diagram = "På kroppen verkar mg nedåt, N vinkelrätt från planet och Fᶠ uppför planet. Positiv riktning väljs nedför planet.";
       equation = "Normalkraften är N = mg cos α > 0. Newton II längs planet ger mg sin α − Fᶠ = ma, alltså a = g sin α − Fᶠ/m = " + clean(exact) + " m/s².";
     } else if (family === "connected-masses") {
-      diagram = "Frilägg båda kropparna: bordskroppen har T åt höger och Fᶠ åt vänster; den hängande kroppen har m₂g nedåt och T uppåt.";
-      equation = "Adderade kraftekvationer ger m₂g − μm₁g = (m₁ + m₂)a. Därför a = (m₂ − μm₁)g/(m₁ + m₂) = " + clean(exact) + " m/s².";
+      diagram = "Frilägg båda kropparna sedan rörelsen har börjat: bordskroppen har T åt höger och kinetisk friktion Fᶠ åt vänster; den hängande kroppen har m₂g nedåt och T uppåt.";
+      equation = "Den kinetiska friktionen är Fᶠ = μₖm₁g. Adderade kraftekvationer ger m₂g − μₖm₁g = (m₁ + m₂)a. Därför a = (m₂ − μₖm₁)g/(m₁ + m₂) = " + clean(exact) + " m/s².";
     } else if (family === "unknown-pull") {
       diagram = "På kroppen verkar mg nedåt, N uppåt, den sökta dragkraften F åt höger och Fᶠ åt vänster.";
       equation = "N = mg och Fᶠ = μmg. Newton II ger F − μmg = ma, alltså F = m(a + μg) = " + clean(exact) + " N.";
@@ -159,7 +159,7 @@
 
   function rubricDiagram(family) {
     if (family === "inclined-plane") return "Kraftfiguren visar mg, normalkraft och kinetisk friktion med rätt riktningar; positiv riktning längs planet anges.";
-    if (family === "connected-masses") return "Två separata kraftfigurer visar tyngd/spännkraft för den hängande kroppen samt N, mg, T och friktion för bordskroppen.";
+    if (family === "connected-masses") return "Två separata kraftfigurer visar tyngd/spännkraft för den hängande kroppen samt N, mg, T och kinetisk friktion för den glidande bordskroppen.";
     return "Kraftfiguren visar mg nedåt, N uppåt samt driv-/dragkraft och kinetisk friktion i motsatta horisontella riktningar.";
   }
 
@@ -195,6 +195,8 @@
         givens: Object.assign({}, row.givens),
         normalForceN: normal,
         frictionForceN: friction,
+        startsMoving: family === "connected-masses" ? true : undefined,
+        frictionCoefficientType: family === "connected-masses" ? "kinetic" : undefined,
         motionDirection: family === "inclined-plane" ? "down-slope" : family === "connected-masses" ? "hanging-mass-down" : "right",
         significantFigures: figures,
         targetUnit: info.targetUnit,

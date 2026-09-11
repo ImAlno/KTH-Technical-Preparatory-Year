@@ -264,7 +264,7 @@ test("every slot contains five authored families with five cases and a distinct 
 });
 
 test("every canonical math answer receives full automatic credit", () => {
-  const graders = { numeric: grading.gradeNumeric, "solution-set": grading.gradeSolutionSet, expression: grading.gradeExpression };
+  const graders = { numeric: grading.gradeNumeric, "solution-set": grading.gradeSolutionSet, expression: grading.gradeExpression, "simplified-expression": grading.gradeSimplifiedExpression };
   allQuestions().forEach((question) => {
     question.fields.forEach((field) => {
       let raw;
@@ -325,12 +325,12 @@ test("every rational simplification preserves values and all original exclusions
     const [expressionField, exclusionsField] = question.fields;
     assert.equal(question.fields.length, 2, question.id);
     assert.deepEqual(question.fields.map((field) => [field.id, field.kind, field.points]), [
-      ["expression", "expression", 1], ["exclusions", "solution-set", 1]
+      ["expression", "simplified-expression", 1], ["exclusions", "solution-set", 1]
     ], question.id);
     assert.deepEqual(expressionField.exclude.slice().sort((a, b) => a - b), data.exclusions.slice().sort((a, b) => a - b), question.id);
     assertNumberSets(exclusionsField.expected, data.exclusions, question.id);
     assert.match(exclusionsField.help, /semikolon/i, question.id);
-    const expressionOnly = grading.gradeExpression(expressionField, expressionField.expected);
+    const expressionOnly = grading.gradeSimplifiedExpression(expressionField, expressionField.expected);
     const omittedExclusions = grading.gradeSolutionSet(exclusionsField, "");
     assert.equal(expressionOnly.earned + omittedExclusions.earned, 1, `${question.id}: expression alone must not earn full credit`);
     const independentlySimplified = expectedSlotThree(data);
@@ -351,6 +351,20 @@ test("every rational simplification preserves values and all original exclusions
     assert.ok(matches >= 6, question.id);
     data.exclusions.forEach((x) => assert.equal(parsedValue(data.originalExpression, x).ok, false, `${question.id} exclusion ${x}`));
   });
+});
+
+test("all real simplification fields reject their unchanged source expression", () => {
+  loadSlots()[3].forEach((question) => {
+    const field = question.fields[0];
+    const unchanged = grading.gradeSimplifiedExpression(field, question.sourceData.originalExpression);
+
+    assert.equal(field.kind, "simplified-expression", question.id);
+    assert.equal(unchanged.status, "incorrect", `${question.id}: unchanged source must not count as fully simplified`);
+    assert.equal(unchanged.earned, 0, question.id);
+  });
+
+  const signField = loadSlots()[3].find((question) => question.id === "math-s3-factor-cancellation-01").fields[0];
+  assert.equal(grading.gradeSimplifiedExpression(signField, "(5-x)/(7-x)").status, "correct");
 });
 
 test("every rational or polynomial root is independently recovered and valid in the original equation", () => {

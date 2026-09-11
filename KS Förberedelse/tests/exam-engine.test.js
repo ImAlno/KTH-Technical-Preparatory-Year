@@ -146,6 +146,7 @@ test("invalid grader data and self-assessment rubrics are rejected before any si
     { name: "numeric tolerance", value: { id: "f", label: "Svar", kind: "numeric", points: 1, expected: 2, targetUnit: null, tolerance: { absolute: -1 } } },
     { name: "numeric relative tolerance", value: { id: "f", label: "Svar", kind: "numeric", points: 1, expected: 2, targetUnit: null, tolerance: { relative: Infinity } } },
     { name: "numeric target unit", value: { id: "f", label: "Svar", kind: "numeric", points: 1, expected: 2, targetUnit: 7 } },
+    { name: "numeric alternative-unit credit", value: { id: "f", label: "Svar", kind: "numeric", points: 1, expected: 2, targetUnit: "m", alternativeUnitCredit: "sometimes" } },
     { name: "aliases", value: { id: "f", label: "Svar", kind: "aliases", points: 1, expected: " ", aliases: [""] } },
     { name: "malformed aliases", value: { id: "f", label: "Svar", kind: "aliases", points: 1, aliases: ["ja", 7] } },
     { name: "solution set", value: { id: "f", label: "Svar", kind: "solution-set", points: 1, expected: [1, Infinity] } },
@@ -205,7 +206,7 @@ test("submit dispatches every automatic field kind and aggregates field points",
     subject: { id: "mixed", questionCount: 1, maxPoints: 6, passPoints: 3, durationMinutes: 1 },
     slots: { 1: [question("mixed-q", 1, 6, fields)] }
   });
-  const answers = { n: "10 m", a: "japp", s: "2; 1", e: "1+x", f: "OH2", r: "H2+H2+O2->2H2O" };
+  const answers = { n: "10 m", a: "japp", s: "2; 1", e: "1+x", f: "H₂O", r: "H2+H2+O2->2H2O" };
   Object.entries(answers).forEach(([id, raw]) => session.setAnswer("mixed-q", id, raw));
 
   const submitted = session.submit();
@@ -259,15 +260,124 @@ test("override replaces the whole submitted question score and marks metadata", 
 });
 
 test("restoreSession uses the saved question ids and preserves result metadata", () => {
-  const { session, slots } = makeSession();
+  const { session, slots, subject } = makeSession();
   session.setAnswer("q-1", "value", "4 m");
   session.submit();
   session.overrideGrade("q-1", 1.5);
   const snapshot = session.snapshot();
-  const restored = exam.restoreSession(snapshot, Object.fromEntries(Object.values(slots).flat().map((item) => [item.id, item])));
+  const restored = exam.restoreSession(snapshot, slots, undefined, subject);
 
   assert.deepEqual(restored.snapshot(), snapshot);
   assert.deepEqual(restored.navigate(1), { ok: true });
+});
+
+test("restore rejects wrong subjects, question selection shape, position, index, and timer state", () => {
+  const { session, slots, subject } = makeSession();
+  const valid = session.snapshot();
+  const cases = [
+    ["wrong subject", (value) => { value.subjectId = "physics-ks1"; }],
+    ["missing exam id", (value) => { value.examId = ""; }],
+    ["wrong question count", (value) => { value.questionIds.pop(); }],
+    ["duplicate question id", (value) => { value.questionIds[1] = value.questionIds[0]; }],
+    ["unknown question id", (value) => { value.questionIds[1] = "missing"; }],
+    ["wrong slot order", (value) => { value.questionIds.reverse(); }],
+    ["current index below range", (value) => { value.currentIndex = -1; }],
+    ["current index above range", (value) => { value.currentIndex = 2; }],
+    ["non-integer current index", (value) => { value.currentIndex = 0.5; }],
+    ["missing timer", (value) => { delete value.timer; }],
+    ["wrong timer duration", (value) => { value.timer.durationMs = 59_000; }],
+    ["negative elapsed timer", (value) => { value.timer.elapsedMs = -1; }],
+    ["elapsed timer beyond duration", (value) => { value.timer.elapsedMs = 60_001; }],
+    ["nonfinite timer", (value) => { value.timer.elapsedMs = Infinity; }],
+    ["negative running timestamp", (value) => { value.timer.runningSince = -1; }],
+    ["nonfinite running timestamp", (value) => { value.timer.runningSince = NaN; }]
+  ];
+
+  cases.forEach(([name, mutate]) => {
+    const candidate = structuredClone(valid);
+    mutate(candidate);
+    assert.throws(() => exam.restoreSession(candidate, slots, undefined, subject), /invalid exam snapshot/i, name);
+  });
+  assert.deepEqual(exam.restoreSession(valid, slots, undefined, subject).snapshot(), valid);
+});
+
+test("restore rejects malformed answer, flag, grade, and solution collections", () => {
+  const { session, slots, subject } = makeSession();
+  const valid = session.snapshot();
+  const cases = [
+    ["answers must be a map", (value) => { value.answers = []; }],
+    ["answer question must be selected", (value) => { value.answers.missing = { value: "4" }; }],
+    ["answer fields must be maps", (value) => { value.answers["q-1"] = []; }],
+    ["answer field must exist", (value) => { value.answers["q-1"] = { missing: "4" }; }],
+    ["raw answers must be strings", (value) => { value.answers["q-1"] = { value: 4 }; }],
+    ["flags must be an array", (value) => { value.flags = {}; }],
+    ["flags must be unique", (value) => { value.flags = ["q-1", "q-1"]; }],
+    ["flags must be selected ids", (value) => { value.flags = ["missing"]; }],
+    ["active grades must stay empty", (value) => { value.grades["q-1"] = {}; }],
+    ["active result must stay absent", (value) => { value.result = { status: "complete", earned: 0, possible: 4 }; }],
+    ["active solutions must stay collapsed", (value) => { value.expandedSolutions = ["q-1"]; }],
+    ["solutions must be an array", (value) => { value.expandedSolutions = {}; }]
+  ];
+
+  cases.forEach(([name, mutate]) => {
+    const candidate = structuredClone(valid);
+    mutate(candidate);
+    assert.throws(() => exam.restoreSession(candidate, slots, undefined, subject), /invalid exam snapshot/i, name);
+  });
+});
+
+test("restore rejects mystery status and inconsistent graded result or override metadata", () => {
+  const { session, slots, subject } = makeSession();
+  session.setAnswer("q-1", "value", "4 m");
+  session.setAnswer("q-2", "name", "ja");
+  session.submit();
+  const valid = session.snapshot();
+  const cases = [
+    ["mystery session status", (value) => { value.status = "mystery"; }],
+    ["missing grade", (value) => { delete value.grades["q-1"]; }],
+    ["extra grade", (value) => { value.grades.missing = value.grades["q-1"]; }],
+    ["mystery grade status", (value) => { value.grades["q-1"].status = "mystery"; }],
+    ["grade possible mismatch", (value) => { value.grades["q-1"].possible = 1; }],
+    ["grade earned out of range", (value) => { value.grades["q-1"].earned = -1; }],
+    ["missing field result", (value) => { delete value.grades["q-1"].fieldResults.value; }],
+    ["extra field result", (value) => { value.grades["q-1"].fieldResults.missing = value.grades["q-1"].fieldResults.value; }],
+    ["field result possible mismatch", (value) => { value.grades["q-1"].fieldResults.value.possible = 1; }],
+    ["invalid override marker", (value) => { value.grades["q-1"].overridden = "true"; }],
+    ["invalid self-assessment marker", (value) => { value.grades["q-1"].selfAssessed = 1; }],
+    ["duplicate expanded solution", (value) => { value.expandedSolutions = ["q-1", "q-1"]; }],
+    ["unknown expanded solution", (value) => { value.expandedSolutions = ["missing"]; }],
+    ["missing result", (value) => { delete value.result; }],
+    ["mystery result status", (value) => { value.result.status = "mystery"; }],
+    ["wrong result earned", (value) => { value.result.earned -= 1; }],
+    ["wrong result possible", (value) => { value.result.possible -= 1; }]
+  ];
+
+  cases.forEach(([name, mutate]) => {
+    const candidate = structuredClone(valid);
+    mutate(candidate);
+    assert.throws(() => exam.restoreSession(candidate, slots, undefined, subject), /invalid exam snapshot/i, name);
+  });
+  assert.deepEqual(exam.restoreSession(valid, slots, undefined, subject).snapshot(), valid);
+});
+
+test("restore rejects graded answers and field results that disagree with the saved grade", () => {
+  const { session, slots, subject } = makeSession();
+  session.setAnswer("q-1", "value", "4 m");
+  session.setAnswer("q-2", "name", "ja");
+  session.submit();
+  const valid = session.snapshot();
+  const cases = [
+    ["answer changed after grading", (value) => { value.answers["q-1"].value = "9 m"; }],
+    ["field result message forged", (value) => { value.grades["q-1"].fieldResults.value.message = "Manipulerad bedömning."; }],
+    ["question grade message forged", (value) => { value.grades["q-1"].message = "Manipulerad bedömning."; }]
+  ];
+
+  cases.forEach(([name, mutate]) => {
+    const candidate = structuredClone(valid);
+    mutate(candidate);
+    assert.throws(() => exam.restoreSession(candidate, slots, undefined, subject), /invalid exam snapshot/i, name);
+  });
+  assert.deepEqual(exam.restoreSession(valid, slots, undefined, subject).snapshot(), valid);
 });
 
 test("browser build resolves grading through KS and exports the public API", () => {

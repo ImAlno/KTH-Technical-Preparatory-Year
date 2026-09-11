@@ -75,7 +75,10 @@
     ];
     if (hasBohr) {
       fields.push({ id: "bohr", label: "c) Bohrmodell (rita på papper eller beskriv)", kind: "self", points: 1, multiline: true, help: "Visa kärna och samtliga elektroner fördelade på skal." });
-      fields.push({ id: "ion", label: "d) Jonbeteckning", kind: "chemical-formula", purpose: "jonbeteckning-formula", points: 1, expected: row.ion });
+      fields.push({
+        id: "ion", label: "d) Jonbeteckning", kind: "chemical-formula", purpose: "jonbeteckning-formula", points: 1,
+        expected: row.ion, aliases: row.ion.includes("^") ? [row.ion.replace("^", "")] : []
+      });
     } else {
       const figures = 3;
       const amount = roundSignificant(row.concentration * row.volumeDm3, figures);

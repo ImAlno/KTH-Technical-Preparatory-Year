@@ -191,6 +191,7 @@
 
     let session = null;
     let timerInterval = null;
+    let previousTimerRemaining = null;
     const elements = {
       subjectName: document.getElementById("subject-name"),
       sessionState: document.getElementById("session-state"),
@@ -229,6 +230,14 @@
       if (elements.status) elements.status.textContent = message;
     }
 
+    function focusRenderedControl(focusKey) {
+      if (!focusKey || !rootElement.querySelectorAll) return;
+      const target = Array.from(rootElement.querySelectorAll("[data-focus-key]")).find(function (control) {
+        return control.dataset && control.dataset.focusKey === focusKey;
+      });
+      if (target && typeof target.focus === "function") target.focus();
+    }
+
     function currentSnapshot() {
       return session ? session.snapshot() : null;
     }
@@ -242,6 +251,11 @@
       const snapshot = currentSnapshot();
       const remaining = KS.timer.remaining(snapshot.timer, Date.now());
       if (elements.timerDisplay) elements.timerDisplay.textContent = formatTime(remaining);
+      const expiredWhileAway = previousTimerRemaining === null && snapshot.timer.runningSince !== null && remaining === 0;
+      if (snapshot.status === "active" && ((previousTimerRemaining !== null && previousTimerRemaining > 0 && remaining === 0) || expiredWhileAway)) {
+        announce("Tiden har gått ut.");
+      }
+      previousTimerRemaining = remaining;
       if (elements.timerStart) elements.timerStart.disabled = snapshot.timer.runningSince !== null || snapshot.status === "graded";
       if (elements.timerPause) elements.timerPause.disabled = snapshot.timer.runningSince === null || snapshot.status === "graded";
       if (elements.timerReset) elements.timerReset.disabled = snapshot.status === "graded";
@@ -252,7 +266,7 @@
       const next = currentSnapshot();
       next.timer = transition(next.timer);
       store.saveActive(next);
-      session = KS.exam.restoreSession(next, index, store);
+      session = KS.exam.restoreSession(next, slots, store, subject);
       renderTimer();
     }
 
@@ -347,7 +361,7 @@
       });
     }
 
-    function pointButtons(question, grade, action, label) {
+    function pointButtons(question, grade, action, label, focusPrefix) {
       const group = createElement(document, "div", "point-choices");
       group.setAttribute("role", "group");
       group.setAttribute("aria-label", label);
@@ -355,11 +369,14 @@
         const normalized = Math.round(points * 2) / 2;
         const button = createElement(document, "button", "neutral-button", formatPoints(normalized));
         button.type = "button";
+        const focusKey = focusPrefix + ":" + question.id + ":" + normalized;
+        button.dataset.focusKey = focusKey;
         button.setAttribute("aria-label", `${formatPoints(normalized)} av ${formatPoints(question.points)} poäng`);
         button.setAttribute("aria-pressed", String(Boolean(grade.selfAssessed || grade.overridden) && grade.earned === normalized));
         button.addEventListener("click", function () {
           action(normalized);
           render();
+          focusRenderedControl(focusKey);
           announce(`Poängen för uppgift ${question.slot} uppdaterades.`);
         });
         group.append(button);
@@ -403,7 +420,7 @@
         }
         manual.append(pointButtons(question, grade, function (points) {
           session.setSelfGrade(question.id, points);
-        }, "Självbedömning"));
+        }, "Självbedömning", "self-score"));
         section.append(manual);
       }
 
@@ -411,7 +428,7 @@
       override.append(createElement(document, "summary", "", "Ändra poängen manuellt"));
       override.append(pointButtons(question, grade, function (points) {
         session.overrideGrade(question.id, points);
-      }, "Manuell poängändring"));
+      }, "Manuell poängändring", "override-score"));
       section.append(override);
       return section;
     }
@@ -473,10 +490,13 @@
       );
       const flag = createElement(document, "button", "neutral-button flag-button", snapshot.flags.includes(questionId) ? "Avmarkera" : "Markera");
       flag.type = "button";
+      const flagFocusKey = "flag:" + questionId;
+      flag.dataset.focusKey = flagFocusKey;
       flag.setAttribute("aria-pressed", String(snapshot.flags.includes(questionId)));
       flag.addEventListener("click", function () {
         session.toggleFlag(questionId);
         render();
+        focusRenderedControl(flagFocusKey);
       });
       header.append(heading, flag);
       article.append(header, setHtml(createElement(document, "div", "prompt"), question.promptHtml));
@@ -492,10 +512,13 @@
         const solutionControls = createElement(document, "div", "solution-controls");
         const solutionButton = createElement(document, "button", "neutral-button", canShowSolution(snapshot, questionId) ? "Dölj lösning" : "Visa lösning");
         solutionButton.type = "button";
+        const solutionFocusKey = "solution:" + questionId;
+        solutionButton.dataset.focusKey = solutionFocusKey;
         solutionButton.setAttribute("aria-expanded", String(canShowSolution(snapshot, questionId)));
         solutionButton.addEventListener("click", function () {
           session.toggleSolution(questionId);
           render();
+          focusRenderedControl(solutionFocusKey);
         });
         solutionControls.append(solutionButton);
         article.append(solutionControls);
@@ -561,7 +584,7 @@
 
     function restoreSavedSession(saved) {
       try {
-        session = KS.exam.restoreSession(saved, index, store);
+        session = KS.exam.restoreSession(saved, slots, store, subject);
         closeDialog(elements.recoveryDialog);
         render();
         if (store.warning) announce(store.warning);
@@ -622,6 +645,7 @@
       session.submit();
       closeDialog(elements.submitDialog);
       render();
+      rootElement.focus();
       announce("Provet är rättat och svaren är låsta.");
     });
 
@@ -752,9 +776,13 @@
     const saved = store.loadActive();
     if (store.activeReadStatus === "corrupt") {
       showRestoreFailure();
-    } else if (saved && saved.subjectId === subject.id) {
-      showDialog(elements.recoveryDialog);
-      if (elements.sessionState) elements.sessionState.textContent = "Sparat prov hittades";
+    } else if (saved) {
+      if (!KS.exam.validateSnapshot(saved, slots, subject)) {
+        showRestoreFailure();
+      } else {
+        showDialog(elements.recoveryDialog);
+        if (elements.sessionState) elements.sessionState.textContent = "Sparat prov hittades";
+      }
     } else {
       startNewSession();
     }

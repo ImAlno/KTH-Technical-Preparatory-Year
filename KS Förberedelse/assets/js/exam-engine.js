@@ -12,6 +12,7 @@
     aliases: "gradeAliases",
     "solution-set": "gradeSolutionSet",
     expression: "gradeExpression",
+    "simplified-expression": "gradeSimplifiedExpression",
     "chemical-formula": "gradeChemicalFormula",
     "chemical-equation": "gradeChemicalEquation"
   };
@@ -96,11 +97,13 @@
   function validFieldData(field) {
     if (field.kind === "numeric") {
       const validUnit = field.targetUnit === undefined || field.targetUnit === null || nonEmptyString(field.targetUnit);
-      return Number.isFinite(field.expected) && validUnit && validTolerance(field.tolerance);
+      const validAlternativeUnitCredit = field.alternativeUnitCredit === undefined ||
+        field.alternativeUnitCredit === "full" || field.alternativeUnitCredit === "reduced";
+      return Number.isFinite(field.expected) && validUnit && validTolerance(field.tolerance) && validAlternativeUnitCredit;
     }
     if (field.kind === "aliases") return validAliases(field);
     if (field.kind === "solution-set") return Array.isArray(field.expected) && field.expected.every(Number.isFinite);
-    if (field.kind === "expression" || field.kind === "chemical-formula") return nonEmptyString(field.expected);
+    if (field.kind === "expression" || field.kind === "simplified-expression" || field.kind === "chemical-formula") return nonEmptyString(field.expected);
     if (field.kind === "chemical-equation") {
       return nonEmptyString(field.expected) && (field.statePoints === undefined ||
         (Number.isFinite(field.statePoints) && field.statePoints >= 0 && field.statePoints <= field.points));
@@ -197,6 +200,181 @@
     return Number.isFinite(earned) && earned >= 0 && earned <= possible && close(earned * 2, Math.round(earned * 2));
   }
 
+  function gradeField(field, raw) {
+    if (field.kind === "self") {
+      return { status: "self", earned: 0, possible: field.points, interpreted: raw === undefined ? null : raw, message: "Bedöm svaret själv med hjälp av lösningen." };
+    }
+    const method = FIELD_GRADERS[field.kind];
+    if (!grading || typeof grading[method] !== "function") {
+      return { status: "self", earned: 0, possible: field.points, interpreted: null, message: "Svaret kunde inte rättas automatiskt." };
+    }
+    return grading[method](field, raw === undefined ? "" : raw);
+  }
+
+  function gradeQuestion(question, answers) {
+    const rawAnswers = answers || {};
+    const fieldResults = {};
+    let earned = 0;
+    let requiresSelfAssessment = question.fields.length === 0;
+    question.fields.forEach(function (field) {
+      const fieldResult = gradeField(field, rawAnswers[field.id]);
+      fieldResults[field.id] = fieldResult;
+      earned += Number.isFinite(fieldResult.earned) ? fieldResult.earned : 0;
+      if (fieldResult.status === "self") requiresSelfAssessment = true;
+    });
+    return {
+      status: requiresSelfAssessment ? "self" : gradeStatus(earned, question.points),
+      earned: earned,
+      possible: question.points,
+      interpreted: null,
+      message: requiresSelfAssessment ? "En del av uppgiften behöver bedömas manuellt." : "Uppgiften har rättats.",
+      fieldResults: fieldResults,
+      requiresSelfAssessment: requiresSelfAssessment
+    };
+  }
+
+  function isRecord(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function hasOnlyKeys(value, allowed) {
+    return isRecord(value) && Object.keys(value).every(function (key) { return allowed.includes(key); });
+  }
+
+  function sameKeys(value, expected) {
+    if (!isRecord(value)) return false;
+    const actual = Object.keys(value).sort();
+    const wanted = expected.slice().sort();
+    return actual.length === wanted.length && actual.every(function (key, index) { return key === wanted[index]; });
+  }
+
+  function validJsonValue(value, seen) {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+    if (typeof value === "number") return Number.isFinite(value);
+    if (!value || typeof value !== "object") return false;
+    const visited = seen || new Set();
+    if (visited.has(value)) return false;
+    visited.add(value);
+    const values = Array.isArray(value) ? value : Object.keys(value).map(function (key) { return value[key]; });
+    const valid = values.every(function (item) { return validJsonValue(item, visited); });
+    visited.delete(value);
+    return valid;
+  }
+
+  function sameJsonValue(left, right) {
+    if (left === right) return true;
+    if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
+    if (Array.isArray(left) || Array.isArray(right)) {
+      return Array.isArray(left) && Array.isArray(right) && left.length === right.length &&
+        left.every(function (item, index) { return sameJsonValue(item, right[index]); });
+    }
+    const leftKeys = Object.keys(left).sort();
+    const rightKeys = Object.keys(right).sort();
+    return leftKeys.length === rightKeys.length && leftKeys.every(function (key, index) {
+      return key === rightKeys[index] && sameJsonValue(left[key], right[key]);
+    });
+  }
+
+  function validIdCollection(value, selectedIds) {
+    return Array.isArray(value) && new Set(value).size === value.length && value.every(function (id) {
+      return typeof id === "string" && selectedIds.has(id);
+    });
+  }
+
+  function scoreMatchesStatus(status, earned, possible, allowSelf) {
+    if (status === "self") return Boolean(allowSelf);
+    if (status === "correct") return close(earned, possible);
+    if (status === "incorrect") return close(earned, 0);
+    return status === "partial" && earned > 0 && earned < possible;
+  }
+
+  function validFieldResult(value, field) {
+    if (!hasOnlyKeys(value, ["status", "earned", "possible", "interpreted", "message"]) ||
+        !["correct", "partial", "incorrect", "self"].includes(value.status) ||
+        !Number.isFinite(value.earned) || value.earned < 0 || value.earned > field.points ||
+        !Number.isFinite(value.possible) || !close(value.possible, field.points) ||
+        !validJsonValue(value.interpreted) || typeof value.message !== "string") return false;
+    return scoreMatchesStatus(value.status, value.earned, value.possible, value.status === "self");
+  }
+
+  function validQuestionGrade(value, question, answers) {
+    if (!hasOnlyKeys(value, ["status", "earned", "possible", "interpreted", "message", "fieldResults", "requiresSelfAssessment", "selfAssessed", "overridden"]) ||
+        !["correct", "partial", "incorrect", "self"].includes(value.status) ||
+        !Number.isFinite(value.earned) || value.earned < 0 || value.earned > question.points ||
+        !Number.isFinite(value.possible) || !close(value.possible, question.points) ||
+        !validJsonValue(value.interpreted) || typeof value.message !== "string" ||
+        typeof value.requiresSelfAssessment !== "boolean" ||
+        (value.selfAssessed !== undefined && value.selfAssessed !== true) ||
+        (value.overridden !== undefined && value.overridden !== true) ||
+        !sameKeys(value.fieldResults, question.fields.map(function (field) { return field.id; }))) return false;
+
+    const fieldResults = question.fields.map(function (field) { return value.fieldResults[field.id]; });
+    if (fieldResults.some(function (fieldResult, index) { return !validFieldResult(fieldResult, question.fields[index]); })) return false;
+    const automatic = gradeQuestion(question, answers);
+    if (!sameJsonValue(value.fieldResults, automatic.fieldResults) ||
+        value.requiresSelfAssessment !== automatic.requiresSelfAssessment ||
+        !sameJsonValue(value.interpreted, automatic.interpreted)) return false;
+    if (value.selfAssessed && !automatic.requiresSelfAssessment) return false;
+    const manuallyScored = Boolean(value.selfAssessed || value.overridden);
+    if (!manuallyScored) return sameJsonValue(value, automatic);
+    if (!validManualPoints(value.earned, question.points) || value.status !== gradeStatus(value.earned, question.points)) return false;
+    const manualMessages = [];
+    if (value.selfAssessed) manualMessages.push("Självbedömningen är registrerad.");
+    if (value.overridden) manualMessages.push("Den automatiska bedömningen har ändrats manuellt.");
+    return manualMessages.includes(value.message);
+  }
+
+  function validTimerSnapshot(value, subject) {
+    return sameKeys(value, ["durationMs", "elapsedMs", "runningSince"]) &&
+      Number.isFinite(value.durationMs) && value.durationMs > 0 && close(value.durationMs, subject.durationMinutes * 60_000) &&
+      Number.isFinite(value.elapsedMs) && value.elapsedMs >= 0 && value.elapsedMs <= value.durationMs &&
+      (value.runningSince === null || (Number.isFinite(value.runningSince) && value.runningSince >= 0));
+  }
+
+  function validateSnapshot(snapshot, questionSource, subject) {
+    if (!validateExamData(subject, questionSource) || !isRecord(snapshot) || snapshot.schemaVersion !== 1 ||
+        snapshot.subjectId !== subject.id || !nonEmptyString(snapshot.examId) ||
+        !Array.isArray(snapshot.questionIds) || snapshot.questionIds.length !== subject.questionCount ||
+        new Set(snapshot.questionIds).size !== snapshot.questionIds.length ||
+        !Number.isInteger(snapshot.currentIndex) || snapshot.currentIndex < 0 || snapshot.currentIndex >= subject.questionCount ||
+        !["active", "graded"].includes(snapshot.status) || !isRecord(snapshot.answers) || !isRecord(snapshot.grades) ||
+        !validTimerSnapshot(snapshot.timer, subject)) return false;
+
+    const index = makeQuestionIndex(questionSource);
+    const selectedIds = new Set(snapshot.questionIds);
+    let selectedPoints = 0;
+    for (let position = 0; position < snapshot.questionIds.length; position += 1) {
+      const id = snapshot.questionIds[position];
+      const question = typeof id === "string" ? index[id] : null;
+      if (!question || question.slot !== position + 1) return false;
+      selectedPoints += question.points;
+    }
+    if (!close(selectedPoints, subject.maxPoints) || !validIdCollection(snapshot.flags, selectedIds) ||
+        !validIdCollection(snapshot.expandedSolutions, selectedIds)) return false;
+
+    for (const questionId of Object.keys(snapshot.answers)) {
+      const question = selectedIds.has(questionId) ? index[questionId] : null;
+      const answers = snapshot.answers[questionId];
+      if (!question || !isRecord(answers)) return false;
+      const fieldIds = new Set(question.fields.map(function (field) { return field.id; }));
+      if (Object.keys(answers).some(function (fieldId) { return !fieldIds.has(fieldId) || typeof answers[fieldId] !== "string"; })) return false;
+    }
+
+    if (snapshot.status === "active") {
+      return Object.keys(snapshot.grades).length === 0 && snapshot.expandedSolutions.length === 0 && snapshot.result === undefined;
+    }
+    if (!sameKeys(snapshot.grades, snapshot.questionIds) || !hasOnlyKeys(snapshot.result, ["status", "earned", "possible"]) ||
+        !["preliminary", "complete"].includes(snapshot.result.status) ||
+        !Number.isFinite(snapshot.result.earned) || !Number.isFinite(snapshot.result.possible)) return false;
+
+    for (const questionId of snapshot.questionIds) {
+      if (!validQuestionGrade(snapshot.grades[questionId], index[questionId], snapshot.answers[questionId] || {})) return false;
+    }
+    const expectedResult = createOverallResult(snapshot);
+    return snapshot.result.status === expectedResult.status && close(snapshot.result.earned, expectedResult.earned) &&
+      close(snapshot.result.possible, expectedResult.possible) && close(snapshot.result.possible, subject.maxPoints);
+  }
+
   function createOverallResult(state) {
     const grades = state.grades || {};
     const earned = state.questionIds.reduce(function (sum, id) { return sum + (grades[id] ? grades[id].earned : 0); }, 0);
@@ -248,43 +426,10 @@
       return { ok: true, flagged: flagged };
     }
 
-    function gradeField(field, raw) {
-      if (field.kind === "self") {
-        return { status: "self", earned: 0, possible: field.points, interpreted: raw === undefined ? null : raw, message: "Bedöm svaret själv med hjälp av lösningen." };
-      }
-      const method = FIELD_GRADERS[field.kind];
-      if (!grading || typeof grading[method] !== "function") {
-        return { status: "self", earned: 0, possible: field.points, interpreted: null, message: "Svaret kunde inte rättas automatiskt." };
-      }
-      return grading[method](field, raw === undefined ? "" : raw);
-    }
-
-    function gradeQuestion(question) {
-      const rawAnswers = current.answers[question.id] || {};
-      const fieldResults = {};
-      let earned = 0;
-      let requiresSelfAssessment = question.fields.length === 0;
-      question.fields.forEach(function (field) {
-        const result = gradeField(field, rawAnswers[field.id]);
-        fieldResults[field.id] = result;
-        earned += Number.isFinite(result.earned) ? result.earned : 0;
-        if (result.status === "self") requiresSelfAssessment = true;
-      });
-      return {
-        status: requiresSelfAssessment ? "self" : gradeStatus(earned, question.points),
-        earned: earned,
-        possible: question.points,
-        interpreted: null,
-        message: requiresSelfAssessment ? "En del av uppgiften behöver bedömas manuellt." : "Uppgiften har rättats.",
-        fieldResults: fieldResults,
-        requiresSelfAssessment: requiresSelfAssessment
-      };
-    }
-
     function submit() {
       if (current.status !== "active") return { ok: false, reason: "already-graded" };
       const grades = {};
-      current.questionIds.forEach(function (id) { grades[id] = gradeQuestion(questionFor(id)); });
+      current.questionIds.forEach(function (id) { grades[id] = gradeQuestion(questionFor(id), current.answers[id]); });
       current.grades = grades;
       current.status = "graded";
       current.result = createOverallResult(current);
@@ -373,12 +518,11 @@
     return session;
   }
 
-  function restoreSession(snapshot, questionIndex, store) {
-    const index = makeQuestionIndex(questionIndex);
-    if (!snapshot || snapshot.schemaVersion !== 1 || !Array.isArray(snapshot.questionIds) ||
-        snapshot.questionIds.some(function (id) { return !index[id]; })) throw new Error("Invalid exam snapshot");
+  function restoreSession(snapshot, questionSource, store, subject) {
+    if (!validateSnapshot(snapshot, questionSource, subject)) throw new Error("Invalid exam snapshot");
+    const index = makeQuestionIndex(questionSource);
     return makeSession(snapshot, index, store);
   }
 
-  return { createShuffleBag: createShuffleBag, createSession: createSession, restoreSession: restoreSession };
+  return { createShuffleBag: createShuffleBag, createSession: createSession, validateSnapshot: validateSnapshot, restoreSession: restoreSession };
 });

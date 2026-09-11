@@ -30,6 +30,19 @@ test("parses nested groups and hydrate components", () => {
   assert.equal(chemistry.normalizeFormula("CuSO4.5H2O"), chemistry.normalizeFormula("CuSO4·5H2O"));
 });
 
+test("formula identity preserves element order and parenthesized groups", () => {
+  const nitrate = chemistry.parseFormula("Ca(NO3)2");
+  const flattened = chemistry.parseFormula("CaN2O6");
+  const reordered = chemistry.parseFormula("O6N2Ca");
+
+  assert.equal(nitrate.ok, true);
+  assert.deepEqual(nitrate.elements, flattened.elements, "composition remains available for conservation");
+  assert.deepEqual(nitrate.elements, reordered.elements, "composition remains independent of notation order");
+  assert.notEqual(nitrate.identityCanonical, flattened.identityCanonical);
+  assert.notEqual(nitrate.identityCanonical, reordered.identityCanonical);
+  assert.equal(chemistry.normalizeFormula("Ca(NO₃)₂"), chemistry.normalizeFormula("Ca(NO3)2"));
+});
+
 test("rejects malformed, unknown, and coefficient-prefixed formulas without throwing", () => {
   ["", "H2O)", "Mg(OH", "Xx2", "2H2O", "SO4^2", null, 42].forEach((raw) => {
     assert.equal(chemistry.parseFormula(raw).ok, false);

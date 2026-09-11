@@ -465,6 +465,21 @@ test("real bank chemistry graders reject case changes and wrong structures but d
   assert.equal(wrongCase.status, "incorrect");
   assert.equal(wrongCase.earned, 0);
 
+  const calciumNitrateField = loadSlots()[6]
+    .find((question) => question.sourceData.formula === "Ca(NO3)2")
+    .fields[0];
+  ["CaN2O6", "O6N2Ca"].forEach((raw) => {
+    const flattened = grading.gradeChemicalFormula(calciumNitrateField, raw);
+    assert.equal(flattened.status, "incorrect", raw);
+    assert.equal(flattened.earned, 0, raw);
+  });
+
+  const nitrogenIonField = loadSlots()[1]
+    .find((question) => question.sourceData.ion === "N^3-")
+    .fields.find((field) => field.id === "ion");
+  assert.equal(grading.gradeChemicalFormula(nitrogenIonField, "N³⁻").status, "correct");
+  assert.equal(grading.gradeChemicalFormula(nitrogenIonField, "N3-").status, "correct");
+
   const malformedFormula = grading.gradeChemicalFormula(formulaField, "N((O2");
   assert.equal(malformedFormula.status, "self");
   assert.equal(malformedFormula.earned, 0);

@@ -348,6 +348,291 @@
       : { equivalent: null, reason: "insufficient-confidence" };
   }
 
+  const POLYNOMIAL_EPSILON = 1e-9;
+
+  function normalizePolynomial(raw) {
+    const values = raw.slice();
+    const scale = values.reduce(function (largest, value) {
+      return Math.max(largest, Math.abs(value));
+    }, 1);
+    const threshold = POLYNOMIAL_EPSILON * scale;
+    for (let index = 0; index < values.length; index += 1) {
+      if (Math.abs(values[index]) <= threshold) values[index] = 0;
+    }
+    while (values.length > 1 && values[values.length - 1] === 0) values.pop();
+    return values.length ? values : [0];
+  }
+
+  function polynomialIsZero(polynomial) {
+    const normalized = normalizePolynomial(polynomial);
+    return normalized.length === 1 && normalized[0] === 0;
+  }
+
+  function polynomialDegree(polynomial) {
+    return normalizePolynomial(polynomial).length - 1;
+  }
+
+  function addPolynomials(left, right, direction) {
+    const length = Math.max(left.length, right.length);
+    const output = Array.from({ length: length }, function (_, index) {
+      return (left[index] || 0) + direction * (right[index] || 0);
+    });
+    return normalizePolynomial(output);
+  }
+
+  function multiplyPolynomials(left, right) {
+    if (polynomialIsZero(left) || polynomialIsZero(right)) return [0];
+    const output = Array(left.length + right.length - 1).fill(0);
+    left.forEach(function (leftValue, leftIndex) {
+      right.forEach(function (rightValue, rightIndex) {
+        output[leftIndex + rightIndex] += leftValue * rightValue;
+      });
+    });
+    if (output.some(function (value) { return !Number.isFinite(value); })) return null;
+    return normalizePolynomial(output);
+  }
+
+  function scalePolynomial(polynomial, factor) {
+    if (!Number.isFinite(factor)) return null;
+    const output = polynomial.map(function (value) { return value * factor; });
+    return output.some(function (value) { return !Number.isFinite(value); }) ? null : normalizePolynomial(output);
+  }
+
+  function powerPolynomial(polynomial, exponent) {
+    let result = [1];
+    let factor = polynomial;
+    let remaining = exponent;
+    while (remaining > 0) {
+      if (remaining % 2 === 1) {
+        result = multiplyPolynomials(result, factor);
+        if (!result) return null;
+      }
+      remaining = Math.floor(remaining / 2);
+      if (remaining) {
+        factor = multiplyPolynomials(factor, factor);
+        if (!factor) return null;
+      }
+    }
+    return result;
+  }
+
+  function dividePolynomials(dividend, divisor) {
+    let remainder = normalizePolynomial(dividend);
+    const denominator = normalizePolynomial(divisor);
+    if (polynomialIsZero(denominator)) return null;
+    const quotient = Array(Math.max(1, remainder.length - denominator.length + 1)).fill(0);
+    let iterations = 0;
+    while (!polynomialIsZero(remainder) && polynomialDegree(remainder) >= polynomialDegree(denominator)) {
+      if (iterations > 64) return null;
+      const offset = polynomialDegree(remainder) - polynomialDegree(denominator);
+      const factor = remainder[remainder.length - 1] / denominator[denominator.length - 1];
+      if (!Number.isFinite(factor)) return null;
+      quotient[offset] += factor;
+      const subtraction = Array(offset).fill(0).concat(denominator.map(function (value) { return value * factor; }));
+      remainder = addPolynomials(remainder, subtraction, -1);
+      iterations += 1;
+    }
+    return { quotient: normalizePolynomial(quotient), remainder: normalizePolynomial(remainder) };
+  }
+
+  function monicPolynomial(polynomial) {
+    const normalized = normalizePolynomial(polynomial);
+    if (polynomialIsZero(normalized)) return [0];
+    return scalePolynomial(normalized, 1 / normalized[normalized.length - 1]);
+  }
+
+  function polynomialGcd(left, right) {
+    let current = normalizePolynomial(left);
+    let next = normalizePolynomial(right);
+    let iterations = 0;
+    while (!polynomialIsZero(next)) {
+      if (iterations > 64) return null;
+      const divided = dividePolynomials(current, next);
+      if (!divided) return null;
+      current = next;
+      next = divided.remainder;
+      iterations += 1;
+    }
+    return monicPolynomial(current);
+  }
+
+  function integerGreatestCommonDivisor(left, right) {
+    let first = Math.abs(left);
+    let second = Math.abs(right);
+    while (second) {
+      const remainder = first % second;
+      first = second;
+      second = remainder;
+    }
+    return first;
+  }
+
+  function integerPolynomialContent(polynomial) {
+    const normalized = normalizePolynomial(polynomial);
+    if (!normalized.every(Number.isInteger)) return 1;
+    return normalized.reduce(function (content, coefficient) {
+      return integerGreatestCommonDivisor(content, coefficient);
+    }, 0);
+  }
+
+  function hasCommonIntegerFactor(left, right) {
+    return integerGreatestCommonDivisor(integerPolynomialContent(left), integerPolynomialContent(right)) > 1;
+  }
+
+  function polynomialDerivative(polynomial) {
+    if (polynomial.length <= 1) return [0];
+    return normalizePolynomial(polynomial.slice(1).map(function (coefficient, index) {
+      return coefficient * (index + 1);
+    }));
+  }
+
+  function squareFreePolynomial(polynomial) {
+    const normalized = normalizePolynomial(polynomial);
+    if (polynomialDegree(normalized) <= 0) return [1];
+    const divisor = polynomialGcd(normalized, polynomialDerivative(normalized));
+    const divided = divisor && dividePolynomials(normalized, divisor);
+    if (!divided || !polynomialIsZero(divided.remainder)) return null;
+    return monicPolynomial(divided.quotient);
+  }
+
+  function samePolynomial(left, right) {
+    const first = normalizePolynomial(left);
+    const second = normalizePolynomial(right);
+    if (first.length !== second.length) return false;
+    const scale = Math.max(1, ...first.map(Math.abs), ...second.map(Math.abs));
+    return first.every(function (value, index) {
+      return Math.abs(value - second[index]) <= POLYNOMIAL_EPSILON * scale;
+    });
+  }
+
+  function constantInteger(ast) {
+    const names = new Set();
+    collectVariables(ast, names);
+    if (names.size) return null;
+    const value = evaluate(ast, {});
+    return value.ok && Number.isInteger(value.value) && Math.abs(value.value) <= 32 ? value.value : null;
+  }
+
+  function rationalFromAst(ast, variable) {
+    if (ast.type === "number") return { ok: true, numerator: [ast.value], denominator: [1], domain: [1], variableDivisions: 0 };
+    if (ast.type === "variable") {
+      return ast.name === variable
+        ? { ok: true, numerator: [0, 1], denominator: [1], domain: [1], variableDivisions: 0 }
+        : { ok: false, reason: "unsupported-variable" };
+    }
+    if (ast.type === "unary") {
+      const operand = rationalFromAst(ast.operand, variable);
+      if (!operand.ok) return operand;
+      if (ast.operator === "-") operand.numerator = scalePolynomial(operand.numerator, -1);
+      return operand;
+    }
+    if (ast.type !== "binary") return { ok: false, reason: "not-rational-polynomial" };
+
+    if (ast.operator === "^") {
+      const base = rationalFromAst(ast.left, variable);
+      const exponent = constantInteger(ast.right);
+      if (!base.ok || exponent === null) return { ok: false, reason: "not-rational-polynomial" };
+      if (exponent === 0) {
+        return { ok: true, numerator: [1], denominator: [1], domain: base.domain, variableDivisions: base.variableDivisions };
+      }
+      const magnitude = Math.abs(exponent);
+      const numerator = powerPolynomial(exponent > 0 ? base.numerator : base.denominator, magnitude);
+      const denominator = powerPolynomial(exponent > 0 ? base.denominator : base.numerator, magnitude);
+      if (!numerator || !denominator || polynomialIsZero(denominator)) return { ok: false, reason: "undefined-rational" };
+      const zeroRestriction = exponent < 0 ? base.numerator : [1];
+      const domain = multiplyPolynomials(base.domain, zeroRestriction);
+      return domain ? {
+        ok: true,
+        numerator: numerator,
+        denominator: denominator,
+        domain: domain,
+        variableDivisions: base.variableDivisions + (exponent < 0 && (polynomialDegree(base.numerator) > 0 || polynomialDegree(base.denominator) > 0) ? 1 : 0)
+      } : { ok: false, reason: "polynomial-overflow" };
+    }
+
+    const left = rationalFromAst(ast.left, variable);
+    const right = rationalFromAst(ast.right, variable);
+    if (!left.ok) return left;
+    if (!right.ok) return right;
+    let numerator;
+    let denominator;
+    let domain = multiplyPolynomials(left.domain, right.domain);
+    let variableDivisions = left.variableDivisions + right.variableDivisions;
+
+    if (ast.operator === "+" || ast.operator === "-") {
+      const leftTerm = multiplyPolynomials(left.numerator, right.denominator);
+      const rightTerm = multiplyPolynomials(right.numerator, left.denominator);
+      numerator = leftTerm && rightTerm ? addPolynomials(leftTerm, rightTerm, ast.operator === "+" ? 1 : -1) : null;
+      denominator = multiplyPolynomials(left.denominator, right.denominator);
+    } else if (ast.operator === "*") {
+      numerator = multiplyPolynomials(left.numerator, right.numerator);
+      denominator = multiplyPolynomials(left.denominator, right.denominator);
+    } else if (ast.operator === "/") {
+      if (polynomialIsZero(right.numerator)) return { ok: false, reason: "division-by-zero" };
+      numerator = multiplyPolynomials(left.numerator, right.denominator);
+      denominator = multiplyPolynomials(left.denominator, right.numerator);
+      domain = domain && multiplyPolynomials(domain, right.numerator);
+      if (polynomialDegree(right.numerator) > 0 || polynomialDegree(right.denominator) > 0) variableDivisions += 1;
+    } else {
+      return { ok: false, reason: "not-rational-polynomial" };
+    }
+
+    if (!numerator || !denominator || !domain || polynomialIsZero(denominator) || polynomialIsZero(domain)) {
+      return { ok: false, reason: "undefined-rational" };
+    }
+    return { ok: true, numerator: numerator, denominator: denominator, domain: domain, variableDivisions: variableDivisions };
+  }
+
+  function analyzeRational(raw, options) {
+    const settings = options === undefined ? {} : options;
+    if (!settings || typeof settings !== "object") return { ok: false, reason: "invalid-options" };
+    const variable = settings.variable === undefined ? "x" : settings.variable;
+    if (!validVariableName(variable)) return { ok: false, reason: "invalid-variable" };
+    const parsed = parse(raw);
+    if (!parsed.ok) return parsed;
+    const rational = rationalFromAst(parsed.ast, variable);
+    if (!rational.ok) return rational;
+
+    const divisor = polynomialGcd(rational.numerator, rational.denominator);
+    if (!divisor) return { ok: false, reason: "normalization-failed" };
+    const numeratorDivision = dividePolynomials(rational.numerator, divisor);
+    const denominatorDivision = dividePolynomials(rational.denominator, divisor);
+    if (!numeratorDivision || !denominatorDivision || !polynomialIsZero(numeratorDivision.remainder) || !polynomialIsZero(denominatorDivision.remainder)) {
+      return { ok: false, reason: "normalization-failed" };
+    }
+    const denominatorLead = denominatorDivision.quotient[denominatorDivision.quotient.length - 1];
+    const numerator = scalePolynomial(numeratorDivision.quotient, 1 / denominatorLead);
+    const denominator = scalePolynomial(denominatorDivision.quotient, 1 / denominatorLead);
+    const domain = squareFreePolynomial(rational.domain);
+    if (!numerator || !denominator || !domain) return { ok: false, reason: "normalization-failed" };
+
+    return {
+      ok: true,
+      numerator: numerator,
+      denominator: denominator,
+      domain: domain,
+      reduced: polynomialDegree(divisor) === 0,
+      coefficientReduced: !hasCommonIntegerFactor(numeratorDivision.quotient, denominatorDivision.quotient),
+      variableDivisions: rational.variableDivisions
+    };
+  }
+
+  function compareReducedRationals(actualRaw, expectedRaw, options) {
+    const actual = analyzeRational(actualRaw, options);
+    const expected = analyzeRational(expectedRaw, options);
+    if (!actual.ok || !expected.ok) return { equivalent: null, reason: !actual.ok ? actual.reason : expected.reason };
+    const left = multiplyPolynomials(actual.numerator, expected.denominator);
+    const right = multiplyPolynomials(expected.numerator, actual.denominator);
+    if (!left || !right) return { equivalent: null, reason: "polynomial-overflow" };
+    return {
+      equivalent: samePolynomial(left, right),
+      reduced: actual.reduced,
+      coefficientReduced: actual.coefficientReduced,
+      sameDomain: samePolynomial(actual.domain, expected.domain),
+      simple: actual.variableDivisions <= 1
+    };
+  }
+
   function parseSolutionSet(raw, variableName) {
     if (typeof raw !== "string") return { ok: false, reason: "invalid-input" };
     const variable = variableName === undefined ? "x" : variableName;
@@ -392,6 +677,8 @@
     parse: parse,
     evaluate: evaluate,
     parseSolutionSet: parseSolutionSet,
-    equivalent: equivalent
+    equivalent: equivalent,
+    analyzeRational: analyzeRational,
+    compareReducedRationals: compareReducedRationals
   };
 });

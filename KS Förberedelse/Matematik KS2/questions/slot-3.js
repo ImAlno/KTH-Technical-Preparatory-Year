@@ -95,7 +95,7 @@
       points: 2,
       promptHtml: "<p>Förenkla uttrycket <strong>" + pretty(values.original) + "</strong> så långt som möjligt. Ange även de värden som inte ingår i uttryckets ursprungliga definitionsmängd.</p>",
       fields: [{
-        id: "expression", label: "Förenklat uttryck", kind: "expression", points: 1,
+        id: "expression", label: "Förenklat uttryck", kind: "simplified-expression", points: 1,
         expected: values.expected, variables: ["x"], exclude: values.exclusions,
         help: "Använd * för multiplikation och / för division vid behov."
       }, {

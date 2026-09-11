@@ -36,7 +36,7 @@ Säkert tolkade svar rättas automatiskt. För ritningar, längre resonemang och
 
 ## Formelblad i kemi
 
-I kemiprovet öppnar `Formelblad` det lokala originalbladet. Använd `−`, `Anpassa` och `+` för 50–300 procents zoom. Vid inzoomning kan bladet flyttas i visningsytan; piltangenterna fungerar när visningsytan har fokus. Formelbladet kan öppnas både före och efter rättning.
+I kemiprovet öppnar `Formelblad` det lokala originalbladet. Använd `Zooma ut`, `Anpassa` och `Zooma in` för 50–300 procents zoom. Vid inzoomning kan bladet flyttas i visningsytan; piltangenterna fungerar när visningsytan har fokus. Formelbladet kan öppnas både före och efter rättning.
 
 ## Skriva ut
 

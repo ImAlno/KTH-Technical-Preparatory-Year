@@ -16,6 +16,17 @@ test("parses a target unit separately from the numeric token", () => {
   assert.deepEqual(grading.parseNumeric(" 9,82 m/s² "), { ok: true, value: 9.82, unit: "m/s2" });
 });
 
+test("parses finite rational numeric tokens without confusing unit slashes", () => {
+  assert.deepEqual(grading.parseNumeric("1/2"), { ok: true, value: 0.5, unit: null });
+  assert.deepEqual(grading.parseNumeric("1,5e2 / 3e1 kg"), { ok: true, value: 5, unit: "kg" });
+  assert.deepEqual(grading.parseNumeric("1,2·10^3 / -2,4e2"), { ok: true, value: -5, unit: null });
+  assert.deepEqual(grading.parseNumeric("10 m/s"), { ok: true, value: 10, unit: "m/s" });
+
+  ["1/0", "1/0e2", "1/1e309", "1e309/2", "1/2m"].forEach((raw) => {
+    assert.equal(grading.parseNumeric(raw).ok, false, raw);
+  });
+});
+
 test("accepts a value inside the field tolerance", () => {
   const result = grading.gradeNumeric(
     { expected: 9.82, points: 2, tolerance: { absolute: 0.01 }, targetUnit: "m/s2" },
@@ -34,7 +45,35 @@ test("converts matching answers to the stated target unit", () => {
   );
 
   assert.equal(result.status, "correct");
+  assert.equal(result.earned, 2);
   assert.equal(result.interpreted, 10);
+  assert.equal(result.message, "Rätt värde i annan enhet.");
+});
+
+test("field metadata can reduce credit for a correct value in another unit", () => {
+  const reduced = grading.gradeNumeric(
+    { expected: 10, points: 2, tolerance: { absolute: 0.001 }, targetUnit: "m/s", alternativeUnitCredit: "reduced" },
+    "36 km/h"
+  );
+  const target = grading.gradeNumeric(
+    { expected: 10, points: 2, tolerance: { absolute: 0.001 }, targetUnit: "m/s", alternativeUnitCredit: "reduced" },
+    "10 m s−1"
+  );
+
+  assert.deepEqual(
+    { status: reduced.status, earned: reduced.earned, message: reduced.message },
+    { status: "partial", earned: 1, message: "Rätt värde i annan enhet." }
+  );
+  assert.deepEqual(
+    { status: target.status, earned: target.earned, message: target.message },
+    { status: "correct", earned: 2, message: "Rätt svar." }
+  );
+  assert.equal(grading.gradeNumeric({
+    expected: 10,
+    points: 2,
+    targetUnit: "m/s",
+    alternativeUnitCredit: "sometimes"
+  }, "10 m/s").status, "self");
 });
 
 test("returns self review for ambiguous input or incompatible units", () => {
@@ -121,6 +160,55 @@ test("grades equivalent and non-equivalent algebraic expressions", () => {
   assert.equal(grading.gradeExpression(spec, "x^2+x-3").status, "incorrect");
 });
 
+test("simplification grading rejects copied factors and removable domain holes", () => {
+  const spec = { expected: "(x-5)/(x-7)", points: 1, variables: ["x"] };
+
+  assert.equal(
+    grading.gradeSimplifiedExpression(spec, "(x^2-7*x+10)/(x^2-9*x+14)").status,
+    "incorrect"
+  );
+  assert.equal(
+    grading.gradeSimplifiedExpression({ expected: "x+1", points: 1, variables: ["x"] }, "(x+1)*(x-6)/(x-6)").status,
+    "incorrect"
+  );
+  assert.equal(
+    grading.gradeSimplifiedExpression(spec, "(5-x)/(7-x)").status,
+    "correct",
+    "moving a common sign must remain accepted"
+  );
+  assert.equal(
+    grading.gradeSimplifiedExpression(spec, "(x-5)*(x-6)/((x-7)*(x-6))").status,
+    "incorrect",
+    "an extra removable denominator hole must be rejected"
+  );
+  assert.equal(
+    grading.gradeExpression({ expected: "x+1", points: 1, variables: ["x"] }, "(x+1)*(x-6)/(x-6)").status,
+    "correct",
+    "general equivalence fields must retain their broad contract"
+  );
+});
+
+test("simplification grading rejects a cancellable non-unit common factor", () => {
+  const spec = { expected: "(x-5)/(x-7)", points: 1, variables: ["x"] };
+
+  assert.equal(
+    grading.gradeSimplifiedExpression(spec, "2*(x-5)/(2*(x-7))").status,
+    "incorrect"
+  );
+  assert.equal(
+    grading.gradeSimplifiedExpression(spec, "(5-x)/(7-x)").status,
+    "correct",
+    "a common sign remains a valid reduced form"
+  );
+});
+
+test("simplification grading rejects an unchanged sum of unlike denominators", () => {
+  const spec = { expected: "(5*x-13)/((x-1)*(x-5))", points: 1, variables: ["x"] };
+
+  assert.equal(grading.gradeSimplifiedExpression(spec, "2/(x-1)+3/(x-5)").status, "incorrect");
+  assert.equal(grading.gradeSimplifiedExpression(spec, spec.expected).status, "correct");
+});
+
 test("unknown or insufficient-confidence expression syntax falls back to self assessment", () => {
   assert.equal(grading.gradeExpression({ expected: "x+1", points: 2, variables: ["x"] }, "x plus ett").status, "self");
   assert.equal(grading.gradeExpression({ expected: "sqrt(x)", points: 2, variables: ["x"] }, "x^(1/2)").status, "self");
@@ -169,6 +257,19 @@ test("grades case-sensitive chemical formulas and uncertain formula input", () =
   assert.equal(grading.gradeChemicalFormula(spec, "kemisk formel").status, "self");
 });
 
+test("chemical formula grading preserves grouping and order unless an alias is explicit", () => {
+  const spec = { expected: "Ca(NO3)2", points: 1 };
+
+  assert.equal(grading.gradeChemicalFormula(spec, "Ca(NO3)2").status, "correct");
+  assert.equal(grading.gradeChemicalFormula(spec, "Ca(NO₃)₂").status, "correct");
+  assert.equal(grading.gradeChemicalFormula(spec, "CaN2O6").status, "incorrect");
+  assert.equal(grading.gradeChemicalFormula(spec, "O6N2Ca").status, "incorrect");
+  assert.equal(
+    grading.gradeChemicalFormula({ expected: "N^3-", aliases: ["N3-"], points: 1 }, "N3-").status,
+    "correct"
+  );
+});
+
 test("required aggregation states receive configurable partial credit", () => {
   const expected = "Ag+(aq)+Cl-(aq)->AgCl(s)";
   const missingStates = grading.gradeChemicalEquation(
@@ -198,7 +299,7 @@ test("chemical equation grading distinguishes wrong, uncertain, and malformed sp
 });
 
 test("chemistry graders preserve all existing grading exports", () => {
-  ["parseNumeric", "gradeNumeric", "gradeAliases", "gradeSolutionSet", "gradeExpression", "gradeChemicalFormula", "gradeChemicalEquation"].forEach((name) => {
+  ["parseNumeric", "gradeNumeric", "gradeAliases", "gradeSolutionSet", "gradeExpression", "gradeSimplifiedExpression", "gradeChemicalFormula", "gradeChemicalEquation"].forEach((name) => {
     assert.equal(typeof grading[name], "function");
   });
   assert.equal(grading.gradeExpression({ expected: "x+1", points: 1 }, "1+x").status, "correct");
@@ -223,7 +324,8 @@ test("browser scripts resolve chemistry grading through the KS namespace", () =>
     vm.runInContext(fs.readFileSync(path.join(__dirname, "../assets/js", file), "utf8"), context, { filename: file });
   });
 
-  assert.equal(context.window.KS.grading.gradeChemicalFormula({ expected: "H2O", points: 1 }, "OH2").status, "correct");
+  assert.equal(context.window.KS.grading.gradeChemicalFormula({ expected: "H2O", points: 1 }, "H₂O").status, "correct");
+  assert.equal(context.window.KS.grading.gradeChemicalFormula({ expected: "H2O", points: 1 }, "OH2").status, "incorrect");
   assert.equal(context.window.KS.grading.gradeExpression({ expected: "x+1", points: 1 }, "1+x").status, "correct");
 });
 

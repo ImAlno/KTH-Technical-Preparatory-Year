@@ -86,15 +86,18 @@
 
     function parseSequence(inGroup) {
       const counts = {};
+      const identityParts = [];
       let itemCount = 0;
 
       while (position < raw.length && raw[position] !== ")") {
         let nested;
+        let identity;
         if (raw[position] === "(") {
           position += 1;
           nested = parseSequence(true);
           if (raw[position] !== ")") throw new Error("missing-parenthesis");
           position += 1;
+          identity = "(" + nested.identity + ")";
         } else if (/[A-Z]/.test(raw[position])) {
           let symbol = raw[position];
           position += 1;
@@ -103,25 +106,28 @@
             position += 1;
           }
           if (!ELEMENT_SYMBOLS.has(symbol)) throw new Error("unknown-element");
-          nested = {};
-          nested[symbol] = 1;
+          nested = { elements: {} };
+          nested.elements[symbol] = 1;
+          identity = symbol;
         } else {
           throw new Error("invalid-token");
         }
 
-        addCounts(counts, nested, readMultiplier());
+        const multiplier = readMultiplier();
+        addCounts(counts, nested.elements, multiplier);
+        identityParts.push(identity + (multiplier === 1 ? "" : String(multiplier)));
         itemCount += 1;
       }
 
       if (!itemCount) throw new Error("empty-group");
       if (inGroup && position >= raw.length) throw new Error("missing-parenthesis");
-      return counts;
+      return { elements: counts, identity: identityParts.join("") };
     }
 
     try {
-      const counts = parseSequence(false);
+      const parsed = parseSequence(false);
       if (position !== raw.length) return failure();
-      return { ok: true, elements: sortedCounts(counts) };
+      return { ok: true, elements: sortedCounts(parsed.elements), identity: parsed.identity };
     } catch (error) {
       return failure();
     }
@@ -169,7 +175,7 @@
         }
         const parsed = parseComponent(componentRaw);
         if (!parsed.ok) return parsed;
-        components.push({ multiplier: multiplier, elements: parsed.elements });
+        components.push({ multiplier: multiplier, elements: parsed.elements, identity: parsed.identity });
       }
 
       const elements = {};
@@ -182,7 +188,10 @@
       const coreCanonical = countsKey(components[0].elements) + hydrates.map(function (component) {
         return "·" + component.multiplier + "*" + countsKey(component.elements);
       }).join("") + "|charge:" + charge;
-      const canonical = coreCanonical + (state ? "|state:" + state : "");
+      const identityCanonical = components[0].identity + components.slice(1).map(function (component) {
+        return "·" + component.multiplier + "*" + component.identity;
+      }).join("") + "|charge:" + charge;
+      const canonical = identityCanonical + (state ? "|state:" + state : "");
 
       return {
         ok: true,
@@ -191,6 +200,8 @@
         state: state,
         hydrates: hydrates,
         coreCanonical: coreCanonical,
+        compositionCanonical: coreCanonical + (state ? "|state:" + state : ""),
+        identityCanonical: identityCanonical,
         canonical: canonical
       };
     } catch (error) {

@@ -330,6 +330,16 @@ test("every numeric answer grades correctly and satisfies an independent forward
   });
 });
 
+test("a real physics field keeps full credit while identifying an equivalent alternative unit", () => {
+  const question = loadSlots()[2].find((candidate) => candidate.id === "physics-s2-cylinder-01");
+  const result = grading.gradeNumeric(numericField(question), "1,32 kg");
+
+  assert.deepEqual(
+    { status: result.status, earned: result.earned, interpreted: result.interpreted, message: result.message },
+    { status: "correct", earned: 2, interpreted: 1320, message: "Rätt värde i annan enhet." }
+  );
+});
+
 test("fixed hand-calculated fixtures anchor all 25 geometry branches and every motion/force family", () => {
   const byId = Object.fromEntries(allPhysicsQuestions().map((question) => [question.id, question]));
   const fixtures = {
@@ -432,6 +442,20 @@ test("physics values remain realistic and rule out impossible force situations",
       if (data.family === "connected-masses") assert.ok(p.hangingMassKg > p.tableMassKg * p.frictionCoefficient, `${question.id}: static contradiction`);
       if (data.family === "unknown-friction") assert.ok(numericAnswerInSI(question) < p.driveForceN, `${question.id}: impossible friction`);
     }
+  });
+});
+
+test("connected-mass variants explicitly use established motion and kinetic friction throughout", () => {
+  const connected = loadSlots()[5].filter((question) => question.sourceData.family === "connected-masses");
+
+  assert.equal(connected.length, 5);
+  connected.forEach((question) => {
+    assert.equal(question.sourceData.startsMoving, true, question.id);
+    assert.equal(question.sourceData.frictionCoefficientType, "kinetic", question.id);
+    assert.match(question.promptHtml, /börjar[^.]*röra sig[^.]*hängande[^.]*nedåt|hängande[^.]*börjar[^.]*röra sig[^.]*nedåt/iu, question.id);
+    assert.match(question.promptHtml, /kinetiska friktionstalet/iu, question.id);
+    assert.match(question.solutionHtml, /kinetisk(?:a)? friktion/iu, question.id);
+    assert.match(question.rubric.map((item) => item.text).join(" "), /kinetisk(?:a)? friktion/iu, question.id);
   });
 });
 

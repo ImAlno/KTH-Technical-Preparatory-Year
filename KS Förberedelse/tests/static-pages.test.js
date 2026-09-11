@@ -111,7 +111,11 @@ function fakeNode(tagName) {
     },
     showModal() { this.setAttribute("open", ""); },
     close() { this.removeAttribute("open"); },
-    focus() { this.focused = true; }
+    focus() { this.focused = true; },
+    querySelectorAll(selector) {
+      if (selector !== "[data-focus-key]") return [];
+      return descendants(this).filter((node) => node !== this && typeof node.dataset.focusKey === "string");
+    }
   };
 }
 
@@ -155,7 +159,7 @@ function recoveryHarness(savedSnapshot, options) {
   const window = {
     KS: { exam, storage, timer, grading },
     localStorage: adapter,
-    setInterval() { return 1; },
+    setInterval(handler) { this.intervalHandler = handler; return 1; },
     clearInterval() {},
     addEventListener(type, handler) { windowListeners[type] = handler; },
     print() { this.printModeWhenPrinted = document.body.dataset.printMode || null; }
@@ -174,6 +178,40 @@ function recoveryHarness(savedSnapshot, options) {
     }
   };
   return { adapter, document, nodes, root, subjectData, values, window, windowListeners };
+}
+
+function validRecoverySnapshot(status) {
+  const active = {
+    schemaVersion: 1,
+    subjectId: "recovery-test",
+    examId: "saved-exam",
+    questionIds: ["q1"],
+    currentIndex: 0,
+    answers: {},
+    flags: [],
+    status: "active",
+    grades: {},
+    expandedSolutions: [],
+    timer: { durationMs: 60_000, elapsedMs: 0, runningSince: null }
+  };
+  if (status !== "graded") return active;
+  active.answers = { q1: { a: "ja" } };
+  active.status = "graded";
+  active.grades = {
+    q1: {
+      status: "correct",
+      earned: 1,
+      possible: 1,
+      interpreted: null,
+      message: "Uppgiften har rättats.",
+      fieldResults: {
+        a: { status: "correct", earned: 1, possible: 1, interpreted: "ja", message: "Rätt svar." }
+      },
+      requiresSelfAssessment: false
+    }
+  };
+  active.result = { status: "complete", earned: 1, possible: 1 };
+  return active;
 }
 
 test("all subject pages keep shared dependency order and load their complete question banks", () => {
@@ -539,6 +577,174 @@ test("corrupt active JSON remains untouched until the second replacement confirm
   harness.nodes["recovery-new"].fire("click");
   assert.notEqual(harness.values.get(key), corrupt);
   assert.equal(JSON.parse(harness.values.get(key)).questionIds[0], "q1");
+});
+
+test("mounted recovery identifies semantic snapshot corruption without overwriting it", () => {
+  const app = require("../assets/js/app.js");
+  const key = "ks-practice:v1:recovery-test:active";
+  const base = validRecoverySnapshot("graded");
+  const cases = [
+    ["mystery status", (value) => { value.status = "mystery"; }],
+    ["wrong subject", (value) => { value.subjectId = "physics-ks1"; }],
+    ["duplicate ids", (value) => { value.questionIds = ["q1", "q1"]; }],
+    ["malformed answer map", (value) => { value.answers = []; }],
+    ["malformed flag map", (value) => { value.flags = {}; }],
+    ["invalid timer", (value) => { value.timer.elapsedMs = -1; }],
+    ["inconsistent result", (value) => { value.result.earned = 0; }]
+  ];
+
+  cases.forEach(([name, mutate]) => {
+    const candidate = structuredClone(base);
+    mutate(candidate);
+    const harness = recoveryHarness(candidate);
+    const original = harness.values.get(key);
+
+    assert.deepEqual(app.mount(harness.root, harness.subjectData), { ok: true }, name);
+    assert.equal(harness.nodes["recovery-dialog"].open, true, name);
+    assert.match(harness.nodes["recovery-message"].textContent, /kunde inte återställas/, name);
+    assert.equal(harness.values.get(key), original, name);
+  });
+});
+
+test("mounted recovery rejects known ids saved in the wrong slot order", () => {
+  const app = require("../assets/js/app.js");
+  const saved = {
+    schemaVersion: 1,
+    subjectId: "recovery-test",
+    examId: "wrong-order",
+    questionIds: ["q2", "q1"],
+    currentIndex: 0,
+    answers: {},
+    flags: [],
+    status: "active",
+    grades: {},
+    expandedSolutions: [],
+    timer: { durationMs: 60_000, elapsedMs: 0, runningSince: null }
+  };
+  const harness = recoveryHarness(saved);
+  harness.subjectData.subject.questionCount = 2;
+  harness.subjectData.subject.maxPoints = 2;
+  harness.subjectData.slots[2] = [{
+    id: "q2", slot: 2, title: "Andra frågan", points: 1,
+    promptHtml: "<p>Fråga</p>", solutionHtml: "<p>Lösning</p>",
+    fields: [{ id: "b", label: "Svar", kind: "aliases", points: 1, expected: "ja" }], rubric: []
+  }];
+
+  app.mount(harness.root, harness.subjectData);
+  assert.match(harness.nodes["recovery-message"].textContent, /kunde inte återställas/);
+  assert.equal(harness.nodes["recovery-dialog"].open, true);
+});
+
+test("valid active and graded snapshots still resume through the mounted app", () => {
+  const app = require("../assets/js/app.js");
+
+  ["active", "graded"].forEach((status) => {
+    const snapshot = validRecoverySnapshot(status);
+    const harness = recoveryHarness(snapshot);
+    const original = harness.values.get("ks-practice:v1:recovery-test:active");
+
+    app.mount(harness.root, harness.subjectData);
+    assert.equal(String(harness.nodes["recovery-message"].textContent).includes("kunde inte återställas"), false, status);
+    harness.nodes["recovery-continue"].fire("click");
+    assert.equal(harness.nodes["recovery-dialog"].open, false, status);
+    assert.equal(harness.nodes["session-state"].textContent, status === "active" ? "Pågående prov" : "Rättat prov");
+    assert.equal(harness.values.get("ks-practice:v1:recovery-test:active"), original, status);
+  });
+});
+
+test("flagging restores focus to the equivalent newly rendered control", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+
+  app.mount(harness.root, harness.subjectData);
+  const original = descendants(harness.root).find((node) => node.className === "neutral-button flag-button");
+  assert.ok(original);
+  original.fire("click");
+
+  const replacement = descendants(harness.root).find((node) => node.className === "neutral-button flag-button");
+  assert.notEqual(replacement, original);
+  assert.equal(replacement.focused, true);
+});
+
+test("solution toggling restores focus to its equivalent newly rendered control", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+
+  app.mount(harness.root, harness.subjectData);
+  harness.nodes["submit-confirm"].fire("click");
+  const original = descendants(harness.root).find((node) => node.textContent === "Visa lösning");
+  assert.ok(original);
+  original.fire("click");
+
+  const replacement = descendants(harness.root).find((node) => node.textContent === "Dölj lösning");
+  assert.notEqual(replacement, original);
+  assert.equal(replacement.focused, true);
+});
+
+test("manual scoring restores focus to the equivalent newly rendered score control", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+
+  app.mount(harness.root, harness.subjectData);
+  harness.nodes["submit-confirm"].fire("click");
+  const original = descendants(harness.root).find((node) => node.attributes["aria-label"] === "1 av 1 poäng");
+  assert.ok(original);
+  original.fire("click");
+
+  const replacement = descendants(harness.root).find((node) => node.attributes["aria-label"] === "1 av 1 poäng");
+  assert.notEqual(replacement, original);
+  assert.equal(replacement.focused, true);
+});
+
+test("submitting an exam moves focus to the rendered results main", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+
+  app.mount(harness.root, harness.subjectData);
+  harness.nodes["submit-confirm"].fire("click");
+
+  assert.equal(harness.root.focused, true);
+  assert.equal(harness.nodes["session-state"].textContent, "Rättat prov");
+});
+
+test("timer expiry announces the zero transition once without submitting", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+  const remaining = [1000, 0, 0];
+  harness.window.KS.timer = Object.assign({}, harness.window.KS.timer, {
+    remaining() { return remaining.shift(); }
+  });
+
+  app.mount(harness.root, harness.subjectData);
+  harness.window.intervalHandler();
+  assert.equal(harness.nodes["timer-display"].textContent, "00:00:00");
+  assert.equal(harness.nodes["status-region"].textContent, "Tiden har gått ut.");
+  assert.equal(harness.nodes["session-state"].textContent, "Pågående prov");
+  assert.ok(descendants(harness.root).some((node) => node.tagName === "INPUT"));
+
+  harness.nodes["status-region"].textContent = "Annat meddelande";
+  harness.window.intervalHandler();
+  assert.equal(harness.nodes["status-region"].textContent, "Annat meddelande");
+});
+
+test("a timer that expired while the page was closed announces once on restore", () => {
+  const app = require("../assets/js/app.js");
+  const snapshot = validRecoverySnapshot("active");
+  snapshot.timer = { durationMs: 60_000, elapsedMs: 0, runningSince: 0 };
+  const harness = recoveryHarness(snapshot);
+
+  app.mount(harness.root, harness.subjectData);
+  assert.equal(harness.nodes["recovery-dialog"].open, true);
+  harness.nodes["recovery-continue"].fire("click");
+
+  assert.equal(harness.nodes["timer-display"].textContent, "00:00:00");
+  assert.equal(harness.nodes["status-region"].textContent, "Tiden har gått ut.");
+  assert.equal(harness.nodes["session-state"].textContent, "Pågående prov");
+  assert.ok(descendants(harness.root).some((node) => node.tagName === "INPUT"));
+
+  harness.nodes["status-region"].textContent = "Annat meddelande";
+  harness.window.intervalHandler();
+  assert.equal(harness.nodes["status-region"].textContent, "Annat meddelande");
 });
 
 test("view-model labels distinguish progress and flags without relying on colour", () => {

@@ -66,6 +66,31 @@ test("equivalence preserves domain exclusions", () => {
   assert.equal(expression.equivalent("(x+1)/(x+1)", "1", { variables: ["x"], exclude: [-1] }).equivalent, true);
 });
 
+test("rational analysis exposes reduction and exact denominator-domain structure", () => {
+  const copied = expression.analyzeRational(
+    "(x^2-7*x+10)/(x^2-9*x+14)",
+    { variable: "x" }
+  );
+  const reduced = expression.analyzeRational("(x-5)/(x-7)", { variable: "x" });
+  const removableHole = expression.compareReducedRationals(
+    "(x+1)*(x-6)/(x-6)",
+    "x+1",
+    { variable: "x" }
+  );
+
+  assert.equal(copied.ok, true);
+  assert.equal(copied.reduced, false, "the copied quotient still has the factor x-2");
+  assert.equal(reduced.ok, true);
+  assert.equal(reduced.reduced, true);
+  assert.deepEqual(removableHole, {
+    equivalent: true,
+    reduced: false,
+    coefficientReduced: true,
+    sameDomain: false,
+    simple: true
+  });
+});
+
 test("equivalence rejects mismatches but reports unsafe comparisons as uncertain", () => {
   assert.equal(expression.equivalent("x+1", "x+2", { variables: ["x"] }).equivalent, false);
   assert.deepEqual(expression.equivalent("x plus ett", "x+1", { variables: ["x"] }), {

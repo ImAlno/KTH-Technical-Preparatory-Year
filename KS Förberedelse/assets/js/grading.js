@@ -11,21 +11,39 @@
     root.KS.grading = api;
   }
 })(typeof window !== "undefined" ? window : null, function (units, expression, chemistry) {
-  function parseNumeric(raw) {
-    if (typeof raw !== "string") return { ok: false, reason: "invalid-input" };
-    const match = raw.trim().match(/^([+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:(?:[eE][+-]?\d+)|(?:(?:·|\*)\s*10\s*\^\s*[+-]?\d+))?)(?:\s*(.*))?$/);
-    if (!match) return { ok: false, reason: "unparseable" };
+  const NUMERIC_ATOM = "[+-]?(?:\\d+(?:[.,]\\d*)?|[.,]\\d+)(?:(?:[eE][+-]?\\d+)|(?:(?:·|\\*)\\s*10\\s*\\^\\s*[+-]?\\d+))?";
 
-    const token = match[1]
+  function parseNumericAtom(raw) {
+    const token = raw
       .replace(",", ".")
       .replace(/(?:·|\*)\s*10\s*\^\s*([+-]?\d+)/, "e$1");
     const value = Number(token);
-    if (!Number.isFinite(value)) return { ok: false, reason: "unparseable" };
+    return Number.isFinite(value) ? value : null;
+  }
 
-    const rawUnit = match[2] ? match[2].trim() : "";
-    if (!rawUnit) return { ok: true, value: value, unit: null };
-    const unit = units && units.normalizeUnit(rawUnit);
+  function parsedNumeric(value, rawUnit) {
+    if (!Number.isFinite(value)) return { ok: false, reason: "unparseable" };
+    const trimmedUnit = rawUnit ? rawUnit.trim() : "";
+    if (!trimmedUnit) return { ok: true, value: value, unit: null };
+    const unit = units && units.normalizeUnit(trimmedUnit);
     return unit ? { ok: true, value: value, unit: unit } : { ok: false, reason: "unknown-unit" };
+  }
+
+  function parseNumeric(raw) {
+    if (typeof raw !== "string") return { ok: false, reason: "invalid-input" };
+    const trimmed = raw.trim();
+    const rational = trimmed.match(new RegExp("^(" + NUMERIC_ATOM + ")\\s*\\/\\s*(" + NUMERIC_ATOM + ")(?:\\s+(.+))?$"));
+    if (rational) {
+      const numerator = parseNumericAtom(rational[1]);
+      const denominator = parseNumericAtom(rational[2]);
+      if (numerator === null || denominator === null || denominator === 0) return { ok: false, reason: "unparseable" };
+      return parsedNumeric(numerator / denominator, rational[3]);
+    }
+
+    const scalar = trimmed.match(new RegExp("^(" + NUMERIC_ATOM + ")(?:\\s*(.*))?$"));
+    if (!scalar) return { ok: false, reason: "unparseable" };
+    const value = parseNumericAtom(scalar[1]);
+    return value === null ? { ok: false, reason: "unparseable" } : parsedNumeric(value, scalar[2]);
   }
 
   function result(status, spec, earned, interpreted, message) {
@@ -40,6 +58,7 @@
 
   function validNumericSpec(spec) {
     if (!spec || !Number.isFinite(spec.expected) || !Number.isFinite(spec.points) || spec.points < 0 || typeof spec.targetUnit !== "string" || !units.normalizeUnit(spec.targetUnit)) return false;
+    if (spec.alternativeUnitCredit !== undefined && spec.alternativeUnitCredit !== "full" && spec.alternativeUnitCredit !== "reduced") return false;
     if (spec.tolerance === undefined) return true;
     if (!spec.tolerance || typeof spec.tolerance !== "object") return false;
     return ["absolute", "relative"].every(function (key) {
@@ -54,16 +73,22 @@
       if (!parsed.ok) return result("self", spec, 0, null, "Svaret kunde inte tolkas säkert. Kontrollera tal och enhet.");
 
       let interpreted = parsed.value;
+      let usedAlternativeUnit = false;
       if (parsed.unit) {
         const converted = units.convert(parsed.value, parsed.unit, spec.targetUnit);
         if (!converted.ok) return result("self", spec, 0, parsed.value, "Svaret har en enhet som inte kan jämföras med uppgiftens enhet.");
         interpreted = converted.value;
+        usedAlternativeUnit = parsed.unit !== units.normalizeUnit(spec.targetUnit);
       }
       const tolerance = spec.tolerance || {};
       const absolute = Number.isFinite(tolerance.absolute) ? tolerance.absolute : 0;
       const relative = Number.isFinite(tolerance.relative) ? Math.abs(spec.expected) * tolerance.relative : 0;
       const allowed = Math.max(absolute, relative);
       if (Math.abs(interpreted - spec.expected) <= allowed) {
+        if (usedAlternativeUnit) {
+          const reduced = spec.alternativeUnitCredit === "reduced";
+          return result(reduced ? "partial" : "correct", spec, reduced ? spec.points / 2 : spec.points, interpreted, "Rätt värde i annan enhet.");
+        }
         return result("correct", spec, spec.points, interpreted, "Rätt svar.");
       }
       return result("incorrect", spec, 0, interpreted, "Svaret ligger utanför den tillåtna toleransen.");
@@ -197,6 +222,40 @@
     }
   }
 
+  function gradeSimplifiedExpression(spec, raw) {
+    try {
+      if (!validPoints(spec) || typeof spec.expected !== "string" || !expression ||
+          typeof expression.parse !== "function" || typeof expression.analyzeRational !== "function" ||
+          typeof expression.compareReducedRationals !== "function") {
+        return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom uppgiften saknar giltiga rättningsuppgifter.");
+      }
+      const expected = expression.parse(spec.expected);
+      if (!expected.ok) return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom facit inte kunde tolkas.");
+      const inferredVariables = new Set();
+      collectExpressionVariables(expected.ast, inferredVariables);
+      const variables = spec.variables === undefined ? Array.from(inferredVariables).sort() : spec.variables;
+      if (!Array.isArray(variables) || variables.length !== 1 || typeof variables[0] !== "string") {
+        return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom uppgiften saknar en entydig variabel.");
+      }
+      const expectedAnalysis = expression.analyzeRational(spec.expected, { variable: variables[0] });
+      if (!expectedAnalysis.ok || !expectedAnalysis.reduced || !expectedAnalysis.coefficientReduced || expectedAnalysis.variableDivisions > 1) {
+        return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom facit inte är ett fullständigt förenklat rationellt uttryck.");
+      }
+      const comparison = expression.compareReducedRationals(raw, spec.expected, { variable: variables[0] });
+      if (comparison.equivalent === null) {
+        return result("self", spec, 0, null, "Uttrycket kunde inte tolkas som ett rationellt polynomuttryck.");
+      }
+      if (!comparison.equivalent) return result("incorrect", spec, 0, raw, "Uttrycket är inte ekvivalent med facit.");
+      if (!comparison.reduced) return result("incorrect", spec, 0, raw, "Uttrycket innehåller fortfarande en faktor som kan förkortas.");
+      if (!comparison.coefficientReduced) return result("incorrect", spec, 0, raw, "Uttrycket innehåller fortfarande en gemensam talfaktor som kan förkortas.");
+      if (!comparison.sameDomain) return result("incorrect", spec, 0, raw, "Uttryckets nämnare ger en annan definitionsmängd än det förenklade facit.");
+      if (!comparison.simple) return result("incorrect", spec, 0, raw, "Uttrycket är inte sammanfört till en fullständigt förenklad rationell form.");
+      return result("correct", spec, spec.points, raw, "Rätt svar.");
+    } catch (error) {
+      return result("self", spec, 0, null, "Svaret kunde inte rättas automatiskt.");
+    }
+  }
+
   function validChemistrySpec(spec) {
     return validPoints(spec) && typeof spec.expected === "string" &&
       (spec.requireStates === undefined || typeof spec.requireStates === "boolean");
@@ -204,19 +263,23 @@
 
   function gradeChemicalFormula(spec, raw) {
     try {
-      if (!validChemistrySpec(spec) || !chemistry || typeof chemistry.parseFormula !== "function") {
+      if (!validChemistrySpec(spec) || (spec.aliases !== undefined && (!Array.isArray(spec.aliases) || spec.aliases.some(function (alias) { return typeof alias !== "string"; }))) ||
+          !chemistry || typeof chemistry.parseFormula !== "function") {
         return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom uppgiften saknar giltiga rättningsuppgifter.");
       }
-      const expected = chemistry.parseFormula(spec.expected);
-      if (!expected.ok || (spec.requireStates && !expected.state)) {
+      const accepted = [spec.expected].concat(Array.isArray(spec.aliases) ? spec.aliases : []).map(function (value) {
+        return chemistry.parseFormula(value);
+      });
+      if (accepted.some(function (candidate) { return !candidate.ok || (spec.requireStates && !candidate.state); })) {
         return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom facit inte kunde tolkas.");
       }
       const actual = chemistry.parseFormula(raw);
       if (!actual.ok) return result("self", spec, 0, null, "Den kemiska formeln kunde inte tolkas säkert.");
 
-      const sameFormula = actual.coreCanonical === expected.coreCanonical;
-      const sameState = !spec.requireStates || actual.state === expected.state;
-      if (sameFormula && sameState) return result("correct", spec, spec.points, actual.canonical, "Rätt svar.");
+      const match = accepted.some(function (candidate) {
+        return actual.identityCanonical === candidate.identityCanonical && (!spec.requireStates || actual.state === candidate.state);
+      });
+      if (match) return result("correct", spec, spec.points, actual.canonical, "Rätt svar.");
       return result("incorrect", spec, 0, actual.canonical, "Den kemiska formeln stämmer inte med facit.");
     } catch (error) {
       return result("self", spec, 0, null, "Svaret kunde inte rättas automatiskt.");
@@ -257,5 +320,5 @@
     }
   }
 
-  return { parseNumeric, gradeNumeric, gradeAliases, gradeSolutionSet, gradeExpression, gradeChemicalFormula, gradeChemicalEquation };
+  return { parseNumeric, gradeNumeric, gradeAliases, gradeSolutionSet, gradeExpression, gradeSimplifiedExpression, gradeChemicalFormula, gradeChemicalEquation };
 });
