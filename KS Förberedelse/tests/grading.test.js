@@ -153,3 +153,76 @@ test("browser scripts resolve expression grading through the KS namespace", () =
   ).status, "correct");
   assert.equal(typeof context.window.KS.grading.gradeNumeric, "function");
 });
+
+test("grades case-sensitive chemical formulas and uncertain formula input", () => {
+  const spec = { expected: "CO", points: 2 };
+  const correct = grading.gradeChemicalFormula(spec, "CO");
+
+  assert.deepEqual(correct, {
+    status: "correct",
+    earned: 2,
+    possible: 2,
+    interpreted: correct.interpreted,
+    message: correct.message
+  });
+  assert.equal(grading.gradeChemicalFormula(spec, "Co").status, "incorrect");
+  assert.equal(grading.gradeChemicalFormula(spec, "kemisk formel").status, "self");
+});
+
+test("required aggregation states receive configurable partial credit", () => {
+  const expected = "Ag+(aq)+Cl-(aq)->AgCl(s)";
+  const missingStates = grading.gradeChemicalEquation(
+    { expected: expected, points: 2, requireStates: true },
+    "Ag+ + Cl- -> AgCl"
+  );
+  const wrongState = grading.gradeChemicalEquation(
+    { expected: expected, points: 5, requireStates: true, statePoints: 2 },
+    "Ag+(s) + Cl-(aq) -> AgCl(s)"
+  );
+
+  assert.equal(missingStates.status, "partial");
+  assert.equal(missingStates.earned, 1);
+  assert.equal(wrongState.status, "partial");
+  assert.equal(wrongState.earned, 3);
+  assert.equal(missingStates.possible, 2);
+  assert.equal(typeof missingStates.message, "string");
+});
+
+test("chemical equation grading distinguishes wrong, uncertain, and malformed specifications", () => {
+  const spec = { expected: "2H2+O2->2H2O", points: 2 };
+
+  assert.equal(grading.gradeChemicalEquation(spec, "2H2O->2H2+O2").status, "incorrect");
+  assert.equal(grading.gradeChemicalEquation(spec, "H2 plus O2").status, "self");
+  assert.equal(grading.gradeChemicalEquation({ expected: spec.expected, points: 2, requireStates: true }, "2H2+O2->2H2O").status, "self");
+  assert.equal(grading.gradeChemicalEquation({ expected: spec.expected, points: 2, statePoints: 3 }, spec.expected).status, "self");
+});
+
+test("chemistry graders preserve all existing grading exports", () => {
+  ["parseNumeric", "gradeNumeric", "gradeAliases", "gradeSolutionSet", "gradeExpression", "gradeChemicalFormula", "gradeChemicalEquation"].forEach((name) => {
+    assert.equal(typeof grading[name], "function");
+  });
+  assert.equal(grading.gradeExpression({ expected: "x+1", points: 1 }, "1+x").status, "correct");
+  assert.equal(grading.gradeNumeric({ expected: 10, points: 1, targetUnit: "m" }, "10 m").status, "correct");
+});
+
+test("chemical graders return a complete result for non-string input", () => {
+  const formulaResult = grading.gradeChemicalFormula({ expected: "H2O", points: 1 }, null);
+  const equationResult = grading.gradeChemicalEquation({ expected: "2H2+O2->2H2O", points: 2 }, Symbol("answer"));
+
+  [formulaResult, equationResult].forEach((result) => {
+    assert.deepEqual(Object.keys(result).sort(), ["earned", "interpreted", "message", "possible", "status"]);
+    assert.equal(result.status, "self");
+    assert.equal(result.earned, 0);
+    assert.equal(typeof result.message, "string");
+  });
+});
+
+test("browser scripts resolve chemistry grading through the KS namespace", () => {
+  const context = vm.createContext({ window: {} });
+  ["units.js", "expression-parser.js", "chemistry-parser.js", "grading.js"].forEach((file) => {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, "../assets/js", file), "utf8"), context, { filename: file });
+  });
+
+  assert.equal(context.window.KS.grading.gradeChemicalFormula({ expected: "H2O", points: 1 }, "OH2").status, "correct");
+  assert.equal(context.window.KS.grading.gradeExpression({ expected: "x+1", points: 1 }, "1+x").status, "correct");
+});

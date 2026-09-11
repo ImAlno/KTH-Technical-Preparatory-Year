@@ -2,14 +2,15 @@
   const isCommonJS = typeof module === "object" && module.exports && typeof require === "function";
   const api = factory(
     isCommonJS ? require("./units.js") : root && root.KS && root.KS.units,
-    isCommonJS ? require("./expression-parser.js") : root && root.KS && root.KS.expression
+    isCommonJS ? require("./expression-parser.js") : root && root.KS && root.KS.expression,
+    isCommonJS ? require("./chemistry-parser.js") : root && root.KS && root.KS.chemistry
   );
   if (isCommonJS) module.exports = api;
   if (root) {
     root.KS = root.KS || {};
     root.KS.grading = api;
   }
-})(typeof window !== "undefined" ? window : null, function (units, expression) {
+})(typeof window !== "undefined" ? window : null, function (units, expression, chemistry) {
   function parseNumeric(raw) {
     if (typeof raw !== "string") return { ok: false, reason: "invalid-input" };
     const match = raw.trim().match(/^([+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:(?:[eE][+-]?\d+)|(?:(?:·|\*)\s*10\s*\^\s*[+-]?\d+))?)(?:\s*(.*))?$/);
@@ -196,5 +197,65 @@
     }
   }
 
-  return { parseNumeric, gradeNumeric, gradeAliases, gradeSolutionSet, gradeExpression };
+  function validChemistrySpec(spec) {
+    return validPoints(spec) && typeof spec.expected === "string" &&
+      (spec.requireStates === undefined || typeof spec.requireStates === "boolean");
+  }
+
+  function gradeChemicalFormula(spec, raw) {
+    try {
+      if (!validChemistrySpec(spec) || !chemistry || typeof chemistry.parseFormula !== "function") {
+        return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom uppgiften saknar giltiga rättningsuppgifter.");
+      }
+      const expected = chemistry.parseFormula(spec.expected);
+      if (!expected.ok || (spec.requireStates && !expected.state)) {
+        return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom facit inte kunde tolkas.");
+      }
+      const actual = chemistry.parseFormula(raw);
+      if (!actual.ok) return result("self", spec, 0, null, "Den kemiska formeln kunde inte tolkas säkert.");
+
+      const sameFormula = actual.coreCanonical === expected.coreCanonical;
+      const sameState = !spec.requireStates || actual.state === expected.state;
+      if (sameFormula && sameState) return result("correct", spec, spec.points, actual.canonical, "Rätt svar.");
+      return result("incorrect", spec, 0, actual.canonical, "Den kemiska formeln stämmer inte med facit.");
+    } catch (error) {
+      return result("self", spec, 0, null, "Svaret kunde inte rättas automatiskt.");
+    }
+  }
+
+  function equationHasStates(parsed) {
+    return parsed.reactants.concat(parsed.products).every(function (item) {
+      return Boolean(item.formula.state);
+    });
+  }
+
+  function gradeChemicalEquation(spec, raw) {
+    try {
+      if (!validChemistrySpec(spec) || !chemistry || typeof chemistry.parseEquation !== "function" || typeof chemistry.equivalentEquations !== "function") {
+        return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom uppgiften saknar giltiga rättningsuppgifter.");
+      }
+      const statePoints = spec.statePoints === undefined ? spec.points / 2 : spec.statePoints;
+      if (!Number.isFinite(statePoints) || statePoints < 0 || statePoints > spec.points) {
+        return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom uppgiften saknar giltiga rättningsuppgifter.");
+      }
+      const expected = chemistry.parseEquation(spec.expected);
+      if (!expected.ok || (spec.requireStates && !equationHasStates(expected))) {
+        return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom facit inte kunde tolkas.");
+      }
+      const actual = chemistry.parseEquation(raw);
+      if (!actual.ok) return result("self", spec, 0, null, "Reaktionsformeln kunde inte tolkas säkert.");
+
+      const comparison = chemistry.equivalentEquations(raw, spec.expected, { requireStates: Boolean(spec.requireStates) });
+      if (comparison.equivalent === null) return result("self", spec, 0, null, "Reaktionsformeln kunde inte jämföras säkert.");
+      if (comparison.equivalent) return result("correct", spec, spec.points, actual.canonical, "Rätt svar.");
+      if (comparison.reason === "state-mismatch") {
+        return result("partial", spec, spec.points - statePoints, actual.canonical, "Reaktionsformeln är rätt, men ett eller flera aggregationstillstånd saknas eller är fel.");
+      }
+      return result("incorrect", spec, 0, actual.canonical, "Reaktionsformeln stämmer inte med facit.");
+    } catch (error) {
+      return result("self", spec, 0, null, "Svaret kunde inte rättas automatiskt.");
+    }
+  }
+
+  return { parseNumeric, gradeNumeric, gradeAliases, gradeSolutionSet, gradeExpression, gradeChemicalFormula, gradeChemicalEquation };
 });
