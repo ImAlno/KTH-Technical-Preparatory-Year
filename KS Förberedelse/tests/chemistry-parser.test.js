@@ -74,3 +74,12 @@ test("malformed or ambiguous equations are reported as unparseable", () => {
   });
   assert.equal(chemistry.equivalentEquations("H2 ->", "H2->H2").equivalent, null);
 });
+
+test("rejects duplicate-species coefficient totals beyond safe integers", () => {
+  const plusOne = "9007199254740991H2+1H2->O2";
+  const plusTwo = "9007199254740991H2+2H2->O2";
+
+  assert.equal(chemistry.parseEquation(plusOne).ok, false);
+  assert.equal(chemistry.parseEquation(plusTwo).ok, false);
+  assert.equal(chemistry.equivalentEquations(plusOne, plusTwo).equivalent, null);
+});

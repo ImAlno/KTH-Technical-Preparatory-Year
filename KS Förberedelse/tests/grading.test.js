@@ -226,3 +226,14 @@ test("browser scripts resolve chemistry grading through the KS namespace", () =>
   assert.equal(context.window.KS.grading.gradeChemicalFormula({ expected: "H2O", points: 1 }, "OH2").status, "correct");
   assert.equal(context.window.KS.grading.gradeExpression({ expected: "x+1", points: 1 }, "1+x").status, "correct");
 });
+
+test("unsafe duplicate-species coefficient totals fall back to self assessment", () => {
+  const result = grading.gradeChemicalEquation(
+    { expected: "9007199254740991H2+1H2->O2", points: 2 },
+    "9007199254740991H2+2H2->O2"
+  );
+
+  assert.equal(result.status, "self");
+  assert.equal(result.earned, 0);
+  assert.equal(result.possible, 2);
+});

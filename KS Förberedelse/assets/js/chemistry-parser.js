@@ -263,7 +263,9 @@
     const totals = {};
     species.forEach(function (item) {
       const key = item.formula.coreCanonical + (requireStates ? "|state:" + (item.formula.state || "") : "");
-      totals[key] = (totals[key] || 0) + item.coefficient;
+      const total = (totals[key] || 0) + item.coefficient;
+      if (!Number.isSafeInteger(total)) throw new Error("coefficient-overflow");
+      totals[key] = total;
     });
     return totals;
   }
