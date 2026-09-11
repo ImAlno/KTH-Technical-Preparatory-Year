@@ -13,7 +13,7 @@
 
   function isSafeLocalAssetPath(value) {
     if (typeof value !== "string" || !value || value.trim() !== value) return false;
-    if (/[\\\u0000-\u001f\u007f]/u.test(value)) return false;
+    if (/[\\\u0000-\u001f\u007f-\u009f]/u.test(value)) return false;
 
     let decoded = value;
     for (let pass = 0; pass <= value.length; pass += 1) {
@@ -28,7 +28,7 @@
       if (pass === value.length) return false;
     }
 
-    if (/[\\\u0000-\u001f\u007f?#]/u.test(decoded)) return false;
+    if (/[\\\u0000-\u001f\u007f-\u009f?#]/u.test(decoded)) return false;
     if (/^(?:\/|[a-z][a-z\d+.-]*:)/iu.test(decoded)) return false;
     return decoded.split("/").every(function (segment) {
       return Boolean(segment) && segment !== "." && segment !== "..";

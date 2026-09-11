@@ -198,7 +198,10 @@ test("formula-sheet URLs accept only safe local relative asset paths", () => {
     "assets/%252e%252e/Underlag/source.pdf",
     "%2fabsolute/formelblad.png",
     "assets/formelblad\n.png",
-    "assets/%00formelblad.png"
+    "assets/%00formelblad.png",
+    "assets/\u0085formelblad-ks.png",
+    "assets/%C2%85formelblad-ks.png",
+    "assets/%25C2%2585formelblad-ks.png"
   ].forEach((value) => {
     assert.equal(app.isSafeLocalAssetPath(value), false, value);
   });
