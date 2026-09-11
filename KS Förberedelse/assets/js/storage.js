@@ -23,6 +23,7 @@
     };
     let available = Boolean(adapter);
     let warning = available ? "" : "Lokal lagring är inte tillgänglig. Provet sparas bara i minnet.";
+    let activeReadStatus = "unread";
 
     function fail(message) {
       available = false;
@@ -40,10 +41,16 @@
         }
       }
       if (!available) raw = memory.has(key) ? memory.get(key) : null;
-      if (raw === null || raw === undefined) return copy(fallback);
+      if (raw === null || raw === undefined) {
+        if (name === "active") activeReadStatus = "missing";
+        return copy(fallback);
+      }
       try {
-        return JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        if (name === "active") activeReadStatus = "ok";
+        return parsed;
       } catch (error) {
+        if (name === "active") activeReadStatus = "corrupt";
         warning = "Sparad data är skadad och kunde inte läsas. Den ersätts först när nya data sparas.";
         return copy(fallback);
       }
@@ -84,6 +91,7 @@
       loadHistory: function () { return read("history", DEFAULT_HISTORY); },
       saveHistory: function (history) { return write("history", history); },
       clearHistory: function () { return remove("history"); },
+      get activeReadStatus() { return activeReadStatus; },
       get persistenceAvailable() { return available; },
       get warning() { return warning; }
     };

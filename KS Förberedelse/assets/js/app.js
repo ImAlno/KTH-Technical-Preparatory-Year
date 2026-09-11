@@ -517,6 +517,7 @@
         if (store.warning) announce(store.warning);
         return true;
       } catch (error) {
+        session = null;
         showRestoreFailure();
         return false;
       }
@@ -608,7 +609,8 @@
 
     if (elements.recoveryContinue) elements.recoveryContinue.addEventListener("click", function () {
       const saved = store.loadActive();
-      if (saved) restoreSavedSession(saved);
+      if (store.activeReadStatus === "corrupt") showRestoreFailure();
+      else if (saved) restoreSavedSession(saved);
       else startNewSession();
     });
     if (elements.recoveryNew) elements.recoveryNew.addEventListener("click", function () {
@@ -626,7 +628,9 @@
     });
 
     const saved = store.loadActive();
-    if (saved && saved.subjectId === subject.id) {
+    if (store.activeReadStatus === "corrupt") {
+      showRestoreFailure();
+    } else if (saved && saved.subjectId === subject.id) {
       showDialog(elements.recoveryDialog);
       if (elements.sessionState) elements.sessionState.textContent = "Sparat prov hittades";
     } else {

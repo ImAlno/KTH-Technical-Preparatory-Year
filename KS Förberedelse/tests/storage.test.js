@@ -57,8 +57,23 @@ test("corrupted JSON is isolated to its subject and falls back safely", () => {
   const physicsStore = storage.createStore(adapter, "physics-ks1");
 
   assert.equal(mathStore.loadActive(), null);
+  assert.equal(mathStore.activeReadStatus, "corrupt");
+  assert.equal(adapter.value("ks-practice:v1:math-ks2:active"), "{broken");
   assert.equal(mathStore.persistenceAvailable, true);
   assert.match(mathStore.warning, /skadad|kunde inte läsas/i);
   assert.equal(physicsStore.loadActive().examId, "good");
+  assert.equal(physicsStore.activeReadStatus, "ok");
   assert.equal(physicsStore.persistenceAvailable, true);
+});
+
+test("active reads distinguish unread, missing and valid data", () => {
+  const adapter = memoryStorage();
+  const store = storage.createStore(adapter, "read-status");
+
+  assert.equal(store.activeReadStatus, "unread");
+  assert.equal(store.loadActive(), null);
+  assert.equal(store.activeReadStatus, "missing");
+  store.saveActive({ schemaVersion: 1, subjectId: "read-status" });
+  assert.equal(store.loadActive().subjectId, "read-status");
+  assert.equal(store.activeReadStatus, "ok");
 });

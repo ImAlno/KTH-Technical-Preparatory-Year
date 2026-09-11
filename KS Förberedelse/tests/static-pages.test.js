@@ -63,12 +63,13 @@ function fakeNode(tagName) {
   };
 }
 
-function recoveryHarness(savedSnapshot) {
+function recoveryHarness(savedSnapshot, options) {
   const exam = require("../assets/js/exam-engine.js");
   const storage = require("../assets/js/storage.js");
   const timer = require("../assets/js/timer.js");
   const grading = require("../assets/js/grading.js");
-  const values = new Map([["ks-practice:v1:recovery-test:active", JSON.stringify(savedSnapshot)]]);
+  const stored = options && options.raw ? savedSnapshot : JSON.stringify(savedSnapshot);
+  const values = new Map([["ks-practice:v1:recovery-test:active", stored]]);
   const adapter = {
     getItem(key) { return values.has(key) ? values.get(key) : null; },
     setItem(key, value) { values.set(key, String(value)); },
@@ -253,6 +254,67 @@ test("failed recovery behavior preserves storage through cancel and first replac
 
   harness.nodes["recovery-new"].fire("click");
   assert.notEqual(harness.values.get(key), original);
+  assert.equal(JSON.parse(harness.values.get(key)).questionIds[0], "q1");
+});
+
+test("a render failure after restore clears the session and keeps recovery modal", () => {
+  const app = require("../assets/js/app.js");
+  const key = "ks-practice:v1:recovery-test:active";
+  const saved = {
+    schemaVersion: 1,
+    subjectId: "recovery-test",
+    questionIds: ["q1"],
+    currentIndex: 0,
+    answers: {},
+    status: "active",
+    grades: {},
+    expandedSolutions: [],
+    timer: { durationMs: 60_000, elapsedMs: 0, runningSince: null }
+  };
+  const harness = recoveryHarness(saved);
+  const original = harness.values.get(key);
+
+  app.mount(harness.root, harness.subjectData);
+  harness.nodes["recovery-continue"].fire("click");
+  assert.equal(harness.values.get(key), original);
+  assert.equal(harness.nodes["recovery-dialog"].open, true);
+  assert.match(harness.nodes["recovery-message"].textContent, /kunde inte återställas/);
+
+  let cancelPrevented = false;
+  harness.nodes["recovery-dialog"].fire("cancel", { preventDefault() { cancelPrevented = true; } });
+  assert.equal(cancelPrevented, true);
+
+  harness.nodes["recovery-new"].fire("click");
+  assert.equal(harness.nodes["recovery-dialog"].dataset.confirming, "true");
+  assert.equal(harness.values.get(key), original);
+});
+
+test("corrupt active JSON remains untouched until the second replacement confirmation", () => {
+  const app = require("../assets/js/app.js");
+  const key = "ks-practice:v1:recovery-test:active";
+  const corrupt = "{broken-active-json";
+  const harness = recoveryHarness(corrupt, { raw: true });
+
+  app.mount(harness.root, harness.subjectData);
+  assert.equal(harness.values.get(key), corrupt);
+  assert.equal(harness.nodes["recovery-dialog"].open, true);
+  assert.match(harness.nodes["recovery-message"].textContent, /kunde inte återställas/);
+
+  let cancelPrevented = false;
+  harness.nodes["recovery-dialog"].fire("cancel", { preventDefault() { cancelPrevented = true; } });
+  assert.equal(cancelPrevented, true);
+  assert.equal(harness.values.get(key), corrupt);
+
+  harness.nodes["recovery-continue"].fire("click");
+  assert.equal(harness.values.get(key), corrupt);
+  assert.match(harness.nodes["recovery-message"].textContent, /kunde inte återställas/);
+
+  harness.nodes["recovery-new"].fire("click");
+  assert.equal(harness.nodes["recovery-dialog"].dataset.confirming, "true");
+  assert.equal(harness.values.get(key), corrupt);
+
+  harness.nodes["recovery-new"].fire("click");
+  assert.notEqual(harness.values.get(key), corrupt);
   assert.equal(JSON.parse(harness.values.get(key)).questionIds[0], "q1");
 });
 
