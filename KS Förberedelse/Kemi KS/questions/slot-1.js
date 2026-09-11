@@ -26,9 +26,9 @@
     { isotope: "kalcium-44", symbol: "Ca", atomicNumber: 20, massNumber: 44, comparisonMass: 40, isotopeTask: "difference", termPrompt: "Vad kallas de lodräta kolumnerna i periodiska systemet?", term: "grupper", aliases: ["grupp", "grundämnesgrupper"], termExplanation: "Grundämnen i samma grupp har liknande valenselektronstruktur.", valence: 2, concentration: 0.0950, volumeDm3: 0.250 },
     { isotope: "litium-7", symbol: "Li", atomicNumber: 3, massNumber: 7, comparisonMass: 6, isotopeTask: "neutrons", termPrompt: "Vad kallas de vågräta raderna i periodiska systemet?", term: "perioder", aliases: ["period", "grundämnesperioder"], termExplanation: "Periodnumret hänger samman med antalet besatta elektronskal.", valence: 1, concentration: 0.440, volumeDm3: 0.0180 },
     { isotope: "neon-22", symbol: "Ne", atomicNumber: 10, massNumber: 22, comparisonMass: 20, isotopeTask: "difference", termPrompt: "Vad kallas en atom som inte har någon nettoladdning?", term: "neutral atom", aliases: ["oladdad atom", "neutral"], termExplanation: "En neutral atom har lika många protoner som elektroner.", valence: 8, concentration: 0.0820, volumeDm3: 0.600 },
-    { isotope: "järn-57", symbol: "Fe", atomicNumber: 26, massNumber: 57, comparisonMass: 56, isotopeTask: "neutrons", termPrompt: "Vad kallas kärnans positiva nettoladdning?", term: "kärnladdning", aliases: ["kärnans laddning"], termExplanation: "Kärnladdningen bestäms av antalet positivt laddade protoner.", valence: 2, concentration: 0.138, volumeDm3: 0.0450 },
-    { isotope: "koppar-65", symbol: "Cu", atomicNumber: 29, massNumber: 65, comparisonMass: 63, isotopeTask: "difference", termPrompt: "Vad kallas ett ämne som består av endast ett slags atomer?", term: "grundämne", aliases: ["ett grundämne"], termExplanation: "Ett grundämne innehåller atomer med samma atomnummer.", valence: 1, concentration: 0.515, volumeDm3: 0.0220 },
-    { isotope: "zink-68", symbol: "Zn", atomicNumber: 30, massNumber: 68, comparisonMass: 64, isotopeTask: "neutrons", termPrompt: "Vad kallas det yttersta besatta elektronskalet?", term: "valensskal", aliases: ["valensskalet", "yttersta skalet"], termExplanation: "Valensskalet innehåller atomens valenselektroner.", valence: 2, concentration: 0.0640, volumeDm3: 0.750 },
+    { isotope: "järn-57", symbol: "Fe", atomicNumber: 26, massNumber: 57, comparisonMass: 56, isotopeTask: "neutrons", termPrompt: "Vad kallas kärnans positiva nettoladdning?", term: "kärnladdning", aliases: ["kärnans laddning"], termExplanation: "Kärnladdningen bestäms av antalet positivt laddade protoner.", valence: 2, shells: [2, 8, 14, 2], electronCountDefinition: "outermost-occupied-shell", concentration: 0.138, volumeDm3: 0.0450 },
+    { isotope: "koppar-65", symbol: "Cu", atomicNumber: 29, massNumber: 65, comparisonMass: 63, isotopeTask: "difference", termPrompt: "Vad kallas ett ämne som består av endast ett slags atomer?", term: "grundämne", aliases: ["ett grundämne"], termExplanation: "Ett grundämne innehåller atomer med samma atomnummer.", valence: 1, shells: [2, 8, 18, 1], electronCountDefinition: "outermost-occupied-shell", concentration: 0.515, volumeDm3: 0.0220 },
+    { isotope: "zink-68", symbol: "Zn", atomicNumber: 30, massNumber: 68, comparisonMass: 64, isotopeTask: "neutrons", termPrompt: "Vad kallas det yttersta besatta elektronskalet?", term: "valensskal", aliases: ["valensskalet", "yttersta skalet"], termExplanation: "Valensskalet innehåller atomens valenselektroner.", valence: 2, shells: [2, 8, 18, 2], electronCountDefinition: "outermost-occupied-shell", concentration: 0.0640, volumeDm3: 0.750 },
     { isotope: "väte-2", symbol: "H", atomicNumber: 1, massNumber: 2, comparisonMass: 1, isotopeTask: "difference", termPrompt: "Vad kallas en bestämd mängd av ett ämne mätt i mol?", term: "substansmängd", aliases: ["substansmängden"], termExplanation: "Substansmängd betecknas n och anges i enheten mol.", valence: 1, concentration: 0.285, volumeDm3: 0.160 }
   ];
 
@@ -67,6 +67,7 @@
   function makeQuestion(row, index) {
     const caseNumber = index + 1;
     const hasBohr = index < 10;
+    const definesOutermostShell = row.electronCountDefinition === "outermost-occupied-shell";
     const isotopeExpected = isotopeAnswer(row);
     const fields = [
       { id: "isotope", label: "a) Heltal", kind: "numeric", points: 1, expected: isotopeExpected, targetUnit: "1", tolerance: { absolute: 0 } },
@@ -78,19 +79,23 @@
     } else {
       const figures = 3;
       const amount = roundSignificant(row.concentration * row.volumeDm3, figures);
-      fields.push({ id: "valence", label: "c) Antal valenselektroner", kind: "numeric", points: 1, expected: row.valence, targetUnit: "1", tolerance: { absolute: 0 } });
+      fields.push({ id: "valence", label: definesOutermostShell ? "c) Elektroner i det yttersta besatta skalet" : "c) Antal valenselektroner", kind: "numeric", points: 1, expected: row.valence, targetUnit: "1", tolerance: { absolute: 0 } });
       fields.push({ id: "amount", label: "d) Substansmängd (mol; 3 värdesiffror)", kind: "numeric", applied: true, points: 1, expected: amount, targetUnit: "mol", requestedUnitLabel: "mol", significantFigures: figures, tolerance: tolerance(amount, figures), help: "Du kan skriva talet med eller utan den angivna enheten." });
     }
 
     const thirdPrompt = hasBohr
       ? "c) Rita en neutral " + row.symbol + "-atom enligt Bohrs modell. d) Ange den vanligaste enkla jon som atomen bildar."
-      : "c) Ange antalet valenselektroner hos en neutral " + row.symbol + "-atom. d) En lösning har koncentrationen " + clean(row.concentration) + " mol/dm³ och volymen " + clean(row.volumeDm3) + " dm³. Beräkna n = cV i mol och avrunda till 3 värdesiffror.";
+      : (definesOutermostShell
+        ? "c) Ange antalet elektroner i det yttersta besatta skalet hos en neutral " + row.symbol + "-atom; här avses skalet med högst huvudkvanttal. "
+        : "c) Ange antalet valenselektroner hos en neutral " + row.symbol + "-atom. ") + "d) En lösning har koncentrationen " + clean(row.concentration) + " mol/dm³ och volymen " + clean(row.volumeDm3) + " dm³. Beräkna n = cV i mol och avrunda till 3 värdesiffror.";
     const isotopeSolution = row.isotopeTask === "neutrons"
       ? "Antalet neutroner är A − Z = " + row.massNumber + " − " + row.atomicNumber + " = " + isotopeExpected + "."
       : "Skillnaden i masstal är |" + row.massNumber + " − " + row.comparisonMass + "| = " + isotopeExpected + ". Isotoperna har samma protonantal men olika neutronantal.";
     const structureSolution = hasBohr
       ? "En neutral " + row.symbol + "-atom har " + row.atomicNumber + " protoner och " + row.atomicNumber + " elektroner. Elektronfördelningen från innersta skalet är " + row.shells.join("–") + ". Atomen " + row.ionReason + " och bildar därför <strong>" + row.ion + "</strong>."
-      : "Grundämnets plats i periodiska systemet ger <strong>" + row.valence + " valenselektron" + (row.valence === 1 ? "" : "er") + "</strong>. För lösningen används n = cV: " + clean(row.concentration) + " mol/dm³ · " + clean(row.volumeDm3) + " dm³ = <strong>" + formatSignificant(roundSignificant(row.concentration * row.volumeDm3, 3), 3) + " mol</strong> (3 värdesiffror).";
+      : (definesOutermostShell
+        ? "Elektronfördelningen från innersta skalet är " + row.shells.join("–") + ". Det yttersta besatta skalet innehåller därför <strong>" + row.valence + " elektron" + (row.valence === 1 ? "" : "er") + "</strong>. "
+        : "Grundämnets plats i periodiska systemet ger <strong>" + row.valence + " valenselektron" + (row.valence === 1 ? "" : "er") + "</strong>. ") + "För lösningen används n = cV: " + clean(row.concentration) + " mol/dm³ · " + clean(row.volumeDm3) + " dm³ = <strong>" + formatSignificant(roundSignificant(row.concentration * row.volumeDm3, 3), 3) + " mol</strong> (3 värdesiffror).";
 
     return {
       id: "chemistry-s1-atomic-" + String(caseNumber).padStart(2, "0"),
@@ -103,7 +108,7 @@
       rubric: [
         { points: 1, text: "Isotopjämförelsen använder atomnummer och masstal korrekt." },
         { points: 1, text: "Den efterfrågade kemiska termen är korrekt." },
-        { points: 1, text: hasBohr ? "Kärnan och rätt antal elektroner visas, och elektronerna är fördelade på rätt skal." : "Antalet valenselektroner är korrekt." },
+        { points: 1, text: hasBohr ? "Kärnan och rätt antal elektroner visas, och elektronerna är fördelade på rätt skal." : (definesOutermostShell ? "Elektronfördelningen leder till rätt antal elektroner i det yttersta besatta skalet." : "Antalet valenselektroner är korrekt.") },
         { points: 1, text: hasBohr ? "Jonens grundämnessymbol och laddning är korrekta." : "n = cV används med volym i dm³ och svaret anges i mol med 3 värdesiffror." }
       ],
       sourceData: Object.assign({}, row, {

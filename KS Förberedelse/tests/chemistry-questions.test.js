@@ -383,7 +383,60 @@ test("source-specific compound and process anchors are not reused as authored ca
 
 test("reaction scenarios do not contradict the stated excess-reactant assumption", () => {
   loadSlots()[2].forEach((question) => {
-    assert.doesNotMatch(question.promptHtml, /lika stora substansmängder[\s\S]*andra reaktanten finns i överskott/iu, question.id);
+    assert.doesNotMatch(
+      question.promptHtml,
+      /(?:lika stora substansmängder|rätt proportion|stökiometrisk(?:t|a) förhållande)[\s\S]*andra reaktanten finns i överskott/iu,
+      question.id
+    );
+  });
+});
+
+test("slot 5 explicitly records and states the limiting or completion assumption", () => {
+  loadSlots()[5].forEach((question) => {
+    const data = question.sourceData;
+    const [reactants] = parseEquationOracle(data.reaction);
+    const hasOtherReactants = reactants.length > 1;
+    const assumption = data.reactionAssumption;
+    assert.ok(assumption, `${question.id}: sourceData assumption`);
+    assert.equal(assumption.kind, hasOtherReactants ? "named-input-limiting" : "complete-decomposition", question.id);
+    assert.equal(assumption.namedInputFormula, data.inputFormula, question.id);
+    assert.equal(assumption.namedInputFullyConsumed, true, question.id);
+    assert.equal(assumption.otherReactantsInExcess, hasOtherReactants, question.id);
+    if (hasOtherReactants) {
+      assert.match(question.promptHtml, /alla övriga reaktanter finns i överskott/iu, question.id);
+      assert.match(question.promptHtml, /angivna mängden[^.]*förbrukas fullständigt/iu, question.id);
+    } else {
+      assert.match(question.promptHtml, /sönderdelningen är fullständig/iu, question.id);
+    }
+  });
+});
+
+test("slot 4 asks for one dominant phase interaction and a distinct intramolecular reaction bond", () => {
+  loadSlots()[4].forEach((question) => {
+    assert.match(question.promptHtml, /fasövergångarna[^.]*dominerande[^.]*mellan partiklar/iu, question.id);
+    assert.match(question.promptHtml, /kemiska reaktionen[^.]*intramolekylär bindning/iu, question.id);
+    assert.doesNotMatch(question.promptHtml, /för varje förändring[^.]*måste övervinnas/iu, question.id);
+    question.sourceData.items.forEach((item, index) => {
+      if (item.process === "phase-change") assert.match(question.rubric[index].text, /dominerande/iu, `${question.id}: phase rubric ${index}`);
+      else assert.match(question.rubric[index].text, /intramolekylär/iu, `${question.id}: reaction rubric ${index}`);
+    });
+    assert.match(question.solutionHtml, /dominerande bindningen eller kraften mellan partiklarna/iu, question.id);
+    assert.match(question.solutionHtml, /intramolekylär bindning/iu, question.id);
+  });
+});
+
+test("transition-metal counts explicitly mean electrons in the outermost occupied shell", () => {
+  const expectedShells = { Fe: [2, 8, 14, 2], Cu: [2, 8, 18, 1], Zn: [2, 8, 18, 2] };
+  Object.entries(expectedShells).forEach(([symbol, shells]) => {
+    const question = loadSlots()[1].find((candidate) => candidate.sourceData.symbol === symbol);
+    assert.ok(question, symbol);
+    assert.equal(question.sourceData.electronCountDefinition, "outermost-occupied-shell", question.id);
+    assert.deepEqual(question.sourceData.shells, shells, `${question.id}: shell distribution`);
+    assert.match(question.promptHtml, /elektroner i det yttersta besatta skalet/iu, question.id);
+    assert.match(question.fields.find((field) => field.id === "valence").label, /yttersta besatta skalet/iu, question.id);
+    assert.match(question.solutionHtml, new RegExp(shells.join("–"), "u"), question.id);
+    assert.doesNotMatch(question.solutionHtml, /plats i periodiska systemet ger/iu, question.id);
+    assert.match(question.rubric.map((item) => item.text).join(" "), /yttersta besatta skalet/iu, question.id);
   });
 });
 
@@ -403,6 +456,31 @@ test("every canonical automatic answer earns its exact field points", () => {
       assert.equal(result.possible, field.points, `${question.id}/${field.id}`);
     });
   });
+});
+
+test("real bank chemistry graders reject case changes and wrong structures but defer malformed notation", () => {
+  const formulaField = loadSlots()[6].find((question) => question.fields[0].expected === "NO2").fields[0];
+  assert.equal(chemistry.parseFormula("No2").ok, true, "case mutation remains valid notation for a different element");
+  const wrongCase = grading.gradeChemicalFormula(formulaField, "No2");
+  assert.equal(wrongCase.status, "incorrect");
+  assert.equal(wrongCase.earned, 0);
+
+  const malformedFormula = grading.gradeChemicalFormula(formulaField, "N((O2");
+  assert.equal(malformedFormula.status, "self");
+  assert.equal(malformedFormula.earned, 0);
+
+  const equationField = loadSlots()[2][0].fields[2];
+  const malformedEquation = grading.gradeChemicalEquation(equationField, "Ca(NO3)2(aq) + -> CaCO3(s)");
+  assert.equal(malformedEquation.status, "self");
+  assert.equal(malformedEquation.earned, 0);
+
+  const wrongStructure = "Ca(NO3)2(aq) + Na2CO3(aq) -> Ca(NO3)2(s) + Na2CO3(aq)";
+  const parsedWrong = chemistry.parseEquation(wrongStructure);
+  assert.equal(parsedWrong.ok, true);
+  assert.equal(parsedWrong.reactants.concat(parsedWrong.products).every((item) => Boolean(item.formula.state)), true);
+  const wrongGrade = grading.gradeChemicalEquation(equationField, wrongStructure);
+  assert.equal(wrongGrade.status, "incorrect");
+  assert.equal(wrongGrade.earned, 0);
 });
 
 test("applied solutions preserve the requested significant trailing zeros", () => {
@@ -602,6 +680,8 @@ test("slot 6 empirical formulas, formula-unit charges and concentrations recompu
 test("subject assembly works in CommonJS and ordered classic browser scripts", () => {
   const subjectData = loadSubjectDataFresh();
   assert.equal(subjectData.config.id, "chemistry-ks");
+  assert.equal(subjectData.config.passPoints, 10);
+  assert.equal(subjectData.config.durationMinutes, 120);
   assert.deepEqual(Object.keys(subjectData.slots), ["1", "2", "3", "4", "5", "6"]);
 
   const context = vm.createContext({ window: {} });
@@ -613,6 +693,8 @@ test("subject assembly works in CommonJS and ordered classic browser scripts", (
     vm.runInContext(fs.readFileSync(filename, "utf8"), context, { filename });
   });
   assert.equal(context.window.KS_SUBJECT_DATA.config.id, "chemistry-ks");
+  assert.equal(context.window.KS_SUBJECT_DATA.config.passPoints, 10);
+  assert.equal(context.window.KS_SUBJECT_DATA.config.durationMinutes, 120);
   assert.deepEqual(Array.from(Object.values(context.window.KS_SUBJECT_DATA.slots), (slot) => slot.length), [20, 20, 20, 20, 20, 20]);
 });
 

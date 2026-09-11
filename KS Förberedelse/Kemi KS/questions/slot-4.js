@@ -106,21 +106,21 @@
     const caseNumber = index + 1;
     const items = [item(SOLID_ITEMS[index], "phase-change"), item(MOLECULAR_A[index], "phase-change"), item(MOLECULAR_B[index], "phase-change"), item(REACTION_ITEMS[index], "reaction")];
     const promptItems = items.map(function (entry, itemIndex) { return String.fromCharCode(97 + itemIndex) + ") " + entry.text; }).join("<br>");
-    const solutionItems = items.map(function (entry, itemIndex) { return "<li><strong>" + String.fromCharCode(97 + itemIndex) + ") " + entry.answer + ".</strong> " + (entry.process === "phase-change" ? "Vid fasövergången övervinns krafter mellan partiklar; de kovalenta bindningarna inne i en molekyl är kvar." : "Detta är en kemisk reaktion, så den angivna bindningen inne i reaktantens molekyl måste brytas när nya bindningar bildas.") + "</li>"; }).join("");
+    const solutionItems = items.map(function (entry, itemIndex) { return "<li><strong>" + String.fromCharCode(97 + itemIndex) + ") " + entry.answer + ".</strong> " + (entry.process === "phase-change" ? "Detta är den dominerande bindningen eller kraften mellan partiklarna. Vid fasövergången övervinns sådan attraktion, medan de kovalenta bindningarna inne i en molekyl är kvar." : "Detta är en kemisk reaktion, så en intramolekylär bindning inne i reaktantens molekyl bryts när nya bindningar bildas.") + "</li>"; }).join("");
     return {
       id: "chemistry-s4-bonding-" + String(caseNumber).padStart(2, "0"),
       slot: 4,
       title: "Bindningskontroll " + caseNumber,
       points: 2,
-      promptHtml: "<p>För varje förändring ska du ange den bindningstyp eller intermolekylära kraft som måste övervinnas. Skilj på fasövergångar och kemiska reaktioner.</p><p>" + promptItems + "</p>",
+      promptHtml: "<p>För fasövergångarna a–c ska du ange den dominerande bindningen eller intermolekylära kraften mellan partiklarna i ämnet. För den kemiska reaktionen d ska du ange vilken typ av intramolekylär bindning som bryts. Motivera skillnaden kort.</p><p>" + promptItems + "</p>",
       fields: [{ id: "classification", label: "Svar a–d med kort motivering", kind: "self", points: 2, multiline: true, help: "Bedöm listan med den konkreta fyrdelade checklistan efter rättning." }],
       solutionHtml: "<ol type=\"a\">" + solutionItems + "</ol><p><strong>Viktig skillnad:</strong> smältning och förångning förändrar avstånd och ordning mellan partiklar. En kemisk reaktion förändrar däremot vilka atomer som är kovalent bundna till varandra.</p>",
       rubric: items.map(function (entry, itemIndex) {
         const letter = String.fromCharCode(97 + itemIndex);
         const distinction = entry.process === "phase-change"
-          ? "och svaret anger att en kraft mellan partiklar övervinns i fasövergången"
-          : "och svaret anger att en bindning inne i en partikel bryts i den kemiska reaktionen";
-        return { points: 0.5, text: "Del " + letter + ": " + entry.answer + " identifieras, " + distinction + "." };
+          ? "anges som den dominerande bindningen eller kraften mellan partiklarna i fasövergången"
+          : "anges som den intramolekylära bindningstyp som bryts i den kemiska reaktionen";
+        return { points: 0.5, text: "Del " + letter + ": " + entry.answer + " " + distinction + "." };
       }),
       sourceData: { skill: SKILL, family: "bond-checklist", caseNumber: caseNumber, items: items }
     };
