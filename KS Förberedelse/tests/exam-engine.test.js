@@ -16,14 +16,16 @@ function seededRng(seed) {
 function memoryStore(history) {
   let active = null;
   let savedHistory = history || { schemaVersion: 1, slots: {} };
+  let historyReads = 0;
   let activeWrites = 0;
   let historyWrites = 0;
   return {
-    loadHistory() { return structuredClone(savedHistory); },
+    loadHistory() { historyReads += 1; return structuredClone(savedHistory); },
     saveHistory(next) { savedHistory = structuredClone(next); historyWrites += 1; return { ok: true, persisted: true }; },
     saveActive(next) { active = structuredClone(next); activeWrites += 1; return { ok: true, persisted: true }; },
     get active() { return active; },
     get history() { return savedHistory; },
+    get historyReads() { return historyReads; },
     get activeWrites() { return activeWrites; },
     get historyWrites() { return historyWrites; }
   };
@@ -92,7 +94,10 @@ test("navigation never requires an answer and every mutation autosaves", () => {
   assert.equal(store.activeWrites, initialWrites + 2);
 });
 
-test("invalid exam data is rejected before a session or history is written", () => {
+test("invalid exam structure is rejected before storage or randomness is touched", () => {
+  const validSubject = { id: "x", questionCount: 1, maxPoints: 1, passPoints: 1, durationMinutes: 1 };
+  const valid = question("valid", 1, 1, [field("answer", "aliases", 1, "ja")]);
+  const changed = (property, value) => Object.assign(structuredClone(valid), { [property]: value });
   const cases = [
     {
       name: "wrong slot count",
@@ -108,15 +113,72 @@ test("invalid exam data is rejected before a session or history is written", () 
       name: "wrong points",
       subject: { id: "x", questionCount: 2, maxPoints: 3, passPoints: 1, durationMinutes: 1 },
       slots: { 1: [question("a", 1, 1, [field("a", "aliases", 1, "a")])], 2: [question("b", 2, 1, [field("b", "aliases", 1, "b")])] }
-    }
+    },
+    { name: "noncontiguous slot position", subject: validSubject, slots: { 2: [question("q", 2, 1, [field("answer", "aliases", 1, "ja")])] } },
+    { name: "missing question id", subject: validSubject, slots: { 1: [changed("id", " ")] } },
+    { name: "non-integer slot", subject: validSubject, slots: { 1: [changed("slot", 1.5)] } },
+    { name: "missing title", subject: validSubject, slots: { 1: [changed("title", " ")] } },
+    { name: "missing prompt", subject: validSubject, slots: { 1: [changed("promptHtml", "")] } },
+    { name: "missing solution", subject: validSubject, slots: { 1: [changed("solutionHtml", " ")] } },
+    { name: "missing rubric", subject: validSubject, slots: { 1: [changed("rubric", undefined)] } },
+    { name: "empty fields", subject: validSubject, slots: { 1: [changed("fields", [])] } },
+    { name: "field points differ from question", subject: validSubject, slots: { 1: [changed("fields", [field("answer", "aliases", 0.5, "ja")])] } },
+    { name: "zero-point field", subject: validSubject, slots: { 1: [changed("fields", [field("answer", "aliases", 0, "ja"), field("other", "aliases", 1, "nej")])] } },
+    { name: "field label missing", subject: validSubject, slots: { 1: [changed("fields", [Object.assign(field("answer", "aliases", 1, "ja"), { label: "" })])] } },
+    { name: "duplicate field ids", subject: validSubject, slots: { 1: [changed("fields", [field("same", "aliases", 0.5, "ja"), field("same", "aliases", 0.5, "ja")])] } }
   ];
 
   cases.forEach(({ name, subject, slots }) => {
     const store = memoryStore();
-    assert.throws(() => exam.createSession(subject, slots, store, seededRng(1)), /invalid exam data/i, name);
+    let rngCalls = 0;
+    assert.throws(() => exam.createSession(subject, slots, store, () => { rngCalls += 1; return 0.5; }), /invalid exam data/i, name);
+    assert.equal(store.historyReads, 0, name);
     assert.equal(store.historyWrites, 0, name);
     assert.equal(store.activeWrites, 0, name);
+    assert.equal(rngCalls, 0, name);
   });
+});
+
+test("invalid grader data and self-assessment rubrics are rejected before any side effect", () => {
+  const subject = { id: "x", questionCount: 1, maxPoints: 1, passPoints: 1, durationMinutes: 1 };
+  const invalidFields = [
+    { name: "numeric expected", value: { id: "f", label: "Svar", kind: "numeric", points: 1, targetUnit: null } },
+    { name: "numeric tolerance", value: { id: "f", label: "Svar", kind: "numeric", points: 1, expected: 2, targetUnit: null, tolerance: { absolute: -1 } } },
+    { name: "numeric relative tolerance", value: { id: "f", label: "Svar", kind: "numeric", points: 1, expected: 2, targetUnit: null, tolerance: { relative: Infinity } } },
+    { name: "numeric target unit", value: { id: "f", label: "Svar", kind: "numeric", points: 1, expected: 2, targetUnit: 7 } },
+    { name: "aliases", value: { id: "f", label: "Svar", kind: "aliases", points: 1, expected: " ", aliases: [""] } },
+    { name: "malformed aliases", value: { id: "f", label: "Svar", kind: "aliases", points: 1, aliases: ["ja", 7] } },
+    { name: "solution set", value: { id: "f", label: "Svar", kind: "solution-set", points: 1, expected: [1, Infinity] } },
+    { name: "expression", value: { id: "f", label: "Svar", kind: "expression", points: 1, expected: "" } },
+    { name: "chemical formula", value: { id: "f", label: "Svar", kind: "chemical-formula", points: 1, expected: " " } },
+    { name: "chemical equation", value: { id: "f", label: "Svar", kind: "chemical-equation", points: 1 } },
+    { name: "chemical equation state points", value: { id: "f", label: "Svar", kind: "chemical-equation", points: 1, expected: "H2->H2", statePoints: 2 } },
+    { name: "self rubric", value: { id: "f", label: "Svar", kind: "self", points: 1 } },
+    { name: "self rubric points", value: { id: "f", label: "Svar", kind: "self", points: 1 }, rubric: [{ points: -1, text: "Delsteg" }] },
+    { name: "self rubric text", value: { id: "f", label: "Svar", kind: "self", points: 1 }, rubric: [{ points: 1, text: " " }] },
+    { name: "self rubric capacity", value: { id: "f", label: "Svar", kind: "self", points: 1 }, rubric: [{ points: 0.5, text: "Delsteg" }] }
+  ];
+
+  invalidFields.forEach(({ name, value, rubric }) => {
+    const candidate = question("q", 1, 1, [value]);
+    if (rubric) candidate.rubric = rubric;
+    const store = memoryStore();
+    let rngCalls = 0;
+    assert.throws(() => exam.createSession(subject, { 1: [candidate] }, store, () => { rngCalls += 1; return 0.5; }), /invalid exam data/i, name);
+    assert.equal(store.historyReads, 0, name);
+    assert.equal(store.historyWrites, 0, name);
+    assert.equal(store.activeWrites, 0, name);
+    assert.equal(rngCalls, 0, name);
+  });
+});
+
+test("dimensionless numeric fields may explicitly use a null target unit", () => {
+  const subject = { id: "math", questionCount: 1, maxPoints: 1, passPoints: 1, durationMinutes: 1 };
+  const numeric = { id: "f", label: "Svar", kind: "numeric", points: 1, expected: 2, targetUnit: null };
+
+  const session = exam.createSession(subject, { 1: [question("q", 1, 1, [numeric])] }, memoryStore(), seededRng(1));
+
+  assert.deepEqual(session.snapshot().questionIds, ["q"]);
 });
 
 test("answers lock after submit and solutions remain gated until then", () => {
@@ -158,7 +220,9 @@ test("submit dispatches every automatic field kind and aggregates field points",
 test("self fields keep automatic points and manual grading sets the question total", () => {
   const { session } = makeSession({
     subject: { id: "manual", questionCount: 1, maxPoints: 3, passPoints: 2, durationMinutes: 1 },
-    slots: { 1: [question("manual-q", 1, 3, [field("auto", "aliases", 1, "rätt"), field("work", "self", 2)])] }
+    slots: { 1: [Object.assign(question("manual-q", 1, 3, [field("auto", "aliases", 1, "rätt"), field("work", "self", 2)]), {
+      rubric: [{ points: 2, text: "Korrekt redovisning" }]
+    })] }
   });
   session.setAnswer("manual-q", "auto", "rätt");
   session.setAnswer("manual-q", "work", "på papper");

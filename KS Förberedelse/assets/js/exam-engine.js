@@ -74,12 +74,60 @@
     return Object.keys(slots).sort(function (left, right) { return Number(left) - Number(right); });
   }
 
+  function nonEmptyString(value) {
+    return typeof value === "string" && Boolean(value.trim());
+  }
+
+  function validTolerance(value) {
+    if (value === undefined || value === null) return true;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    return ["absolute", "relative"].every(function (name) {
+      return value[name] === undefined || (Number.isFinite(value[name]) && value[name] >= 0);
+    });
+  }
+
+  function validAliases(field) {
+    if (field.expected !== undefined && typeof field.expected !== "string") return false;
+    if (field.aliases !== undefined && (!Array.isArray(field.aliases) || field.aliases.some(function (alias) { return typeof alias !== "string"; }))) return false;
+    const values = (typeof field.expected === "string" ? [field.expected] : []).concat(Array.isArray(field.aliases) ? field.aliases : []);
+    return values.some(nonEmptyString);
+  }
+
+  function validFieldData(field) {
+    if (field.kind === "numeric") {
+      const validUnit = field.targetUnit === undefined || field.targetUnit === null || nonEmptyString(field.targetUnit);
+      return Number.isFinite(field.expected) && validUnit && validTolerance(field.tolerance);
+    }
+    if (field.kind === "aliases") return validAliases(field);
+    if (field.kind === "solution-set") return Array.isArray(field.expected) && field.expected.every(Number.isFinite);
+    if (field.kind === "expression" || field.kind === "chemical-formula") return nonEmptyString(field.expected);
+    if (field.kind === "chemical-equation") {
+      return nonEmptyString(field.expected) && (field.statePoints === undefined ||
+        (Number.isFinite(field.statePoints) && field.statePoints >= 0 && field.statePoints <= field.points));
+    }
+    return field.kind === "self";
+  }
+
   function validField(field, ids) {
-    if (!field || typeof field.id !== "string" || !field.id || ids.has(field.id)) return false;
-    if (!Number.isFinite(field.points) || field.points < 0) return false;
+    if (!field || !nonEmptyString(field.id) || ids.has(field.id) || !nonEmptyString(field.label)) return false;
+    if (!Number.isFinite(field.points) || field.points <= 0) return false;
     if (field.kind !== "self" && !FIELD_GRADERS[field.kind]) return false;
+    if (!validFieldData(field)) return false;
     ids.add(field.id);
     return true;
+  }
+
+  function validRubric(question) {
+    if (!Array.isArray(question.rubric)) return false;
+    if (question.rubric.some(function (item) {
+      return !item || !Number.isFinite(item.points) || item.points < 0 || !nonEmptyString(item.text);
+    })) return false;
+    const selfPoints = question.fields.reduce(function (sum, field) {
+      return sum + (field.kind === "self" ? field.points : 0);
+    }, 0);
+    if (!selfPoints) return true;
+    const rubricPoints = question.rubric.reduce(function (sum, item) { return sum + item.points; }, 0);
+    return question.rubric.length > 0 && rubricPoints + 1e-9 >= selfPoints;
   }
 
   function validateExamData(subject, slots) {
@@ -87,25 +135,27 @@
         !Number.isFinite(subject.maxPoints) || subject.maxPoints < 0 || !Number.isFinite(subject.durationMinutes) || subject.durationMinutes <= 0) return false;
     const keys = orderedSlots(slots);
     if (keys.length !== subject.questionCount) return false;
+    if (keys.some(function (key, index) { return Number(key) !== index + 1; })) return false;
 
     const questionIds = new Set();
     let totalPoints = 0;
     for (const key of keys) {
+      const position = Number(key);
+      if (!Number.isInteger(position)) return false;
       const bank = slots[key];
       if (!Array.isArray(bank) || !bank.length) return false;
       let slotPoints = null;
       for (const question of bank) {
-        if (!question || typeof question.id !== "string" || !question.id || questionIds.has(question.id) ||
-            !Number.isFinite(question.points) || question.points <= 0 || String(question.slot) !== String(key) || !Array.isArray(question.fields)) return false;
+        if (!question || !nonEmptyString(question.id) || questionIds.has(question.id) || !Number.isInteger(question.slot) || question.slot !== position ||
+            !nonEmptyString(question.title) || !Number.isFinite(question.points) || question.points <= 0 || !nonEmptyString(question.promptHtml) ||
+            !nonEmptyString(question.solutionHtml) || !Array.isArray(question.fields) || !question.fields.length) return false;
         questionIds.add(question.id);
         if (slotPoints === null) slotPoints = question.points;
         if (!close(question.points, slotPoints)) return false;
         const fieldIds = new Set();
         if (!question.fields.every(function (item) { return validField(item, fieldIds); })) return false;
-        if (question.fields.length) {
-          const fieldPoints = question.fields.reduce(function (sum, item) { return sum + item.points; }, 0);
-          if (!close(fieldPoints, question.points)) return false;
-        }
+        const fieldPoints = question.fields.reduce(function (sum, item) { return sum + item.points; }, 0);
+        if (!close(fieldPoints, question.points) || !validRubric(question)) return false;
       }
       totalPoints += slotPoints;
     }
