@@ -37,9 +37,11 @@
   function standardize(raw) {
     return String(raw)
       .normalize("NFC")
-      .replace(/[−–—]/g, "-")
+      .replace(/[−–—⁻]/g, "-")
+      .replace(/¹/g, "1")
       .replace(/²/g, "2")
       .replace(/³/g, "3")
+      .replace(/[·×]/g, "")
       .replace(/\s+/g, "")
       .replace(/\^/g, "^");
   }

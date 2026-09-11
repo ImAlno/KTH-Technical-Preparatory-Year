@@ -74,6 +74,18 @@ test("treats empty aliases as incorrect and malformed aliases as self review", (
   assert.equal(grading.gradeAliases({ expected: "ja", aliases: "japp", points: 1 }, "ja").status, "self");
 });
 
+test("treats empty alias input as incorrect and ignores empty accepted aliases", () => {
+  assert.equal(grading.gradeAliases({ expected: "", aliases: [""], points: 1 }, "").status, "self");
+  assert.equal(grading.gradeAliases({ expected: "ja", aliases: [""], points: 1 }, "").status, "incorrect");
+});
+
+test("normalizes aliases with locale-independent lowercasing", () => {
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../assets/js/grading.js"), "utf8");
+
+  assert.match(source, /\.toLowerCase\(\)/);
+  assert.doesNotMatch(source, /\.toLocaleLowerCase\(\)/);
+});
+
 test("returns self review for malformed numeric grading specifications", () => {
   assert.equal(
     grading.gradeNumeric({ expected: 10, points: 1, tolerance: { absolute: -1 }, targetUnit: "m" }, "10 m").status,

@@ -69,7 +69,7 @@
 
   function normalizeAlias(raw) {
     return typeof raw === "string"
-      ? raw.normalize("NFC").trim().replace(/\s+/g, " ").toLocaleLowerCase()
+      ? raw.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase()
       : null;
   }
 
@@ -80,14 +80,18 @@
         return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom uppgiften saknar giltiga rättningsuppgifter.");
       }
       const accepted = [];
-      if (typeof spec.expected === "string") accepted.push(normalizeAlias(spec.expected));
+      if (typeof spec.expected === "string") {
+        const normalizedExpected = normalizeAlias(spec.expected);
+        if (normalizedExpected) accepted.push(normalizedExpected);
+      }
       if (Array.isArray(spec.aliases)) spec.aliases.forEach(function (alias) {
         const normalized = normalizeAlias(alias);
-        if (normalized !== null) accepted.push(normalized);
+        if (normalized) accepted.push(normalized);
       });
       if (!accepted.length) return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom godtagbara svar saknas.");
       const interpreted = normalizeAlias(raw);
       if (interpreted === null) return result("self", spec, 0, null, "Svaret kunde inte tolkas säkert.");
+      if (!interpreted) return result("incorrect", spec, 0, interpreted, "Inget svar angavs.");
       if (accepted.includes(interpreted)) return result("correct", spec, spec.points, interpreted, "Rätt svar.");
       return result("incorrect", spec, 0, interpreted, "Svaret stämmer inte med de godtagbara svaren.");
     } catch (error) {
