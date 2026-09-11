@@ -95,9 +95,14 @@
       points: 2,
       promptHtml: "<p>Förenkla uttrycket <strong>" + pretty(values.original) + "</strong> så långt som möjligt. Ange även de värden som inte ingår i uttryckets ursprungliga definitionsmängd.</p>",
       fields: [{
-        id: "expression", label: "Förenklat uttryck", kind: "expression", points: 2,
+        id: "expression", label: "Förenklat uttryck", kind: "expression", points: 1,
         expected: values.expected, variables: ["x"], exclude: values.exclusions,
         help: "Använd * för multiplikation och / för division vid behov."
+      }, {
+        id: "exclusions", label: "Uteslutna x-värden", kind: "solution-set", points: 1,
+        expected: values.exclusions.slice().sort(function (left, right) { return left - right; }), variable: "x",
+        tolerance: { absolute: 1e-8, relative: 1e-9 },
+        help: "Skriv värdena med semikolon, t.ex. 2; 7."
       }],
       solutionHtml: "<p><strong>Definitionsmängd:</strong> nämnarna i ursprungsuttrycket ger <var>x</var> ≠ " + values.exclusions.join(" och x ≠ ") + ". Dessa begränsningar gäller även efter förkortning.</p>" +
         "<p>Faktorisera och gör uttrycket liknämnigt där det behövs: <strong>" + values.factorization + "</strong>. Gemensamma faktorer kan sedan förkortas, men bara inom den angivna definitionsmängden.</p>" +

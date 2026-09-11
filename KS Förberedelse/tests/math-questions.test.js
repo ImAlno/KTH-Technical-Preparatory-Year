@@ -95,22 +95,22 @@ function absSides(data, x) {
   return [Math.abs(p.a * x + p.b), data.family === "abs-constant" ? p.k : p.c * x + p.d];
 }
 
-function solveAbsolute(data) {
+function absoluteBranchCandidates(data) {
   const p = data.parameters;
-  let candidates;
   if (data.family === "abs-linear" || data.family === "abs-equals-abs") {
-    candidates = linearRoot(p.a - p.c, p.b - p.d).concat(linearRoot(p.a + p.c, p.b + p.d));
-  } else if (data.family === "abs-constant") {
-    candidates = [(-p.b - p.k) / p.a, (-p.b + p.k) / p.a];
-  } else if (data.family === "scaled-shifted-abs") {
-    const distance = (p.d - p.c) / p.m;
-    candidates = distance < 0 ? [] : [p.b - distance, p.b + distance];
-  } else if (data.family === "contextual-distance") {
-    candidates = [p.center - p.distance, p.center + p.distance];
-  } else {
-    throw new Error(`Unknown absolute-value family ${data.family}`);
+    return sortedUnique(linearRoot(p.a - p.c, p.b - p.d).concat(linearRoot(p.a + p.c, p.b + p.d)));
   }
-  return sortedUnique(candidates).filter((candidate) => {
+  if (data.family === "abs-constant") return sortedUnique([(-p.b - p.k) / p.a, (-p.b + p.k) / p.a]);
+  if (data.family === "scaled-shifted-abs") {
+    const distance = (p.d - p.c) / p.m;
+    return distance < 0 ? [] : sortedUnique([p.b - distance, p.b + distance]);
+  }
+  if (data.family === "contextual-distance") return sortedUnique([p.center - p.distance, p.center + p.distance]);
+  throw new Error(`Unknown absolute-value family ${data.family}`);
+}
+
+function solveAbsolute(data) {
+  return absoluteBranchCandidates(data).filter((candidate) => {
     const [left, right] = absSides(data, candidate);
     return Number.isFinite(left) && Number.isFinite(right) && close(left, right);
   });
@@ -169,17 +169,44 @@ function expectedSlotThree(data) {
   throw new Error(`Unknown simplification family ${data.family}`);
 }
 
-function recomputeGeometry(data) {
+function roundGeometry(value, decimals) {
+  const factor = Math.pow(10, decimals);
+  return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function independentlyDeriveGeometry(data) {
   const p = data.parameters;
   let value;
-  if (data.family === "right-triangle") value = p.adjacent * Math.tan(p.angleDegrees * Math.PI / 180);
-  else if (data.family === "non-right-triangle-area") value = 0.5 * p.sideA * p.sideB * Math.sin(p.angleDegrees * Math.PI / 180);
-  else if (data.family === "parallel-transversal") value = p.ae * p.db / p.ad;
-  else if (data.family === "composite-quadrilateral") value = p.outerWidth * p.outerHeight - p.cutWidth * p.cutHeight;
-  else if (data.family === "symmetric-construction") value = Math.sqrt(p.equalSide * p.equalSide - Math.pow(p.base / 2, 2));
-  else throw new Error(`Unknown geometry family ${data.family}`);
-  const factor = Math.pow(10, data.decimals);
-  return Math.round((value + Number.EPSILON) * factor) / factor;
+  if (data.family === "right-triangle") {
+    const radians = p.angleDegrees * Math.PI / 180;
+    const hypotenuse = p.adjacent / Math.cos(radians);
+    value = Math.sqrt(hypotenuse * hypotenuse - p.adjacent * p.adjacent);
+  } else if (data.family === "non-right-triangle-area") {
+    const radians = p.angleDegrees * Math.PI / 180;
+    const thirdSide = Math.sqrt(p.sideA * p.sideA + p.sideB * p.sideB - 2 * p.sideA * p.sideB * Math.cos(radians));
+    const semiperimeter = (p.sideA + p.sideB + thirdSide) / 2;
+    value = Math.sqrt(semiperimeter * (semiperimeter - p.sideA) * (semiperimeter - p.sideB) * (semiperimeter - thirdSide));
+  } else if (data.family === "parallel-transversal") {
+    const fullFirstSide = p.ad + p.db;
+    const fullSecondSide = p.ae * fullFirstSide / p.ad;
+    value = fullSecondSide - p.ae;
+  } else if (data.family === "composite-quadrilateral") {
+    const leftRectangleWidth = p.outerWidth - p.cutWidth;
+    value = leftRectangleWidth * p.outerHeight + p.cutWidth * (p.outerHeight - p.cutHeight);
+  } else if (data.family === "symmetric-construction") {
+    const semiperimeter = (2 * p.equalSide + p.base) / 2;
+    const triangleArea = Math.sqrt(semiperimeter * (semiperimeter - p.equalSide) * (semiperimeter - p.equalSide) * (semiperimeter - p.base));
+    value = 2 * triangleArea / p.base;
+  } else throw new Error(`Unknown geometry family ${data.family}`);
+  return value;
+}
+
+function swedishNumber(value) {
+  return String(Number(value.toFixed(10))).replace(".", ",");
+}
+
+function fixedSwedish(value, decimals) {
+  return Number(value).toFixed(decimals).replace(".", ",");
 }
 
 function seededRng(seed) {
@@ -270,30 +297,49 @@ test("every radical answer comes from squaring and survives domain and original-
   });
 });
 
-test("every absolute-value root satisfies the proper branch equation", () => {
+test("every absolute-value branch candidate is explicitly accepted or rejected after substitution", () => {
   loadSlots()[2].forEach((question) => {
+    const candidates = absoluteBranchCandidates(question.sourceData);
+    const expected = solveAbsolute(question.sourceData);
     assertNumberSets(question.fields[0].expected, solveAbsolute(question.sourceData), question.id);
-    question.fields[0].expected.forEach((root) => {
-      const [left, right] = absSides(question.sourceData, root);
-      assert.ok(close(left, right), question.id);
+    candidates.forEach((candidate) => {
+      const [left, right] = absSides(question.sourceData, candidate);
+      const accepted = Number.isFinite(left) && Number.isFinite(right) && close(left, right);
+      const marker = `<var>x</var> = ${swedishNumber(candidate)}`;
+      const start = question.solutionHtml.indexOf(marker);
+      assert.notEqual(start, -1, `${question.id}: missing candidate ${candidate}`);
+      const item = question.solutionHtml.slice(start, question.solutionHtml.indexOf("</li>", start));
+      assert.match(item, accepted ? /godtas/i : /förkastas/i, `${question.id}: candidate ${candidate}`);
+      assert.equal(expected.some((root) => close(root, candidate)), accepted, question.id);
     });
     assert.match(question.solutionHtml, /fall|gren|Prövning/i, question.id);
   });
+  const rejectedRegression = loadSlots()[2].find((question) => question.id === "math-s2-abs-linear-04");
+  assert.deepEqual(absoluteBranchCandidates(rejectedRegression.sourceData), [-5, -3]);
+  assert.match(rejectedRegression.solutionHtml, /<var>x<\/var> = -5[^<]*(?:<[^>]+>[^<]*)*förkastas/i);
 });
 
 test("every rational simplification preserves values and all original exclusions", () => {
   loadSlots()[3].forEach((question) => {
     const data = question.sourceData;
-    const field = question.fields[0];
-    assert.equal(field.kind, "expression", question.id);
-    assert.deepEqual(field.exclude.slice().sort((a, b) => a - b), data.exclusions.slice().sort((a, b) => a - b), question.id);
+    const [expressionField, exclusionsField] = question.fields;
+    assert.equal(question.fields.length, 2, question.id);
+    assert.deepEqual(question.fields.map((field) => [field.id, field.kind, field.points]), [
+      ["expression", "expression", 1], ["exclusions", "solution-set", 1]
+    ], question.id);
+    assert.deepEqual(expressionField.exclude.slice().sort((a, b) => a - b), data.exclusions.slice().sort((a, b) => a - b), question.id);
+    assertNumberSets(exclusionsField.expected, data.exclusions, question.id);
+    assert.match(exclusionsField.help, /semikolon/i, question.id);
+    const expressionOnly = grading.gradeExpression(expressionField, expressionField.expected);
+    const omittedExclusions = grading.gradeSolutionSet(exclusionsField, "");
+    assert.equal(expressionOnly.earned + omittedExclusions.earned, 1, `${question.id}: expression alone must not earn full credit`);
     const independentlySimplified = expectedSlotThree(data);
     let matches = 0;
     [-13, -8, -4, -1, 0, 2, 5, 9, 14].forEach((x) => {
       if (data.exclusions.includes(x)) return;
       const original = parsedValue(data.originalExpression, x);
       const recomputed = parsedValue(independentlySimplified, x);
-      const actual = parsedValue(field.expected, x);
+      const actual = parsedValue(expressionField.expected, x);
       assert.equal(original.ok, recomputed.ok, `${question.id} at x=${x}`);
       assert.equal(actual.ok, recomputed.ok, `${question.id} at x=${x}`);
       if (original.ok) {
@@ -318,10 +364,19 @@ test("every rational or polynomial root is independently recovered and valid in 
   assert.ok(loadSlots()[4].some((question) => question.sourceData.rejectedCandidates.length > 0), "the bank must exercise excluded candidate rejection");
 });
 
-test("geometry answers recompute from source parameters and every schematic SVG is accessible", () => {
+test("geometry answers match independent constructions and every schematic SVG is accessible", () => {
+  const fixtures = {
+    "math-s5-right-triangle-01": 4.8,
+    "math-s5-non-right-triangle-area-01": 23,
+    "math-s5-parallel-transversal-02": 10.8,
+    "math-s5-composite-quadrilateral-01": 46.7,
+    "math-s5-symmetric-construction-04": 7.4
+  };
   loadSlots()[5].forEach((question) => {
     const data = question.sourceData;
-    assert.equal(question.fields[0].expected, recomputeGeometry(data), question.id);
+    const independentlyRounded = roundGeometry(independentlyDeriveGeometry(data), data.decimals);
+    assert.equal(question.fields[0].expected, independentlyRounded, question.id);
+    if (Object.hasOwn(fixtures, question.id)) assert.equal(question.fields[0].expected, fixtures[question.id], question.id);
     assert.equal(question.fields[0].targetUnit, data.unit, question.id);
     assert.match(question.promptHtml, /Avrunda svaret till/);
     assert.match(question.promptHtml, new RegExp(data.unit.replace("²", "\\²")));
@@ -331,6 +386,18 @@ test("geometry answers recompute from source parameters and every schematic SVG 
     assert.match(question.promptHtml, /inte skalenlig/i);
     assert.match(question.solutionHtml, /Samband:/);
   });
+});
+
+test("geometry solutions retain every requested trailing decimal", () => {
+  loadSlots()[5].forEach((question) => {
+    const data = question.sourceData;
+    const finalAnswer = fixedSwedish(question.fields[0].expected, data.decimals) + " " + data.unit;
+    assert.match(question.solutionHtml, new RegExp(`Efter avrundning[\\s\\S]*<strong>${finalAnswer.replace("²", "\\²")}<\\/strong>`), question.id);
+  });
+  const byId = Object.fromEntries(loadSlots()[5].map((question) => [question.id, question]));
+  assert.match(byId["math-s5-non-right-triangle-area-01"].solutionHtml, /<strong>23,0 m²<\/strong>/);
+  assert.match(byId["math-s5-parallel-transversal-02"].solutionHtml, /<strong>10,80 m<\/strong>/);
+  assert.match(byId["math-s5-symmetric-construction-04"].solutionHtml, /<strong>7,40 cm<\/strong>/);
 });
 
 test("subject assembly works in CommonJS and through ordered classic browser scripts", () => {

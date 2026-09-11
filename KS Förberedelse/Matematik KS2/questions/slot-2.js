@@ -69,11 +69,18 @@
   }
 
   function solve(family, p) {
-    return branchRoots(family, p).filter(function (candidate, index, values) {
+    return candidatesFor(family, p).filter(function (candidate) {
       const evaluated = sides(family, p, candidate);
-      return values.findIndex(function (value) { return Math.abs(value - candidate) < 1e-9; }) === index &&
-        Number.isFinite(evaluated[0]) && Number.isFinite(evaluated[1]) && Math.abs(evaluated[0] - evaluated[1]) < 1e-8;
-    }).map(function (value) { return Number(value.toFixed(10)); }).sort(function (left, right) { return left - right; });
+      return Number.isFinite(evaluated[0]) && Number.isFinite(evaluated[1]) && Math.abs(evaluated[0] - evaluated[1]) < 1e-8;
+    });
+  }
+
+  function candidatesFor(family, p) {
+    return branchRoots(family, p).map(function (value) { return Number(value.toFixed(10)); })
+      .sort(function (left, right) { return left - right; })
+      .filter(function (candidate, index, values) {
+        return index === 0 || Math.abs(candidate - values[index - 1]) >= 1e-9;
+      });
   }
 
   function presentation(family, p) {
@@ -86,12 +93,15 @@
 
   function makeQuestion(family, parameters, rowIndex) {
     const shown = presentation(family, parameters);
+    const candidates = candidatesFor(family, parameters);
     const expected = solve(family, parameters);
     const contextualLead = family === "contextual-distance" ? "<p>" + parameters.context + " Låt <var>x</var> beteckna det okända värdet och bestäm alla möjliga värden på <var>x</var>.</p>" :
       "<p>Lös ekvationen <strong>" + shown.prompt + "</strong>. Svara exakt.</p>";
-    const verification = expected.map(function (candidate) {
+    const verification = candidates.map(function (candidate) {
       const evaluated = sides(family, parameters, candidate);
-      return "<li><var>x</var> = " + clean(candidate) + " ger " + clean(evaluated[0]) + " = " + clean(evaluated[1]) + ".</li>";
+      const accepted = Number.isFinite(evaluated[0]) && Number.isFinite(evaluated[1]) && Math.abs(evaluated[0] - evaluated[1]) < 1e-8;
+      return "<li><var>x</var> = " + clean(candidate) + ": insättning ger vänsterledet " + clean(evaluated[0]) +
+        " och högerledet " + clean(evaluated[1]) + (accepted ? "; kandidaten godtas." : "; leden är inte lika, så kandidaten förkastas.") + "</li>";
     }).join("");
     return {
       id: "math-s2-" + family + "-" + String(rowIndex + 1).padStart(2, "0"),
@@ -104,7 +114,7 @@
         tolerance: { absolute: 1e-8, relative: 1e-9 }, help: "Skilj flera värden åt med semikolon."
       }],
       solutionHtml: "<p>Absolutbelopp beskriver avstånd. Ekvationen skrivs som <strong>" + shown.prompt + "</strong>.</p>" +
-        "<p>De två möjliga grenarna eller fallen fås av <strong>" + shown.split + "</strong>. När de linjära ekvationerna löses erhålls kandidaterna " + expected.map(clean).join(" och ") + ".</p>" +
+        "<p>De två möjliga grenarna eller fallen fås av <strong>" + shown.split + "</strong>. När de linjära ekvationerna löses erhålls kandidaterna " + candidates.map(clean).join(" och ") + ".</p>" +
         "<p><strong>Prövning:</strong></p><ul>" + verification + "</ul><p><strong>Svar:</strong> <var>x</var> = " + expected.map(clean).join(", ") + ".</p>",
       rubric: [
         { points: 1, text: "Korrekt uppdelning i två fall eller korrekt avståndstolkning." },
@@ -113,7 +123,11 @@
       sourceData: {
         skill: "absolute-value-equations",
         family: family,
-        parameters: Object.assign({}, parameters)
+        parameters: Object.assign({}, parameters),
+        branchCandidates: candidates.slice(),
+        rejectedCandidates: candidates.filter(function (candidate) {
+          return !expected.some(function (root) { return Math.abs(root - candidate) < 1e-9; });
+        })
       }
     };
   }

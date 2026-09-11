@@ -50,6 +50,10 @@
     return (Number.isInteger(value) ? String(value) : String(value)).replace(".", ",");
   }
 
+  function fixedDecimal(value, decimals) {
+    return Number(value).toFixed(decimals).replace(".", ",");
+  }
+
   function roundingText(decimals) {
     return decimals === 1 ? "en decimal" : "två decimaler";
   }
@@ -180,7 +184,7 @@
       }],
       solutionHtml: "<p><strong>Samband:</strong> " + shown.relation + "</p>" +
         "<p>Sätt in de givna värdena: <strong>" + shown.calculation + " = " + clean(Number(exact.toFixed(6))) + " " + p.unit + "</strong>.</p>" +
-        "<p>Efter avrundning till " + roundingText(p.decimals) + " blir svaret <strong>" + clean(expected) + " " + p.unit + "</strong>.</p>",
+        "<p>Efter avrundning till " + roundingText(p.decimals) + " blir svaret <strong>" + fixedDecimal(expected, p.decimals) + " " + p.unit + "</strong>.</p>",
       rubric: [
         { points: 1, text: "Korrekt geometriskt samband och korrekt insatta värden." },
         { points: 1, text: "Korrekt beräkning, enhet och avrundning." }
