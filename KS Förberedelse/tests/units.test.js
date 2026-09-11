@@ -17,6 +17,16 @@ test("converts compatible units", () => {
   assert.equal(units.convert(10, "m×s-1", "m/s").value, 10);
 });
 
+test("normalizes and converts first-class square-area units", () => {
+  const aliases = { m2: ["m2", "m^2", "m²"], cm2: ["cm2", "cm^2", "cm²"], mm2: ["mm2", "mm^2", "mm²"] };
+  Object.entries(aliases).forEach(([canonical, variants]) => {
+    variants.forEach((variant) => assert.equal(units.normalizeUnit(variant), canonical));
+  });
+  assert.equal(units.convert(1, "m²", "cm²").value, 10000);
+  assert.equal(units.convert(2500, "mm^2", "cm2").value, 25);
+  assert.deepEqual(units.convert(1, "m²", "m"), { ok: false, reason: "incompatible-dimension" });
+});
+
 test("refuses incompatible or unknown units", () => {
   assert.deepEqual(units.convert(1, "N", "kg"), { ok: false, reason: "incompatible-dimension" });
   assert.equal(units.convert(1, "glim", "m").ok, false);
