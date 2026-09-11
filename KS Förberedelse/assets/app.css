@@ -96,7 +96,10 @@ summary:focus-visible {
 }
 
 .back-link {
+  display: inline-flex;
+  align-items: center;
   flex: 0 0 auto;
+  min-height: 44px;
   text-decoration: none;
 }
 
@@ -173,6 +176,7 @@ summary:focus-visible {
   width: min(100% - 40px, 1020px);
   margin: 0 auto;
   padding: 44px 0 80px;
+  background: var(--surface);
 }
 
 .question-nav {
@@ -239,6 +243,11 @@ summary:focus-visible {
 #exam-app {
   min-width: 0;
   outline: none;
+}
+
+#exam-app:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 8px;
 }
 
 .empty-state {
@@ -517,6 +526,10 @@ dialog {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 24px;
+}
+
+dialog:not([open]) {
+  display: none;
 }
 
 dialog::backdrop {

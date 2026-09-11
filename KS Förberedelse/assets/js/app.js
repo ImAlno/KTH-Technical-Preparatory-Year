@@ -373,7 +373,7 @@
       snapshot.questionIds.forEach(function (questionId, position) {
         const question = index[questionId];
         const article = createElement(document, "article", "print-question");
-        article.append(createElement(document, "h2", "", `Uppgift ${position + 1} (${formatPoints(question.points)} p)`));
+        article.append(createElement(document, "h2", "", `Uppgift ${position + 1}: ${question.title} (${formatPoints(question.points)} p)`));
         article.append(setHtml(createElement(document, "div", "prompt"), question.promptHtml));
         article.append(createElement(document, "div", "print-answer-space"));
         print.append(article);
@@ -517,8 +517,40 @@
         if (store.warning) announce(store.warning);
         return true;
       } catch (error) {
-        return startNewSession();
+        showRestoreFailure();
+        return false;
       }
+    }
+
+    let recoveryProblem = false;
+
+    function resetRecoveryChoice() {
+      elements.recoveryDialog.dataset.confirming = "false";
+      elements.recoveryMessage.textContent = recoveryProblem
+        ? "Det sparade provet kunde inte återställas. Försök igen eller starta ett nytt prov."
+        : "Fortsätt där du slutade eller starta ett nytt prov.";
+      elements.recoveryContinue.hidden = false;
+      elements.recoveryContinue.textContent = recoveryProblem ? "Försök igen" : "Fortsätt provet";
+      elements.recoveryBack.hidden = true;
+      elements.recoveryNew.textContent = "Starta nytt";
+      elements.recoveryNew.className = "neutral-button";
+    }
+
+    function prepareReplacementConfirmation() {
+      elements.recoveryDialog.dataset.confirming = "true";
+      elements.recoveryMessage.textContent = "Det sparade provet ersätts. Den åtgärden går inte att ångra.";
+      elements.recoveryContinue.hidden = true;
+      elements.recoveryBack.hidden = false;
+      elements.recoveryNew.textContent = "Ersätt med nytt prov";
+      elements.recoveryNew.className = "primary-button";
+    }
+
+    function showRestoreFailure() {
+      recoveryProblem = true;
+      resetRecoveryChoice();
+      if (elements.sessionState) elements.sessionState.textContent = "Det sparade provet kunde inte öppnas";
+      announce("Det sparade provet kunde inte återställas. Inget sparat prov har skrivits över.");
+      showDialog(elements.recoveryDialog);
     }
 
     if (elements.timerStart) elements.timerStart.addEventListener("click", function () {
@@ -584,20 +616,13 @@
         startNewSession();
         return;
       }
-      elements.recoveryDialog.dataset.confirming = "true";
-      elements.recoveryMessage.textContent = "Det sparade provet ersätts. Den åtgärden går inte att ångra.";
-      elements.recoveryContinue.hidden = true;
-      elements.recoveryBack.hidden = false;
-      elements.recoveryNew.textContent = "Ersätt med nytt prov";
-      elements.recoveryNew.className = "primary-button";
+      prepareReplacementConfirmation();
     });
     if (elements.recoveryBack) elements.recoveryBack.addEventListener("click", function () {
-      elements.recoveryDialog.dataset.confirming = "false";
-      elements.recoveryMessage.textContent = "Fortsätt där du slutade eller starta ett nytt prov.";
-      elements.recoveryContinue.hidden = false;
-      elements.recoveryBack.hidden = true;
-      elements.recoveryNew.textContent = "Starta nytt";
-      elements.recoveryNew.className = "neutral-button";
+      resetRecoveryChoice();
+    });
+    if (elements.recoveryDialog) elements.recoveryDialog.addEventListener("cancel", function (event) {
+      if (!session) event.preventDefault();
     });
 
     const saved = store.loadActive();
