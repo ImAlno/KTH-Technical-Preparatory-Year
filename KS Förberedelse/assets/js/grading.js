@@ -273,13 +273,14 @@
       if (accepted.some(function (candidate) { return !candidate.ok || (spec.requireStates && !candidate.state); })) {
         return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom facit inte kunde tolkas.");
       }
+      const expected = accepted[0];
       const actual = chemistry.parseFormula(raw);
       if (!actual.ok) return result("self", spec, 0, null, "Den kemiska formeln kunde inte tolkas säkert.");
 
       const match = accepted.some(function (candidate) {
         return actual.identityCanonical === candidate.identityCanonical && (!spec.requireStates || actual.state === candidate.state);
       });
-      if (match) return result("correct", spec, spec.points, actual.canonical, "Rätt svar.");
+      if (match) return result("correct", spec, spec.points, expected.canonical, "Rätt svar.");
       return result("incorrect", spec, 0, actual.canonical, "Den kemiska formeln stämmer inte med facit.");
     } catch (error) {
       return result("self", spec, 0, null, "Svaret kunde inte rättas automatiskt.");

@@ -195,6 +195,9 @@ test("simplification grading rejects a cancellable non-unit common factor", () =
     grading.gradeSimplifiedExpression(spec, "2*(x-5)/(2*(x-7))").status,
     "incorrect"
   );
+  ["0.5*(x-5)/(0.5*(x-7))", "1.25*(x-5)/(1.25*(x-7))"].forEach((raw) => {
+    assert.equal(grading.gradeSimplifiedExpression(spec, raw).status, "incorrect", raw);
+  });
   assert.equal(
     grading.gradeSimplifiedExpression(spec, "(5-x)/(7-x)").status,
     "correct",
@@ -267,6 +270,10 @@ test("chemical formula grading preserves grouping and order unless an alias is e
   assert.equal(
     grading.gradeChemicalFormula({ expected: "N^3-", aliases: ["N3-"], points: 1 }, "N3-").status,
     "correct"
+  );
+  assert.equal(
+    grading.gradeChemicalFormula({ expected: "N^3-", aliases: ["N3-"], points: 1 }, "N3-").interpreted,
+    "N|charge:-3"
   );
 });
 

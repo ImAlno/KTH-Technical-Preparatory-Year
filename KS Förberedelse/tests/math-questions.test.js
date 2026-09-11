@@ -365,6 +365,9 @@ test("all real simplification fields reject their unchanged source expression", 
 
   const signField = loadSlots()[3].find((question) => question.id === "math-s3-factor-cancellation-01").fields[0];
   assert.equal(grading.gradeSimplifiedExpression(signField, "(5-x)/(7-x)").status, "correct");
+  ["0.5*(x-5)/(0.5*(x-7))", "1.25*(x-5)/(1.25*(x-7))"].forEach((raw) => {
+    assert.equal(grading.gradeSimplifiedExpression(signField, raw).status, "incorrect", raw);
+  });
 });
 
 test("every rational or polynomial root is independently recovered and valid in the original equation", () => {

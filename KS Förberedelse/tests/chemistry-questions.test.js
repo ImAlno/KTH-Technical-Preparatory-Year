@@ -478,7 +478,9 @@ test("real bank chemistry graders reject case changes and wrong structures but d
     .find((question) => question.sourceData.ion === "N^3-")
     .fields.find((field) => field.id === "ion");
   assert.equal(grading.gradeChemicalFormula(nitrogenIonField, "N³⁻").status, "correct");
-  assert.equal(grading.gradeChemicalFormula(nitrogenIonField, "N3-").status, "correct");
+  const plainNitrogenIon = grading.gradeChemicalFormula(nitrogenIonField, "N3-");
+  assert.equal(plainNitrogenIon.status, "correct");
+  assert.equal(plainNitrogenIon.interpreted, "N|charge:-3");
 
   const malformedFormula = grading.gradeChemicalFormula(formulaField, "N((O2");
   assert.equal(malformedFormula.status, "self");

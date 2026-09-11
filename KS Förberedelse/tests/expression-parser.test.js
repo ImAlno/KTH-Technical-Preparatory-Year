@@ -77,6 +77,11 @@ test("rational analysis exposes reduction and exact denominator-domain structure
     "x+1",
     { variable: "x" }
   );
+  const decimalScalar = expression.compareReducedRationals(
+    "0.5*(x-5)/(0.5*(x-7))",
+    "(x-5)/(x-7)",
+    { variable: "x" }
+  );
 
   assert.equal(copied.ok, true);
   assert.equal(copied.reduced, false, "the copied quotient still has the factor x-2");
@@ -89,6 +94,8 @@ test("rational analysis exposes reduction and exact denominator-domain structure
     sameDomain: false,
     simple: true
   });
+  assert.equal(decimalScalar.equivalent, true);
+  assert.equal(decimalScalar.coefficientReduced, false, "a common finite decimal scalar remains cancellable");
 });
 
 test("equivalence rejects mismatches but reports unsafe comparisons as uncertain", () => {

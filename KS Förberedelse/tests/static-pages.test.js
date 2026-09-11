@@ -83,8 +83,19 @@ function fakeNode(tagName) {
     scrollLeft: 0,
     scrollTop: 0,
     attributes: {},
-    append(...children) { this.children.push(...children); },
-    replaceChildren(...children) { this.children = children; },
+    append(...children) {
+      children.forEach((child) => {
+        if (child && typeof child === "object") {
+          child.parentNode = this;
+          child.parentElement = this;
+        }
+      });
+      this.children.push(...children);
+    },
+    replaceChildren(...children) {
+      this.children = [];
+      this.append(...children);
+    },
     addEventListener(type, handler) {
       listeners[type] = listeners[type] || [];
       listeners[type].push(handler);
@@ -693,6 +704,27 @@ test("manual scoring restores focus to the equivalent newly rendered score contr
 
   const replacement = descendants(harness.root).find((node) => node.attributes["aria-label"] === "1 av 1 poäng");
   assert.notEqual(replacement, original);
+  assert.equal(replacement.focused, true);
+});
+
+test("override scoring reopens its recreated details panel before restoring focus", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+
+  app.mount(harness.root, harness.subjectData);
+  harness.nodes["submit-confirm"].fire("click");
+  const originalDetails = descendants(harness.root).find((node) => node.className === "override-grade");
+  const original = descendants(harness.root).find((node) => node.dataset.focusKey === "override-score:q1:1");
+  assert.ok(originalDetails);
+  assert.ok(original);
+  originalDetails.open = true;
+  original.fire("click");
+
+  const replacementDetails = descendants(harness.root).find((node) => node.className === "override-grade");
+  const replacement = descendants(harness.root).find((node) => node.dataset.focusKey === "override-score:q1:1");
+  assert.notEqual(replacementDetails, originalDetails);
+  assert.notEqual(replacement, original);
+  assert.equal(replacementDetails.open, true);
   assert.equal(replacement.focused, true);
 });
 

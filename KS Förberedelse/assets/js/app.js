@@ -235,6 +235,16 @@
       const target = Array.from(rootElement.querySelectorAll("[data-focus-key]")).find(function (control) {
         return control.dataset && control.dataset.focusKey === focusKey;
       });
+      if (target && focusKey.indexOf("override-score:") === 0) {
+        let ancestor = target.parentElement;
+        while (ancestor && ancestor !== rootElement) {
+          if (ancestor.tagName === "DETAILS") {
+            ancestor.open = true;
+            break;
+          }
+          ancestor = ancestor.parentElement;
+        }
+      }
       if (target && typeof target.focus === "function") target.focus();
     }
 

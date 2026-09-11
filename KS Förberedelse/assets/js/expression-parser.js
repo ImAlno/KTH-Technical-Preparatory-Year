@@ -479,6 +479,14 @@
     return integerGreatestCommonDivisor(integerPolynomialContent(left), integerPolynomialContent(right)) > 1;
   }
 
+  function sameCoefficientScaleUpToSign(left, right) {
+    const first = Math.abs(left);
+    const second = Math.abs(right);
+    const scale = Math.max(1, first, second);
+    return Number.isFinite(first) && Number.isFinite(second) &&
+      Math.abs(first - second) <= POLYNOMIAL_EPSILON * scale;
+  }
+
   function polynomialDerivative(polynomial) {
     if (polynomial.length <= 1) return [0];
     return normalizePolynomial(polynomial.slice(1).map(function (coefficient, index) {
@@ -613,6 +621,7 @@
       domain: domain,
       reduced: polynomialDegree(divisor) === 0,
       coefficientReduced: !hasCommonIntegerFactor(numeratorDivision.quotient, denominatorDivision.quotient),
+      coefficientScale: denominatorLead,
       variableDivisions: rational.variableDivisions
     };
   }
@@ -627,7 +636,8 @@
     return {
       equivalent: samePolynomial(left, right),
       reduced: actual.reduced,
-      coefficientReduced: actual.coefficientReduced,
+      coefficientReduced: actual.coefficientReduced &&
+        sameCoefficientScaleUpToSign(actual.coefficientScale, expected.coefficientScale),
       sameDomain: samePolynomial(actual.domain, expected.domain),
       simple: actual.variableDivisions <= 1
     };
