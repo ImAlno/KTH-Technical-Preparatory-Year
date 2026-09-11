@@ -114,7 +114,15 @@
       drawing = '<rect x="95" y="70" width="330" height="38" fill="#dbeafe" stroke="#1d1d1f"/><path d="M125 155 L165 108 L205 155 Z M315 155 L355 108 L395 155 Z" fill="#f5f5f7" stroke="#1d1d1f"/><line x1="165" y1="108" x2="165" y2="42" stroke="#0071e3" stroke-width="4"/><circle cx="165" cy="42" r="5" fill="#0071e3"/><text x="180" y="48">F₁ = ' + clean(p.knownSupportN) + ' N</text><text x="260" y="194" text-anchor="middle">m = ' + clean(p.massKg) + " kg</text>";
       desc = "En horisontell styv kropp vilar på två stöd. Kroppens massa och den vänstra stödreaktionen är utskrivna.";
     } else {
-      drawing = '<line x1="390" y1="25" x2="390" y2="205" stroke="#1d1d1f" stroke-width="5"/><circle cx="335" cy="145" r="40" fill="#dbeafe" stroke="#1d1d1f"/><line x1="335" y1="115" x2="205" y2="35" stroke="#0071e3" stroke-width="4"/><text x="95" y="31">lina, α = ' + clean(p.cableAngleDeg) + '° över horisontalen</text><text x="280" y="213">m = ' + clean(p.massKg) + " kg</text>";
+      const wallX = 390;
+      const centerX = 330;
+      const centerY = 145;
+      const radius = 60;
+      const angle = radians(p.cableAngleDeg);
+      const attachmentX = centerX + radius * Math.cos(angle);
+      const attachmentY = centerY - radius * Math.sin(angle);
+      const anchorY = centerY - radius * Math.tan(angle);
+      drawing = '<line data-role="wall" x1="' + wallX + '" y1="18" x2="' + wallX + '" y2="215" stroke="#1d1d1f" stroke-width="5"/><circle data-role="sphere" cx="' + centerX + '" cy="' + centerY + '" r="' + radius + '" fill="#dbeafe" stroke="#1d1d1f"/><line data-role="cable" x1="' + attachmentX + '" y1="' + attachmentY + '" x2="' + wallX + '" y2="' + anchorY + '" stroke="#0071e3" stroke-width="4"/><text x="55" y="31">lina, α = ' + clean(p.cableAngleDeg) + '° över horisontalen</text><text x="255" y="218">m = ' + clean(p.massKg) + " kg</text>";
       desc = "En sfärisk kropp ligger mot en friktionsfri lodrät vägg och hålls av en lina med utskriven vinkel över horisontalen.";
     }
     return '<svg viewBox="0 0 520 250" role="img" aria-labelledby="' + id + "-svg-title " + id + '-svg-desc"><title id="' + id + '-svg-title">' + row.scenario + ": kraftsituation</title><desc id=\"" + id + '-svg-desc">' + desc + " Bilden är schematisk och inte skalenlig.</desc>" + drawing + '<text x="260" y="242" text-anchor="middle">Schematisk och inte skalenlig</text></svg>';

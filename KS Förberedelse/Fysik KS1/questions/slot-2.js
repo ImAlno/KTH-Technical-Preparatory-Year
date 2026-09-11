@@ -27,7 +27,7 @@
     ]],
     ["sphere", [
       { unknown: "radius", scenario: "Ventilkulan Umbra", object: "en massiv sfärisk ventilkula", givens: { massKg: 0.62, densityKgM3: 8050 }, displayUnits: { mass: "g", density: "kg/m3" }, targetUnit: "mm" },
-      { unknown: "height", scenario: "Flytkroppen Vinga", object: "en homogen sfärisk flytkropp", givens: { massKg: 1.15, densityKgM3: 4500 }, displayUnits: { mass: "kg", density: "g/cm3" }, targetUnit: "cm" },
+      { unknown: "diameter", diameterDefinition: "sphere-height", scenario: "Flytkroppen Vinga", object: "en homogen sfärisk flytkropp", givens: { massKg: 1.15, densityKgM3: 4500 }, displayUnits: { mass: "kg", density: "g/cm3" }, targetUnit: "cm" },
       { unknown: "volume", scenario: "Sfärformen Alun", object: "en sfärisk form med radien angiven", givens: { radiusM: 0.042 }, displayUnits: { radius: "mm" }, targetUnit: "cm3" },
       { unknown: "mass", scenario: "Motvikten Björk", object: "en sfärisk motvikt", givens: { densityKgM3: 11300, radiusM: 0.021 }, displayUnits: { density: "g/cm3", radius: "cm" }, targetUnit: "g" },
       { unknown: "density", scenario: "Provkulan Cikoria", object: "en homogen provkula", givens: { massKg: 0.53, radiusM: 0.031 }, displayUnits: { mass: "g", radius: "mm" }, targetUnit: "g/cm3" }
@@ -37,7 +37,7 @@
       { unknown: "volume", scenario: "Mätblocket En", object: "ett rätblock", baseShape: "rectangle", givens: { lengthM: 0.12, widthM: 0.080, heightM: 0.055 }, displayUnits: { length: "cm", width: "mm", height: "cm" }, targetUnit: "cm3" },
       { unknown: "mass", scenario: "Skumprismat Fenix", object: "ett homogent rätblock av skummaterial", baseShape: "rectangle", givens: { densityKgM3: 1350, lengthM: 0.24, widthM: 0.090, heightM: 0.045 }, displayUnits: { density: "g/cm3", length: "cm", width: "cm", height: "mm" }, targetUnit: "kg" },
       { unknown: "density", scenario: "Stenprismat Granit", object: "ett homogent rätblock", baseShape: "rectangle", givens: { massKg: 2.7, lengthM: 0.16, widthM: 0.11, heightM: 0.075 }, displayUnits: { mass: "kg", length: "cm", width: "cm", height: "mm" }, targetUnit: "kg/m3" },
-      { unknown: "radius", scenario: "Hexprismat Hjortron", object: "ett regelbundet sexkantigt prisma", baseShape: "regular-hexagon", givens: { massKg: 1.6, densityKgM3: 7800, heightM: 0.060 }, displayUnits: { mass: "kg", density: "g/cm3", height: "mm" }, targetUnit: "mm" }
+      { unknown: "radius", radiusDefinition: "circumradius-center-to-vertex", scenario: "Hexprismat Hjortron", object: "ett regelbundet sexkantigt prisma", baseShape: "regular-hexagon", givens: { massKg: 1.6, densityKgM3: 7800, heightM: 0.060 }, displayUnits: { mass: "kg", density: "g/cm3", height: "mm" }, targetUnit: "mm" }
     ]],
     ["liquid-column", [
       { unknown: "volume", scenario: "Regnkolonnen Is", object: "en vätskekolonn i ett cylindriskt kärl", givens: { radiusM: 0.035, heightM: 0.22 }, displayUnits: { radius: "cm", height: "cm" }, targetUnit: "dm3" },
@@ -50,7 +50,7 @@
 
   const UNIT_FACTORS = { kg: 1, g: 1e-3, m: 1, cm: 1e-2, mm: 1e-3, m3: 1, dm3: 1e-3, cm3: 1e-6, "kg/m3": 1, "g/cm3": 1000 };
   const UNIT_LABELS = { kg: "kg", g: "g", m: "m", cm: "cm", mm: "mm", m3: "m³", dm3: "dm³", cm3: "cm³", "kg/m3": "kg/m³", "g/cm3": "g/cm³" };
-  const QUANTITY_NAMES = { mass: "massan", density: "densiteten", radius: "radien", height: "höjden", volume: "volymen" };
+  const QUANTITY_NAMES = { mass: "massan", density: "densiteten", radius: "radien", diameter: "diametern (sfärens höjd)", height: "höjden", volume: "volymen" };
 
   function roundSignificant(value, figures) {
     if (value === 0) return 0;
@@ -73,7 +73,7 @@
   }
 
   function canonicalUnit(unknown) {
-    return { mass: "kg", density: "kg/m3", radius: "m", height: "m", volume: "m3" }[unknown];
+    return { mass: "kg", density: "kg/m3", radius: "m", diameter: "m", height: "m", volume: "m3" }[unknown];
   }
 
   function toDisplay(value, unit) {
@@ -107,10 +107,11 @@
       if (family === "prism") return Math.sqrt(matterVolume / (HEXAGON_FACTOR * p.heightM));
       return Math.sqrt(matterVolume / (Math.PI * p.heightM));
     }
-    if (family === "cone") return 3 * matterVolume / (Math.PI * p.radiusM * p.radiusM);
-    if (family === "sphere") return 2 * Math.pow(3 * matterVolume / (4 * Math.PI), 1 / 3);
-    if (family === "prism") return matterVolume / (p.lengthM * p.widthM);
-    return matterVolume / (Math.PI * p.radiusM * p.radiusM);
+    if (row.unknown === "diameter" && family === "sphere") return 2 * Math.pow(3 * matterVolume / (4 * Math.PI), 1 / 3);
+    if (row.unknown === "height" && family === "cone") return 3 * matterVolume / (Math.PI * p.radiusM * p.radiusM);
+    if (row.unknown === "height" && family === "prism") return matterVolume / (p.lengthM * p.widthM);
+    if (row.unknown === "height") return matterVolume / (Math.PI * p.radiusM * p.radiusM);
+    throw new Error("Okänd sökt storhet: " + row.unknown);
   }
 
   function geometryFormula(family, row) {
@@ -137,9 +138,9 @@
   function bodySvg(id, family, row) {
     const label = givensText(row);
     let shape;
-    if (family === "sphere") shape = '<circle cx="260" cy="92" r="55" fill="#dbeafe" stroke="#1d1d1f"/><path d="M205 92 Q260 122 315 92" fill="none" stroke="#6e6e73" stroke-dasharray="5 5"/>';
+    if (family === "sphere") shape = '<circle data-role="sphere-body" cx="260" cy="92" r="55" fill="#dbeafe" stroke="#1d1d1f"/><path d="M205 92 Q260 122 315 92" fill="none" stroke="#6e6e73" stroke-dasharray="5 5"/>' + (row.unknown === "diameter" ? '<line data-role="diameter" x1="205" y1="92" x2="315" y2="92" stroke="#0071e3" stroke-width="3"/><text data-role="diameter-label" x="260" y="82" text-anchor="middle">d</text>' : "");
     else if (family === "cone") shape = '<ellipse cx="260" cy="145" rx="70" ry="18" fill="#dbeafe" stroke="#1d1d1f"/><path d="M190 145 L260 30 L330 145" fill="#dbeafe" stroke="#1d1d1f"/>';
-    else if (family === "prism" && row.baseShape === "regular-hexagon") shape = '<path d="M205 70 L240 48 L285 58 L315 95 L280 118 L235 108 Z M235 108 L235 158 M280 118 L280 168 M315 95 L315 145 M235 158 L280 168 L315 145" fill="#dbeafe" stroke="#1d1d1f"/>';
+    else if (family === "prism" && row.baseShape === "regular-hexagon") shape = '<path data-role="hex-prism-outline" d="M205 70 L240 48 L285 58 L315 95 L280 118 L235 108 Z M235 108 L235 158 M280 118 L280 168 M315 95 L315 145 M235 158 L280 168 L315 145" fill="#dbeafe" stroke="#1d1d1f"/><line data-role="circumradius" x1="260" y1="83" x2="315" y2="95" stroke="#0071e3" stroke-width="3"/><text data-role="circumradius-label" x="286" y="82">r</text>';
     else if (family === "prism") shape = '<path d="M180 75 L310 75 L350 45 L220 45 Z M180 75 L180 155 L310 155 L310 75 M310 155 L350 125 L350 45" fill="#dbeafe" stroke="#1d1d1f"/>';
     else shape = '<ellipse cx="260" cy="45" rx="65" ry="17" fill="#dbeafe" stroke="#1d1d1f"/><path d="M195 45 L195 145 Q260 178 325 145 L325 45" fill="#dbeafe" stroke="#1d1d1f"/><ellipse cx="260" cy="145" rx="65" ry="17" fill="none" stroke="#1d1d1f"/>';
     return '<svg viewBox="0 0 520 245" role="img" aria-labelledby="' + id + "-svg-title " + id + '-svg-desc"><title id="' + id + '-svg-title">' + row.scenario + ": geometrisk modell</title><desc id=\"" + id + '-svg-desc">Schematisk modell av ' + row.object + ". Angivna data: " + label + '. Måtten kan inte avläsas ur figuren.</desc>' + shape + '<text x="260" y="205" text-anchor="middle">' + label + '</text><text x="260" y="229" text-anchor="middle">Schematisk och inte skalenlig</text></svg>';
@@ -156,11 +157,16 @@
     else if (row.unknown === "radius" && family === "cone") rearrangement = "r = √(3m/(πρh))";
     else if (row.unknown === "radius" && family === "prism") rearrangement = "r = √(m/(ρ(3√3/2)h))";
     else if (row.unknown === "radius") rearrangement = "r = √(m/(ρπh))";
-    else if (family === "sphere") rearrangement = "d = 2∛(3m/(4πρ))";
+    else if (row.unknown === "diameter" && family === "sphere") rearrangement = "d = 2∛(3m/(4πρ))";
     else if (family === "cone") rearrangement = "h = 3m/(ρπr²)";
     else if (family === "prism") rearrangement = "h = m/(ρlb)";
     else rearrangement = "h = m/(ρπr²)";
-    return "<p><strong>Samband:</strong> densitet definieras som ρ = m/V och kroppens volym ges av " + formula + ". Alla givna mått omvandlas först till SI.</p><p>För den sökta storheten fås <strong>" + rearrangement + "</strong>. Insättning ger " + formatSignificant(exactSI, 6) + " " + UNIT_LABELS[siUnit] + ".</p><p>Omräknat till begärd enhet och avrundat till " + figures + " värdesiffror blir svaret <strong>" + formatSignificant(expected, figures) + " " + UNIT_LABELS[row.targetUnit] + "</strong>.</p>";
+    const definition = row.unknown === "diameter"
+      ? " Sfärens höjd är diametern d = 2r."
+      : row.radiusDefinition === "circumradius-center-to-vertex"
+        ? " I formeln är r den omskrivna cirkelns radie, mätt från centrum till hörn."
+        : "";
+    return "<p><strong>Samband:</strong> densitet definieras som ρ = m/V och kroppens volym ges av " + formula + "." + definition + " Alla givna mått omvandlas först till SI.</p><p>För den sökta storheten fås <strong>" + rearrangement + "</strong>. Insättning ger " + formatSignificant(exactSI, 6) + " " + UNIT_LABELS[siUnit] + ".</p><p>Omräknat till begärd enhet och avrundat till " + figures + " värdesiffror blir svaret <strong>" + formatSignificant(expected, figures) + " " + UNIT_LABELS[row.targetUnit] + "</strong>.</p>";
   }
 
   function makeQuestion(family, row, familyIndex, rowIndex) {
@@ -170,13 +176,17 @@
     const exactTarget = exactSI / UNIT_FACTORS[row.targetUnit];
     const expected = roundSignificant(exactTarget, figures);
     const requestedUnitLabel = UNIT_LABELS[row.targetUnit];
+    const quantityPrompt = row.radiusDefinition === "circumradius-center-to-vertex"
+      ? "den omskrivna cirkelns radie från sexkantens centrum till ett hörn"
+      : QUANTITY_NAMES[row.unknown];
+    const answerLabel = row.unknown === "diameter" ? "Diameter" : "Svar";
     return {
       id: id,
       slot: 2,
       title: row.scenario,
       points: 2,
-      promptHtml: "<p>" + row.object.charAt(0).toUpperCase() + row.object.slice(1) + " har " + givensText(row) + ". Bestäm " + QUANTITY_NAMES[row.unknown] + ". Använd den idealiserade geometrin i figuren.</p>" + bodySvg(id, family, row) + "<p><small>Figuren är schematisk och inte skalenlig; använd enbart de utskrivna måtten.</small></p><p>Svara i " + requestedUnitLabel + ". Avrunda till " + figures + " värdesiffror.</p>",
-      fields: [{ id: "answer", label: "Svar (" + requestedUnitLabel + "; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: row.targetUnit, tolerance: tolerance(expected, figures), help: "Ange ett tal i den begärda enheten." }],
+      promptHtml: "<p>" + row.object.charAt(0).toUpperCase() + row.object.slice(1) + " har " + givensText(row) + ". Bestäm " + quantityPrompt + ". Använd den idealiserade geometrin i figuren.</p>" + bodySvg(id, family, row) + "<p><small>Figuren är schematisk och inte skalenlig; använd enbart de utskrivna måtten.</small></p><p>Svara i " + requestedUnitLabel + ". Avrunda till " + figures + " värdesiffror.</p>",
+      fields: [{ id: "answer", label: answerLabel + " (" + requestedUnitLabel + "; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: row.targetUnit, tolerance: tolerance(expected, figures), help: "Ange ett tal i den begärda enheten." }],
       solutionHtml: solutionText(family, row, exactSI, expected, figures),
       rubric: [
         { points: 1, text: "Rätt densitets- och volymsamband väljs och samtliga längder/massor omvandlas dimensionsriktigt till SI." },
@@ -187,6 +197,8 @@
         family: family,
         caseNumber: familyIndex * 5 + rowIndex + 1,
         unknown: row.unknown,
+        diameterDefinition: row.diameterDefinition || null,
+        radiusDefinition: row.radiusDefinition || null,
         baseShape: row.baseShape || null,
         givens: Object.assign({}, row.givens),
         displayUnits: Object.assign({}, row.displayUnits),

@@ -49,7 +49,7 @@ function roundSignificant(value, figures) {
 }
 
 function canonicalUnitForUnknown(unknown) {
-  return { mass: "kg", density: "kg/m3", radius: "m", height: "m", volume: "m3" }[unknown];
+  return { mass: "kg", density: "kg/m3", radius: "m", diameter: "m", height: "m", volume: "m3" }[unknown];
 }
 
 function derivedGraphAnswer(data) {
@@ -83,8 +83,8 @@ function derivedContactAnswer(data) {
   throw new Error(`Unknown contact type ${data.contactType}`);
 }
 
-function geometricVolume(data) {
-  const p = data.givens;
+function geometricVolume(data, dimensions = data.givens) {
+  const p = dimensions;
   if (data.family === "cylinder" || data.family === "liquid-column") return Math.PI * p.radiusM ** 2 * p.heightM;
   if (data.family === "cone") return Math.PI * p.radiusM ** 2 * p.heightM / 3;
   if (data.family === "sphere") return 4 * Math.PI * p.radiusM ** 3 / 3;
@@ -93,85 +93,139 @@ function geometricVolume(data) {
   throw new Error(`Unknown geometry ${data.family}`);
 }
 
-function derivedGeometryAnswerSI(data) {
-  const p = data.givens;
-  const volumeFromMatter = p.massKg / p.densityKgM3;
-  if (data.unknown === "mass") return p.densityKgM3 * geometricVolume(data);
-  if (data.unknown === "density") return p.massKg / geometricVolume(data);
-  if (data.unknown === "volume") return geometricVolume(data);
-  if (data.unknown === "radius") {
-    if (data.family === "cone") return Math.sqrt(3 * volumeFromMatter / (Math.PI * p.heightM));
-    if (data.family === "sphere") return Math.cbrt(3 * volumeFromMatter / (4 * Math.PI));
-    if (data.family === "prism") return Math.sqrt(2 * volumeFromMatter / (3 * Math.sqrt(3) * p.heightM));
-    return Math.sqrt(volumeFromMatter / (Math.PI * p.heightM));
-  }
-  if (data.unknown === "height") {
-    if (data.family === "cone") return 3 * volumeFromMatter / (Math.PI * p.radiusM ** 2);
-    if (data.family === "sphere") return 2 * Math.cbrt(3 * volumeFromMatter / (4 * Math.PI));
-    if (data.family === "prism") return volumeFromMatter / (p.lengthM * p.widthM);
-    return volumeFromMatter / (Math.PI * p.radiusM ** 2);
-  }
-  throw new Error(`Unknown requested quantity ${data.unknown}`);
+function numericField(question) {
+  return question.fields.find((field) => field.kind === "numeric");
 }
 
-function derivedVerticalAnswer(data) {
-  const p = data.givens;
-  if (data.family === "time-to-apex") return p.initialSpeedMps / G;
-  if (data.family === "maximum-height") return p.initialHeightM + p.initialSpeedMps ** 2 / (2 * G);
-  if (data.family === "initial-speed") return p.laterVelocityMps + G * p.elapsedS;
-  if (data.family === "impact-speed") {
-    const initialSpeed = (-p.initialHeightM + G * p.flightTimeS ** 2 / 2) / p.flightTimeS;
-    return Math.abs(initialSpeed - G * p.flightTimeS);
-  }
-  if (data.family === "flight-time") return (p.initialSpeedMps + Math.sqrt(p.initialSpeedMps ** 2 + 2 * G * p.initialHeightM)) / G;
-  throw new Error(`Unknown vertical-motion family ${data.family}`);
-}
-
-function derivedEquilibriumAnswer(data) {
-  const p = data.givens;
-  if (data.family === "hanging-masses") return (p.upperMassKg + p.lowerMassKg) * G;
-  if (data.family === "cables-at-angles") return p.massKg * G / (2 * Math.sin(p.angleDeg * Math.PI / 180));
-  if (data.family === "missing-fourth-force") {
-    return Math.hypot(p.forces.reduce((sum, force) => sum + force.xN, 0), p.forces.reduce((sum, force) => sum + force.yN, 0));
-  }
-  if (data.family === "supported-beams") return p.massKg * G - p.knownSupportN;
-  if (data.family === "frictionless-wall-contact") return p.massKg * G / Math.sin(p.cableAngleDeg * Math.PI / 180);
-  throw new Error(`Unknown equilibrium family ${data.family}`);
-}
-
-function derivedDynamicsAnswer(data) {
-  const p = data.givens;
-  if (data.family === "horizontal-pull") return (p.pullForceN - p.frictionCoefficient * p.massKg * G) / p.massKg;
-  if (data.family === "inclined-plane") return G * Math.sin(p.angleDeg * Math.PI / 180) - p.frictionForceN / p.massKg;
-  if (data.family === "connected-masses") return (p.hangingMassKg - p.tableMassKg * p.frictionCoefficient) * G / (p.hangingMassKg + p.tableMassKg);
-  if (data.family === "unknown-pull") return p.massKg * (p.accelerationMps2 + p.frictionCoefficient * G);
-  if (data.family === "unknown-friction") return p.driveForceN - p.massKg * p.finalSpeedMps / p.elapsedS;
-  throw new Error(`Unknown dynamics family ${data.family}`);
-}
-
-function derivedAnswerInTargetUnit(question) {
-  const data = question.sourceData;
-  let siValue;
-  let siUnit;
-  if (question.slot === 1) {
-    siValue = data.family === "graph-interpretation" ? derivedGraphAnswer(data) : derivedContactAnswer(data);
-    siUnit = data.targetUnit;
-  } else if (question.slot === 2) {
-    siValue = derivedGeometryAnswerSI(data);
-    siUnit = canonicalUnitForUnknown(data.unknown);
-  } else if (question.slot === 3) {
-    siValue = derivedVerticalAnswer(data);
-    siUnit = data.targetUnit;
-  } else if (question.slot === 4) {
-    siValue = derivedEquilibriumAnswer(data);
-    siUnit = "N";
-  } else {
-    siValue = derivedDynamicsAnswer(data);
-    siUnit = data.targetUnit;
-  }
-  const converted = units.convert(siValue, siUnit, data.targetUnit);
-  assert.equal(converted.ok, true, question.id);
+function numericAnswerInSI(question) {
+  const field = numericField(question);
+  const canonical = question.slot === 2 ? canonicalUnitForUnknown(question.sourceData.unknown) : field.targetUnit;
+  const converted = units.convert(field.expected, field.targetUnit, canonical);
+  assert.equal(converted.ok, true, `${question.id}: ${field.targetUnit} -> ${canonical}`);
   return converted.value;
+}
+
+function numericAnswerBoundsInSI(question) {
+  const field = numericField(question);
+  const tolerance = field.tolerance || {};
+  const allowed = Math.max(tolerance.absolute || 0, Math.abs(field.expected) * (tolerance.relative || 0));
+  const canonical = question.slot === 2 ? canonicalUnitForUnknown(question.sourceData.unknown) : field.targetUnit;
+  const convert = (value) => {
+    const converted = units.convert(value, field.targetUnit, canonical);
+    assert.equal(converted.ok, true, `${question.id}: ${field.targetUnit} -> ${canonical}`);
+    return converted.value;
+  };
+  return { lower: convert(field.expected - allowed), center: convert(field.expected), upper: convert(field.expected + allowed) };
+}
+
+function assertResidualBracket(question, residualAt) {
+  const bounds = numericAnswerBoundsInSI(question);
+  const residuals = [residualAt(bounds.lower), residualAt(bounds.center), residualAt(bounds.upper)];
+  assert.ok(residuals.every(Number.isFinite), `${question.id}: non-finite residual`);
+  const scale = Math.max(1, ...residuals.map(Math.abs));
+  const epsilon = 1e-12 * scale;
+  assert.ok(
+    Math.min(residuals[0], residuals[2]) <= epsilon && Math.max(residuals[0], residuals[2]) >= -epsilon,
+    `${question.id}: zero is outside rounded-answer residual bracket [${residuals[0]}, ${residuals[2]}]`
+  );
+}
+
+function assertGeometryResidual(question) {
+  const data = question.sourceData;
+  const p = data.givens;
+  let residualAt;
+  if (data.unknown === "mass") {
+    residualAt = (value) => value - p.densityKgM3 * geometricVolume(data, p);
+  } else if (data.unknown === "density") {
+    residualAt = (value) => value * geometricVolume(data, p) - p.massKg;
+  } else if (data.unknown === "volume") {
+    residualAt = (value) => value - geometricVolume(data, p);
+  } else {
+    residualAt = (value) => {
+      const dimensions = { ...p };
+      if (data.unknown === "radius") dimensions.radiusM = value;
+      else if (data.unknown === "diameter") dimensions.radiusM = value / 2;
+      else if (data.unknown === "height") dimensions.heightM = value;
+      else assert.fail(`${question.id}: unsupported geometry unknown ${data.unknown}`);
+      return p.densityKgM3 * geometricVolume(data, dimensions) - p.massKg;
+    };
+  }
+  assertResidualBracket(question, residualAt);
+}
+
+function assertVerticalResidual(question) {
+  const data = question.sourceData;
+  const p = data.givens;
+  let residualAt;
+  if (data.family === "time-to-apex") {
+    residualAt = (value) => p.initialSpeedMps - G * value;
+  } else if (data.family === "maximum-height") {
+    residualAt = (value) => p.initialSpeedMps ** 2 - 2 * G * (value - p.initialHeightM);
+  } else if (data.family === "initial-speed") {
+    residualAt = (value) => value - G * p.elapsedS - p.laterVelocityMps;
+  } else if (data.family === "impact-speed") {
+    residualAt = (value) => p.initialHeightM - value * p.flightTimeS + G * p.flightTimeS ** 2 / 2;
+  } else if (data.family === "flight-time") {
+    residualAt = (value) => p.initialHeightM + p.initialSpeedMps * value - G * value ** 2 / 2;
+  } else assert.fail(`${question.id}: unsupported vertical family ${data.family}`);
+  assertResidualBracket(question, residualAt);
+}
+
+function assertEquilibriumResidual(question) {
+  const data = question.sourceData;
+  const p = data.givens;
+  let residualAt;
+  if (data.family === "hanging-masses") {
+    residualAt = (force) => force - (p.upperMassKg + p.lowerMassKg) * G;
+  } else if (data.family === "cables-at-angles") {
+    residualAt = (force) => 2 * force * Math.sin(p.angleDeg * Math.PI / 180) - p.massKg * G;
+  } else if (data.family === "missing-fourth-force") {
+    const sumX = p.forces.reduce((sum, item) => sum + item.xN, 0);
+    const sumY = p.forces.reduce((sum, item) => sum + item.yN, 0);
+    const fourth = { xN: -sumX, yN: -sumY };
+    assert.equal(sumX + fourth.xN, 0, `${question.id}: x balance`);
+    assert.equal(sumY + fourth.yN, 0, `${question.id}: y balance`);
+    residualAt = (force) => force ** 2 - fourth.xN ** 2 - fourth.yN ** 2;
+  } else if (data.family === "supported-beams") {
+    residualAt = (force) => p.knownSupportN + force - p.massKg * G;
+  } else if (data.family === "frictionless-wall-contact") {
+    const angle = p.cableAngleDeg * Math.PI / 180;
+    residualAt = (force) => force * Math.sin(angle) - p.massKg * G;
+    assert.ok(numericAnswerInSI(question) * Math.cos(angle) > 0, `${question.id}: wall normal must be positive`);
+  } else assert.fail(`${question.id}: unsupported equilibrium family ${data.family}`);
+  assertResidualBracket(question, residualAt);
+}
+
+function assertDynamicsResidual(question) {
+  const data = question.sourceData;
+  const p = data.givens;
+  let residualAt;
+  if (data.family === "horizontal-pull") {
+    const friction = p.frictionCoefficient * p.massKg * G;
+    residualAt = (value) => p.pullForceN - friction - p.massKg * value;
+  } else if (data.family === "inclined-plane") {
+    const downhill = p.massKg * G * Math.sin(p.angleDeg * Math.PI / 180);
+    residualAt = (value) => downhill - p.frictionForceN - p.massKg * value;
+  } else if (data.family === "connected-masses") {
+    residualAt = (value) => {
+      const tableTension = p.tableMassKg * value + p.frictionCoefficient * p.tableMassKg * G;
+      const hangingTension = p.hangingMassKg * G - p.hangingMassKg * value;
+      return tableTension - hangingTension;
+    };
+  } else if (data.family === "unknown-pull") {
+    const friction = p.frictionCoefficient * p.massKg * G;
+    residualAt = (value) => value - friction - p.massKg * p.accelerationMps2;
+  } else if (data.family === "unknown-friction") {
+    const acceleration = p.finalSpeedMps / p.elapsedS;
+    residualAt = (value) => p.driveForceN - value - p.massKg * acceleration;
+  } else assert.fail(`${question.id}: unsupported dynamics family ${data.family}`);
+  assertResidualBracket(question, residualAt);
+}
+
+function attributesForRole(html, tag, role) {
+  const element = html.match(new RegExp(`<${tag}\\b(?=[^>]*data-role="${role}")[^>]*>`));
+  assert.ok(element, `missing <${tag}> with data-role=${role}`);
+  return Object.fromEntries(Array.from(element[0].matchAll(/([\w-]+)="([^"]*)"/g), (match) => [match[1], match[2]]));
 }
 
 function seededRng(seed) {
@@ -241,7 +295,10 @@ test("slot structures and authored family rotations are exact", () => {
   const unknownCounts = { mass: 0, density: 0, radius: 0, height: 0, volume: 0 };
   slots[2].forEach((question) => {
     shapeCounts[question.sourceData.family] += 1;
-    unknownCounts[question.sourceData.unknown] += 1;
+    const rotationQuantity = question.sourceData.family === "sphere" && question.sourceData.unknown === "diameter"
+      ? "height"
+      : question.sourceData.unknown;
+    unknownCounts[rotationQuantity] += 1;
   });
   assert.deepEqual(shapeCounts, { cylinder: 5, cone: 5, sphere: 5, prism: 5, "liquid-column": 5 });
   assert.deepEqual(unknownCounts, { mass: 5, density: 5, radius: 5, height: 5, volume: 5 });
@@ -253,32 +310,70 @@ test("slot structures and authored family rotations are exact", () => {
   });
 });
 
-test("every numeric answer is independently recomputed from SI source data and grades correctly", () => {
+test("every numeric answer grades correctly and satisfies an independent forward equation", () => {
   allPhysicsQuestions().forEach((question) => {
-    const numeric = question.fields.find((field) => field.kind === "numeric");
+    const numeric = numericField(question);
     assert.ok(numeric, question.id);
-    const independentlyDerived = derivedAnswerInTargetUnit(question);
-    const rounded = roundSignificant(independentlyDerived, question.sourceData.significantFigures);
-    assert.ok(close(numeric.expected, rounded), `${question.id}: ${numeric.expected} != ${rounded}`);
+    if (question.slot === 1) {
+      const independentlyDerived = question.sourceData.family === "graph-interpretation"
+        ? derivedGraphAnswer(question.sourceData)
+        : derivedContactAnswer(question.sourceData);
+      const rounded = roundSignificant(independentlyDerived, question.sourceData.significantFigures);
+      assert.ok(close(numeric.expected, rounded), `${question.id}: ${numeric.expected} != ${rounded}`);
+    } else if (question.slot === 2) assertGeometryResidual(question);
+    else if (question.slot === 3) assertVerticalResidual(question);
+    else if (question.slot === 4) assertEquilibriumResidual(question);
+    else assertDynamicsResidual(question);
     const result = grading.gradeNumeric(numeric, `${String(numeric.expected).replace(".", ",")} ${numeric.targetUnit}`);
     assert.equal(result.status, "correct", question.id);
     assert.equal(result.earned, numeric.points, question.id);
   });
 });
 
-test("hand-calculated fixtures anchor each physics structure independently of generator formulas", () => {
+test("fixed hand-calculated fixtures anchor all 25 geometry branches and every motion/force family", () => {
   const byId = Object.fromEntries(allPhysicsQuestions().map((question) => [question.id, question]));
   const fixtures = {
     "physics-s1-graph-06": [33, "m"],
     "physics-s1-contact-01": [32, "N"],
+    "physics-s2-cylinder-01": [1320, "g"],
+    "physics-s2-cylinder-02": [7780, "kg/m3"],
     "physics-s2-cylinder-03": [21.3, "mm"],
+    "physics-s2-cylinder-04": [16.5, "cm"],
+    "physics-s2-cylinder-05": [450, "cm3"],
+    "physics-s2-cone-01": [4430, "kg/m3"],
+    "physics-s2-cone-02": [4.09, "cm"],
     "physics-s2-cone-03": [112, "mm"],
+    "physics-s2-cone-04": [276, "cm3"],
+    "physics-s2-cone-05": [581, "g"],
+    "physics-s2-sphere-01": [26.4, "mm"],
     "physics-s2-sphere-02": [7.87, "cm"],
+    "physics-s2-sphere-03": [310, "cm3"],
+    "physics-s2-sphere-04": [438, "g"],
+    "physics-s2-sphere-05": [4.25, "g/cm3"],
+    "physics-s2-prism-01": [20.6, "cm"],
+    "physics-s2-prism-02": [528, "cm3"],
+    "physics-s2-prism-03": [1.31, "kg"],
+    "physics-s2-prism-04": [2050, "kg/m3"],
     "physics-s2-prism-05": [36.3, "mm"],
+    "physics-s2-liquid-column-01": [0.847, "dm3"],
+    "physics-s2-liquid-column-02": [1.71, "kg"],
+    "physics-s2-liquid-column-03": [1.51, "g/cm3"],
+    "physics-s2-liquid-column-04": [3.63, "cm"],
     "physics-s2-liquid-column-05": [28.4, "cm"],
+    "physics-s3-time-to-apex-01": [0.55, "s"],
+    "physics-s3-maximum-height-01": [3.1, "m"],
+    "physics-s3-initial-speed-01": [18.2, "m/s"],
     "physics-s3-impact-speed-01": [15.3, "m/s"],
+    "physics-s3-flight-time-01": [1.93, "s"],
+    "physics-s4-hanging-masses-01": [49.1, "N"],
+    "physics-s4-cables-at-angles-01": [95.7, "N"],
     "physics-s4-missing-fourth-force-01": [3.61, "N"],
+    "physics-s4-supported-beams-01": [96.1, "N"],
+    "physics-s4-frictionless-wall-contact-01": [83.2, "N"],
+    "physics-s5-horizontal-pull-01": [3.09, "m/s2"],
+    "physics-s5-inclined-plane-01": [1.8, "m/s2"],
     "physics-s5-connected-masses-01": [2.72, "m/s2"],
+    "physics-s5-unknown-pull-01": [27.5, "N"],
     "physics-s5-unknown-friction-01": [25.3, "N"]
   };
   Object.entries(fixtures).forEach(([id, expected]) => {
@@ -291,7 +386,7 @@ test("physics values remain realistic and rule out impossible force situations",
   allPhysicsQuestions().forEach((question) => {
     const data = question.sourceData;
     assert.ok(data.significantFigures >= 2 && data.significantFigures <= 4, question.id);
-    const answer = Math.abs(derivedAnswerInTargetUnit(question));
+    const answer = Math.abs(numericField(question).expected);
     assert.ok(Number.isFinite(answer) && answer > 0 && answer < 100000, question.id);
 
     if (question.slot === 1 && data.family === "graph-interpretation") {
@@ -309,13 +404,13 @@ test("physics values remain realistic and rule out impossible force situations",
       const p = data.givens;
       if (p.massKg !== undefined) assert.ok(p.massKg > 0.001 && p.massKg < 500, question.id);
       if (p.densityKgM3 !== undefined) assert.ok(p.densityKgM3 > 500 && p.densityKgM3 < 22000, question.id);
-      const si = derivedGeometryAnswerSI(data);
-      if (data.unknown === "radius" || data.unknown === "height") assert.ok(si > 0.001 && si < 3, question.id);
+      const si = numericAnswerInSI(question);
+      if (["radius", "diameter", "height"].includes(data.unknown)) assert.ok(si > 0.001 && si < 3, question.id);
       if (data.unknown === "volume") assert.ok(si > 1e-7 && si < 2, question.id);
     }
     if (question.slot === 3) {
       assert.equal(data.g, G, question.id);
-      assert.ok(derivedVerticalAnswer(data) > 0 && derivedVerticalAnswer(data) < 120, question.id);
+      assert.ok(numericAnswerInSI(question) > 0 && numericAnswerInSI(question) < 120, question.id);
       if (data.family === "impact-speed") {
         const p = data.givens;
         const initial = (-p.initialHeightM + G * p.flightTimeS ** 2 / 2) / p.flightTimeS;
@@ -324,18 +419,18 @@ test("physics values remain realistic and rule out impossible force situations",
     }
     if (question.slot === 4) {
       assert.equal(data.g, G, question.id);
-      assert.ok(derivedEquilibriumAnswer(data) > 0 && derivedEquilibriumAnswer(data) < 3000, question.id);
+      assert.ok(numericAnswerInSI(question) > 0 && numericAnswerInSI(question) < 3000, question.id);
       if (data.family === "supported-beams") assert.ok(data.givens.knownSupportN < data.givens.massKg * G, question.id);
     }
     if (question.slot === 5) {
       assert.equal(data.g, G, question.id);
       const p = data.givens;
       if (data.normalForceN !== null) assert.ok(data.normalForceN > 0, `${question.id}: negative normal force`);
-      assert.ok(derivedDynamicsAnswer(data) > 0, `${question.id}: impossible motion direction`);
+      assert.ok(numericAnswerInSI(question) > 0, `${question.id}: impossible motion direction`);
       if (data.family === "horizontal-pull") assert.ok(p.pullForceN > data.frictionForceN, `${question.id}: static contradiction`);
       if (data.family === "inclined-plane") assert.ok(p.massKg * G * Math.sin(p.angleDeg * Math.PI / 180) > p.frictionForceN, `${question.id}: static contradiction`);
       if (data.family === "connected-masses") assert.ok(p.hangingMassKg > p.tableMassKg * p.frictionCoefficient, `${question.id}: static contradiction`);
-      if (data.family === "unknown-friction") assert.ok(derivedDynamicsAnswer(data) < p.driveForceN, `${question.id}: impossible friction`);
+      if (data.family === "unknown-friction") assert.ok(numericAnswerInSI(question) < p.driveForceN, `${question.id}: impossible friction`);
     }
   });
 });
@@ -368,6 +463,87 @@ test("solution formatting makes requested significant trailing zeros unambiguous
       assert.match(question.solutionHtml, /·10<sup>\d+<\/sup>/, question.id);
     }
   });
+});
+
+test("sphere diameter and regular-hexagon circumradius are explicit in data, wording, labels and diagrams", () => {
+  const slot = loadSlots()[2];
+  const sphere = slot.find((question) => question.id === "physics-s2-sphere-02");
+  assert.equal(sphere.sourceData.unknown, "diameter");
+  assert.equal(sphere.sourceData.diameterDefinition, "sphere-height");
+  assert.match(sphere.promptHtml, /diametern \(sfärens höjd\)/i);
+  assert.match(numericField(sphere).label, /^Diameter \(/);
+  assert.match(sphere.solutionHtml, /diametern d/i);
+  assert.match(sphere.solutionHtml, /d = 2/);
+  const sphereBody = attributesForRole(sphere.promptHtml, "circle", "sphere-body");
+  const diameter = attributesForRole(sphere.promptHtml, "line", "diameter");
+  assert.ok(close(Number(diameter.y1), Number(sphereBody.cy)) && close(Number(diameter.y2), Number(sphereBody.cy)));
+  assert.ok(close(Number(diameter.x1), Number(sphereBody.cx) - Number(sphereBody.r)));
+  assert.ok(close(Number(diameter.x2), Number(sphereBody.cx) + Number(sphereBody.r)));
+  assert.match(sphere.promptHtml, /<text\b(?=[^>]*data-role="diameter-label")[^>]*>d<\/text>/);
+
+  const prism = slot.find((question) => question.id === "physics-s2-prism-05");
+  assert.equal(prism.sourceData.radiusDefinition, "circumradius-center-to-vertex");
+  assert.match(prism.promptHtml, /omskrivna cirkelns radie från sexkantens centrum till ett hörn/i);
+  assert.match(prism.solutionHtml, /omskrivna cirkelns radie, mätt från centrum till hörn/i);
+  const outline = attributesForRole(prism.promptHtml, "path", "hex-prism-outline");
+  const radius = attributesForRole(prism.promptHtml, "line", "circumradius");
+  const face = outline.d.match(/^M([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+) Z/);
+  assert.ok(face, "front hexagon must expose six vertices");
+  const values = face.slice(1).map(Number);
+  const vertices = Array.from({ length: 6 }, (_, index) => ({ x: values[index * 2], y: values[index * 2 + 1] }));
+  const center = {
+    x: vertices.reduce((sum, vertex) => sum + vertex.x, 0) / vertices.length,
+    y: vertices.reduce((sum, vertex) => sum + vertex.y, 0) / vertices.length
+  };
+  assert.ok(Math.abs(Number(radius.x1) - center.x) < 0.5 && Math.abs(Number(radius.y1) - center.y) < 0.5, "r must start at hexagon center");
+  assert.ok(vertices.some((vertex) => close(Number(radius.x2), vertex.x) && close(Number(radius.y2), vertex.y)), "r must end at a vertex");
+  assert.match(prism.promptHtml, /<text\b(?=[^>]*data-role="circumradius-label")[^>]*>r<\/text>/);
+});
+
+test("wall-contact and pulley-rope SVG topology matches the stated force models", () => {
+  loadSlots()[4]
+    .filter((question) => question.sourceData.family === "frictionless-wall-contact")
+    .forEach((question) => {
+      const wall = attributesForRole(question.promptHtml, "line", "wall");
+      const sphere = attributesForRole(question.promptHtml, "circle", "sphere");
+      const cable = attributesForRole(question.promptHtml, "line", "cable");
+      const wallX = Number(wall.x1);
+      const cx = Number(sphere.cx);
+      const cy = Number(sphere.cy);
+      const radius = Number(sphere.r);
+      const x1 = Number(cable.x1);
+      const y1 = Number(cable.y1);
+      const x2 = Number(cable.x2);
+      const y2 = Number(cable.y2);
+      assert.ok(close(Number(wall.x1), Number(wall.x2)), `${question.id}: wall must be vertical`);
+      assert.ok(close(cx + radius, wallX), `${question.id}: sphere must touch wall`);
+      assert.ok(close(Math.hypot(x1 - cx, y1 - cy), radius), `${question.id}: cable must attach on sphere`);
+      assert.ok(close(x2, wallX), `${question.id}: cable must terminate on wall`);
+      assert.ok(x2 > x1 && y2 < y1, `${question.id}: cable must run upward toward wall`);
+      assert.ok(close((y1 - y2) / (x2 - x1), Math.tan(question.sourceData.givens.cableAngleDeg * Math.PI / 180)), `${question.id}: drawn cable angle`);
+      assert.ok(close((x2 - x1) * (cy - y1) - (y2 - y1) * (cx - x1), 0), `${question.id}: cable line of action must pass through center`);
+    });
+
+  loadSlots()[5]
+    .filter((question) => question.sourceData.family === "connected-masses")
+    .forEach((question) => {
+      const body = attributesForRole(question.promptHtml, "rect", "table-body");
+      const pulley = attributesForRole(question.promptHtml, "circle", "pulley");
+      const rope = attributesForRole(question.promptHtml, "path", "rope");
+      const coordinates = rope.d.match(/^M([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+) A([\d.]+) ([\d.]+) 0 0 1 ([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+)$/);
+      assert.ok(coordinates, `${question.id}: rope needs straight–arc–straight topology`);
+      const [, startX, startY, tangentX, tangentY, arcRx, arcRy, arcEndX, arcEndY, tailX, tailY] = coordinates.map(Number);
+      const cx = Number(pulley.cx);
+      const cy = Number(pulley.cy);
+      const radius = Number(pulley.r);
+      assert.ok(close(startX, Number(body.x) + Number(body.width)), `${question.id}: rope starts on table body`);
+      assert.ok(startY >= Number(body.y) && startY <= Number(body.y) + Number(body.height), `${question.id}: rope attachment lies on body edge`);
+      assert.ok(close(startY, tangentY), `${question.id}: first segment is horizontal`);
+      assert.ok(close(tangentX, cx) && close(tangentY, cy - radius), `${question.id}: first segment reaches top tangent`);
+      assert.ok(close(arcRx, radius) && close(arcRy, radius), `${question.id}: rope follows pulley radius`);
+      assert.ok(close(arcEndX, cx + radius) && close(arcEndY, cy), `${question.id}: arc ends at right tangent`);
+      assert.ok(close(tailX, cx + radius) && tailY > arcEndY, `${question.id}: final segment hangs vertically`);
+    });
 });
 
 test("all data-generated SVGs are accessible, uniquely labelled and honest about scale", () => {
