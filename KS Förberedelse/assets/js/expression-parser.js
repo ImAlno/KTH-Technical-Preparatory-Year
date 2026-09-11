@@ -240,21 +240,27 @@
     if (node.type === "binary" && (node.operator === "+" || node.operator === "*")) {
       const rawChildren = [];
       flatten(node, node.operator, rawChildren);
-      let children = rawChildren.map(canonical);
-      const constants = children.filter(function (child) { return child.constant; });
-      const others = children.filter(function (child) { return !child.constant; });
+      const canonicalChildren = rawChildren.map(canonical);
+      const constants = canonicalChildren.filter(function (child) { return child.constant; });
+      let children = canonicalChildren.filter(function (child) { return !child.constant; });
+      let foldable = true;
       if (constants.length) {
         const constantValue = constants.reduce(function (total, child) {
           return node.operator === "+" ? total + child.value : total * child.value;
         }, node.operator === "+" ? 0 : 1);
-        const mayDiscardIdentity = node.operator === "+" || constantValue !== 0;
-        if (!others.length || !mayDiscardIdentity || (node.operator === "+" ? constantValue !== 0 : constantValue !== 1)) {
-          others.push({ constant: true, value: constantValue, key: numberKey(constantValue) });
+        if (!Number.isFinite(constantValue)) {
+          children = canonicalChildren;
+          foldable = false;
+        } else {
+          const mayDiscardIdentity = node.operator === "+" || constantValue !== 0;
+          if (!children.length || !mayDiscardIdentity || (node.operator === "+" ? constantValue !== 0 : constantValue !== 1)) {
+            children.push({ constant: true, value: constantValue, key: numberKey(constantValue) });
+          }
         }
       }
-      children = others.sort(function (left, right) { return left.key.localeCompare(right.key); });
+      children.sort(function (left, right) { return left.key.localeCompare(right.key); });
       if (children.length === 1) return children[0];
-      return { constant: children.every(function (child) { return child.constant; }), key: node.operator + "[" + children.map(function (child) { return child.key; }).join(",") + "]" };
+      return { constant: foldable && children.every(function (child) { return child.constant; }), key: node.operator + "[" + children.map(function (child) { return child.key; }).join(",") + "]" };
     }
     if (node.type === "binary") {
       const left = canonical(node.left);

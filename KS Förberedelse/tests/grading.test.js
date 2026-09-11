@@ -126,6 +126,13 @@ test("unknown or insufficient-confidence expression syntax falls back to self as
   assert.equal(grading.gradeExpression({ expected: "sqrt(x)", points: 2, variables: ["x"] }, "x^(1/2)").status, "self");
 });
 
+test("overflowing unequal constants fall back to self assessment", () => {
+  const result = grading.gradeExpression({ expected: "10^308*10", points: 2 }, "10^308+10^308");
+
+  assert.equal(result.status, "self");
+  assert.equal(result.earned, 0);
+});
+
 test("algebra graders preserve the existing numeric and alias API", () => {
   assert.equal(typeof grading.parseNumeric, "function");
   assert.equal(typeof grading.gradeNumeric, "function");

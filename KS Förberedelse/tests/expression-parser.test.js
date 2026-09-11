@@ -77,3 +77,10 @@ test("equivalence rejects mismatches but reports unsafe comparisons as uncertain
     reason: "insufficient-confidence"
   });
 });
+
+test("overflowing constant expressions do not collide during normalization", () => {
+  assert.deepEqual(expression.equivalent("10^308+10^308", "10^308*10"), {
+    equivalent: null,
+    reason: "insufficient-confidence"
+  });
+});
