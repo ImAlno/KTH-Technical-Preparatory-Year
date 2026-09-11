@@ -62,11 +62,37 @@
     </dialog>
 
     <dialog id="formula-dialog" class="formula-dialog" aria-labelledby="formula-title">
-      <h2 id="formula-title">Formelblad</h2>
-      <div id="formula-content" class="formula-dialog-content"></div>
-      <div class="dialog-actions">
-        <button class="neutral-button" type="button" data-dialog-close>Stäng</button>
-        <button id="print-formula" class="primary-button" type="button">Skriv ut formelblad</button>
+      <div class="formula-toolbar">
+        <h2 id="formula-title">Formelblad</h2>
+        <div class="formula-controls" role="group" aria-label="Visa formelbladet">
+          <button id="formula-zoom-out" class="neutral-button" type="button">Zooma ut</button>
+          <output id="formula-zoom-output" aria-label="Aktuell zoomnivå">100 %</output>
+          <button id="formula-zoom-in" class="neutral-button" type="button">Zooma in</button>
+          <button id="formula-fit" class="neutral-button" type="button">Anpassa</button>
+          <button id="print-formula" class="neutral-button" type="button">Skriv ut</button>
+          <button class="primary-button" type="button" data-dialog-close>Stäng</button>
+        </div>
+      </div>
+      <div id="formula-content" class="formula-dialog-content" tabindex="0" aria-label="Formelblad. Använd piltangenterna för att panorera.">
+        <img id="formula-image" class="formula-sheet-image" src="assets/formelblad-ks.png" width="2481" height="3508" alt="Kemins originalformelblad" aria-describedby="formula-transcription">
+        <section id="formula-transcription" class="visually-hidden">
+          <h3>Textversion av formelbladet</h3>
+          <p>KS basår HF0023 VT2026.</p>
+          <p>Formelblad: Grundämnenas periodiska system (atomnummer, symboler och atommassor).</p>
+          <p>1 H 1,01; 2 He 4,00; 3 Li 6,94; 4 Be 9,01; 5 B 10,8; 6 C 12,0; 7 N 14,0; 8 O 16,0; 9 F 19,0; 10 Ne 20,2.</p>
+          <p>11 Na 23,0; 12 Mg 24,3; 13 Al 27,0; 14 Si 28,1; 15 P 31,0; 16 S 32,1; 17 Cl 35,5; 18 Ar 39,9.</p>
+          <p>19 K 39,1; 20 Ca 40,1; 21 Sc 45,0; 22 Ti 47,9; 23 V 50,9; 24 Cr 52,0; 25 Mn 54,9; 26 Fe 55,8; 27 Co 58,9; 28 Ni 58,7; 29 Cu 63,5; 30 Zn 65,4; 31 Ga 69,7; 32 Ge 72,6; 33 As 74,9; 34 Se 79,0; 35 Br 79,9; 36 Kr 83,8.</p>
+          <p>37 Rb 85,5; 38 Sr 87,6; 39 Y 88,9; 40 Zr 91,2; 41 Nb 92,9; 42 Mo 95,9; 43 Tc (99); 44 Ru 101,1; 45 Rh 102,9; 46 Pd 106,4; 47 Ag 107,9; 48 Cd 112,4; 49 In 114,8; 50 Sn 118,7; 51 Sb 121,8; 52 Te 127,6; 53 I 126,9; 54 Xe 131,3.</p>
+          <p>55 Cs 132,9; 56 Ba 137,3; *57 La 138,9; 72 Hf 178,5; 73 Ta 180,9; 74 W 183,9; 75 Re 186,2; 76 Os 190,2; 77 Ir 192,2; 78 Pt 195,1; 79 Au 197,0; 80 Hg 200,6; 81 Tl 204,4; 82 Pb 207,2; 83 Bi 209,0; 84 Po (210); 85 At (210); 86 Rn (222).</p>
+          <p>87 Fr (223); 88 Ra (226); **89 Ac (227).</p>
+          <p>* 58 Ce 140,1; 59 Pr 140,9; 60 Nd 144,2; 61 Pm (145); 62 Sm 150,4; 63 Eu 152,0; 64 Gd 157,3; 65 Tb 158,9; 66 Dy 162,5; 67 Ho 164,9; 68 Er 167,3; 69 Tm 168,9; 70 Yb 173,0; 71 Lu 175,0.</p>
+          <p>** 90 Th (232); 91 Pa (231); 92 U 238,0; 93 Np (237); 94 Pu (242); 95 Am (243); 96 Cm (247); 97 Bk (247); 98 Cf (249); 99 Es (254); 100 Fm (253); 101 Md (256); 102 No (256); 103 Lr (257).</p>
+          <p>Gasernas allmänna tillståndslag: p ⋅ V = n ⋅ R ⋅ T.</p>
+          <p>Allmänna gaskonstanten: R = 8,314 J ⋅ (mol ⋅ K)⁻¹.</p>
+          <p>Avogadros konstant: N<sub>A</sub> = 6,022 ⋅ 10²³ mol⁻¹.</p>
+          <p>Den elektrokemiska spänningsserien: ...K,...Ba,...Ca,...Na,...Mg,...Al,...Mn,...Zn,...Fe,...Ni,...Sn,...Pb,...H,...Cu,...Hg,...Ag,...Pt,...Au.</p>
+          <p>Sida 6.</p>
+        </section>
       </div>
     </dialog>
 

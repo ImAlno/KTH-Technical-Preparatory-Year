@@ -34,6 +34,15 @@ function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
 }
 
+function pngDimensions(buffer) {
+  assert.equal(buffer.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
+  assert.equal(buffer.subarray(12, 16).toString("ascii"), "IHDR");
+  return {
+    width: buffer.readUInt32BE(16),
+    height: buffer.readUInt32BE(20)
+  };
+}
+
 function scriptSources(html) {
   return Array.from(html.matchAll(/<script\s+src="([^"]+)"\s*><\/script>/g), (match) => match[1]);
 }
@@ -47,6 +56,9 @@ function fakeNode(tagName) {
     hidden: false,
     disabled: false,
     open: false,
+    style: {},
+    scrollLeft: 0,
+    scrollTop: 0,
     attributes: {},
     append(...children) { this.children.push(...children); },
     replaceChildren(...children) { this.children = children; },
@@ -64,6 +76,15 @@ function fakeNode(tagName) {
     removeAttribute(name) {
       delete this.attributes[name];
       if (name === "open") this.open = false;
+      if (name === "data-print-mode") delete this.dataset.printMode;
+    },
+    scrollTo(left, top) {
+      this.scrollLeft = left;
+      this.scrollTop = top;
+    },
+    scrollBy(left, top) {
+      this.scrollLeft += left;
+      this.scrollTop += top;
     },
     showModal() { this.setAttribute("open", ""); },
     close() { this.removeAttribute("open"); },
@@ -89,8 +110,14 @@ function recoveryHarness(savedSnapshot, options) {
     "timer-start", "timer-pause", "timer-reset", "history-open", "history-dialog",
     "history-confirm", "submit-dialog", "submit-message", "submit-confirm", "recovery-dialog",
     "recovery-message", "recovery-continue", "recovery-new", "recovery-back", "formula-open",
-    "formula-dialog", "formula-content", "print-formula", "print-exam"
+    "formula-dialog", "formula-content", "formula-image", "formula-zoom-out", "formula-zoom-in",
+    "formula-fit", "formula-zoom-output", "print-formula", "print-exam"
   ].forEach((id) => { nodes[id] = fakeNode(id.endsWith("dialog") ? "dialog" : "div"); });
+  nodes["formula-content"].clientWidth = 800;
+  nodes["formula-content"].clientHeight = 600;
+  nodes["formula-image"].naturalWidth = 2481;
+  nodes["formula-image"].naturalHeight = 3508;
+  const windowListeners = {};
   const document = {
     body: fakeNode("body"),
     createElement: fakeNode,
@@ -102,8 +129,8 @@ function recoveryHarness(savedSnapshot, options) {
     localStorage: adapter,
     setInterval() { return 1; },
     clearInterval() {},
-    addEventListener() {},
-    print() {}
+    addEventListener(type, handler) { windowListeners[type] = handler; },
+    print() { this.printModeWhenPrinted = document.body.dataset.printMode || null; }
   };
   document.defaultView = window;
   const root = fakeNode("main");
@@ -118,7 +145,7 @@ function recoveryHarness(savedSnapshot, options) {
       }]
     }
   };
-  return { adapter, document, nodes, root, subjectData, values };
+  return { adapter, document, nodes, root, subjectData, values, window, windowListeners };
 }
 
 test("all subject pages keep shared dependency order and load their complete question banks", () => {
@@ -134,6 +161,78 @@ test("all subject pages keep shared dependency order and load their complete que
       assert.equal(fs.existsSync(path.resolve(path.dirname(path.join(ROOT, file)), source)), true, `${file}: ${source}`);
     });
   }
+});
+
+test("chemistry page references the full A4 raster of the configured local original sheet", () => {
+  const html = read("Kemi KS/index.html");
+  const subjectData = require("../Kemi KS/questions.js");
+  const assetPath = path.join(ROOT, "Kemi KS/assets/formelblad-ks.png");
+
+  const png = fs.readFileSync(assetPath);
+  assert.deepEqual(pngDimensions(png), { width: 2481, height: 3508 });
+  assert.ok(png.length > 250_000, `formula sheet is unexpectedly small: ${png.length} bytes`);
+  assert.match(html, /<img\b[^>]*src="assets\/formelblad-ks\.png"/);
+  assert.equal(subjectData.formulaSheetUrl, "assets/formelblad-ks.png");
+});
+
+test("chemistry formula dialog keeps the original image as its only visible formula content", () => {
+  const html = read("Kemi KS/index.html");
+  const css = read("assets/app.css");
+
+  assert.match(html, /<dialog\s+id="formula-dialog"[^>]*aria-labelledby="formula-title"/);
+  assert.match(html, /<img\b[^>]*id="formula-image"[^>]*src="assets\/formelblad-ks\.png"[^>]*width="2481"[^>]*height="3508"/);
+  ["Zooma in", "Zooma ut", "Anpassa", "Skriv ut", "Stäng"].forEach((label) => {
+    assert.match(html, new RegExp(`>\\s*${label}\\s*<`), label);
+  });
+  assert.match(html, /id="formula-transcription"\s+class="visually-hidden"/);
+  assert.match(html, /Grundämnenas periodiska system/);
+  assert.match(html, /Gasernas allmänna tillståndslag/);
+  assert.match(html, /Den elektrokemiska spänningsserien/);
+  assert.doesNotMatch(html, /https?:\/\/|data:/);
+  assert.match(css, /\.formula-dialog-content\s*\{[^}]*overflow:\s*auto/s);
+  assert.match(css, /\.formula-sheet-image\s*\{[^}]*max-width:\s*none/s);
+  assert.match(css, /@page\s+formula-sheet\s*\{[^}]*size:\s*A4[^}]*margin:\s*0/s);
+  assert.match(css, /body\[data-print-mode="formula"\]\s*\{[^}]*page:\s*formula-sheet/s);
+  assert.match(css, /body\[data-print-mode="formula"\][\s\S]*\.formula-sheet-image[\s\S]*width:\s*210mm\s*!important/);
+});
+
+test("formula controls load the configured sheet, clamp zoom, reset fit, pan, and isolate printing", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+  harness.subjectData.formulaSheetUrl = "assets/formelblad-ks.png";
+
+  assert.deepEqual(app.mount(harness.root, harness.subjectData), { ok: true });
+  assert.equal(harness.nodes["formula-open"].hidden, false);
+  assert.equal(harness.nodes["formula-image"].src, "assets/formelblad-ks.png");
+
+  harness.nodes["formula-open"].fire("click");
+  assert.equal(harness.nodes["formula-dialog"].open, true);
+  assert.equal(harness.nodes["formula-content"].focused, true);
+  assert.equal(harness.nodes["formula-zoom-output"].textContent, "100 %");
+  assert.equal(harness.nodes["formula-content"].scrollLeft, 0);
+  assert.equal(harness.nodes["formula-content"].scrollTop, 0);
+
+  for (let index = 0; index < 20; index += 1) harness.nodes["formula-zoom-out"].fire("click");
+  assert.equal(harness.nodes["formula-zoom-output"].textContent, "50 %");
+  assert.equal(harness.nodes["formula-zoom-out"].disabled, true);
+
+  for (let index = 0; index < 20; index += 1) harness.nodes["formula-zoom-in"].fire("click");
+  assert.equal(harness.nodes["formula-zoom-output"].textContent, "300 %");
+  assert.equal(harness.nodes["formula-zoom-in"].disabled, true);
+
+  harness.nodes["formula-content"].fire("keydown", { key: "ArrowDown", preventDefault() {} });
+  assert.equal(harness.nodes["formula-content"].scrollTop, 48);
+  harness.nodes["formula-fit"].fire("click");
+  assert.equal(harness.nodes["formula-zoom-output"].textContent, "100 %");
+  assert.equal(harness.nodes["formula-content"].scrollTop, 0);
+
+  harness.nodes["submit-confirm"].fire("click");
+  assert.equal(harness.nodes["formula-open"].hidden, false, "the formula sheet stays available after grading");
+
+  harness.nodes["print-formula"].fire("click");
+  assert.equal(harness.window.printModeWhenPrinted, "formula");
+  harness.windowListeners.afterprint();
+  assert.equal(harness.document.body.dataset.printMode, undefined);
 });
 
 test("subject shells expose semantic landmarks, live feedback and native dialogs", () => {

@@ -556,12 +556,54 @@ dialog p {
 }
 
 .formula-dialog {
-  width: min(54rem, calc(100% - 32px));
+  width: min(74rem, calc(100% - 24px));
+  max-width: none;
+  padding: 16px;
+}
+
+.formula-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin-bottom: 12px;
+}
+
+.formula-toolbar h2 {
+  margin: 0 auto 0 0;
+}
+
+.formula-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.formula-controls output {
+  min-width: 4rem;
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .formula-dialog-content {
-  max-height: 65vh;
+  height: min(76vh, calc(100vh - 10rem));
+  min-height: 18rem;
   overflow: auto;
+  overscroll-behavior: contain;
+  outline: none;
+}
+
+.formula-dialog-content:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.formula-sheet-image {
+  display: block;
+  max-width: none;
+  margin: 0 auto;
 }
 
 .print-exam {
@@ -649,6 +691,25 @@ dialog p {
     order: 3;
     width: 100%;
   }
+
+  .formula-dialog {
+    width: calc(100% - 16px);
+    padding: 12px;
+  }
+
+  .formula-toolbar {
+    display: block;
+  }
+
+  .formula-controls {
+    margin-top: 10px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  .formula-controls > * {
+    flex: 0 0 auto;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -664,7 +725,13 @@ dialog p {
 
 @media print {
   @page {
+    size: A4;
     margin: 18mm;
+  }
+
+  @page formula-sheet {
+    size: A4;
+    margin: 0;
   }
 
   :root,
@@ -718,28 +785,49 @@ dialog p {
     border: 1px solid #d2d2d7;
   }
 
-  body[data-print-mode="formula"] .exam-layout,
-  body[data-print-mode="formula"] .app-header,
-  body[data-print-mode="formula"] .status-region {
+  body[data-print-mode="formula"] > :not(#formula-dialog) {
     display: none !important;
+  }
+
+  body[data-print-mode="formula"] {
+    page: formula-sheet;
   }
 
   body[data-print-mode="formula"] #formula-dialog {
     position: static;
     display: block !important;
-    width: auto;
+    width: 210mm;
+    height: 297mm;
     max-width: none;
     margin: 0;
     padding: 0;
     border: 0;
+    border-radius: 0;
+    overflow: hidden;
+  }
+
+  body[data-print-mode="formula"] #formula-dialog > :not(.formula-dialog-content) {
+    display: none !important;
   }
 
   body[data-print-mode="formula"] .formula-dialog-content {
+    display: block !important;
+    width: 210mm;
+    height: 297mm;
     max-height: none;
-    overflow: visible;
+    min-height: 0;
+    overflow: hidden;
   }
 
-  body[data-print-mode="formula"] #formula-dialog .dialog-actions {
+  body[data-print-mode="formula"] .formula-dialog-content > :not(.formula-sheet-image) {
     display: none !important;
+  }
+
+  body[data-print-mode="formula"] .formula-sheet-image {
+    display: block !important;
+    width: 210mm !important;
+    height: 297mm !important;
+    max-width: none !important;
+    margin: 0 !important;
   }
 }

@@ -186,6 +186,11 @@
       formulaOpen: document.getElementById("formula-open"),
       formulaDialog: document.getElementById("formula-dialog"),
       formulaContent: document.getElementById("formula-content"),
+      formulaImage: document.getElementById("formula-image"),
+      formulaZoomOut: document.getElementById("formula-zoom-out"),
+      formulaZoomIn: document.getElementById("formula-zoom-in"),
+      formulaFit: document.getElementById("formula-fit"),
+      formulaZoomOutput: document.getElementById("formula-zoom-output"),
       printFormula: document.getElementById("print-formula"),
       printExam: document.getElementById("print-exam")
     };
@@ -588,11 +593,78 @@
       button.addEventListener("click", function () { closeDialog(button.closest("dialog")); });
     });
 
-    const formulaHtml = subjectData.formulaSheetHtml || subjectData.formulaHtml || "";
-    if (formulaHtml && elements.formulaOpen && elements.formulaContent) {
+    const formulaUrl = subjectData.formulaSheetUrl || "";
+    let formulaZoom = 100;
+    let formulaFitWidth = 0;
+    let formulaFitHeight = 0;
+
+    function updateFormulaZoom(nextZoom, resetPosition) {
+      if (!elements.formulaImage || !elements.formulaContent) return;
+      formulaZoom = Math.min(300, Math.max(50, nextZoom));
+      if (!formulaFitWidth || !formulaFitHeight) {
+        const naturalWidth = elements.formulaImage.naturalWidth || 2481;
+        const naturalHeight = elements.formulaImage.naturalHeight || 3508;
+        const viewportWidth = elements.formulaContent.clientWidth || naturalWidth;
+        const viewportHeight = elements.formulaContent.clientHeight || naturalHeight;
+        const fitScale = Math.min(viewportWidth / naturalWidth, viewportHeight / naturalHeight);
+        formulaFitWidth = naturalWidth * fitScale;
+        formulaFitHeight = naturalHeight * fitScale;
+      }
+      elements.formulaImage.style.width = `${(formulaFitWidth * formulaZoom / 100).toFixed(2)}px`;
+      elements.formulaImage.style.height = `${(formulaFitHeight * formulaZoom / 100).toFixed(2)}px`;
+      if (elements.formulaZoomOutput) elements.formulaZoomOutput.textContent = `${formulaZoom} %`;
+      if (elements.formulaZoomOut) elements.formulaZoomOut.disabled = formulaZoom === 50;
+      if (elements.formulaZoomIn) elements.formulaZoomIn.disabled = formulaZoom === 300;
+      if (resetPosition) elements.formulaContent.scrollTo(0, 0);
+    }
+
+    function fitFormulaSheet() {
+      formulaFitWidth = 0;
+      formulaFitHeight = 0;
+      updateFormulaZoom(100, true);
+    }
+
+    function openFormulaSheet() {
+      showDialog(elements.formulaDialog);
+      fitFormulaSheet();
+      elements.formulaContent.focus();
+    }
+
+    if (formulaUrl && elements.formulaOpen && elements.formulaContent && elements.formulaImage) {
       elements.formulaOpen.hidden = false;
-      setHtml(elements.formulaContent, formulaHtml);
-      elements.formulaOpen.addEventListener("click", function () { showDialog(elements.formulaDialog); });
+      elements.formulaImage.src = formulaUrl;
+      elements.formulaOpen.addEventListener("click", openFormulaSheet);
+      elements.formulaImage.addEventListener("load", fitFormulaSheet);
+      if (elements.formulaZoomOut) elements.formulaZoomOut.addEventListener("click", function () {
+        updateFormulaZoom(formulaZoom - 25, false);
+      });
+      if (elements.formulaZoomIn) elements.formulaZoomIn.addEventListener("click", function () {
+        updateFormulaZoom(formulaZoom + 25, false);
+      });
+      if (elements.formulaFit) elements.formulaFit.addEventListener("click", fitFormulaSheet);
+      elements.formulaContent.addEventListener("keydown", function (event) {
+        const distance = event.shiftKey ? 160 : 48;
+        const movement = {
+          ArrowLeft: [-distance, 0],
+          ArrowRight: [distance, 0],
+          ArrowUp: [0, -distance],
+          ArrowDown: [0, distance]
+        }[event.key];
+        if (!movement) return;
+        event.preventDefault();
+        elements.formulaContent.scrollBy(movement[0], movement[1]);
+      });
+      fitFormulaSheet();
+      if (win) win.addEventListener("resize", function () {
+        if (formulaZoom === 100) fitFormulaSheet();
+      });
+    } else {
+      const formulaHtml = subjectData.formulaSheetHtml || subjectData.formulaHtml || "";
+      if (formulaHtml && elements.formulaOpen && elements.formulaContent) {
+        elements.formulaOpen.hidden = false;
+        setHtml(elements.formulaContent, formulaHtml);
+        elements.formulaOpen.addEventListener("click", function () { showDialog(elements.formulaDialog); });
+      }
     }
 
     if (elements.printExam) elements.printExam.addEventListener("click", function () {
