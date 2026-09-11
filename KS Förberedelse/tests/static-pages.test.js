@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const crypto = require("node:crypto");
 
 const ROOT = path.join(__dirname, "..");
 const SUBJECT_PAGES = [
@@ -117,6 +118,7 @@ function recoveryHarness(savedSnapshot, options) {
   nodes["formula-content"].clientHeight = 600;
   nodes["formula-image"].naturalWidth = 2481;
   nodes["formula-image"].naturalHeight = 3508;
+  nodes["formula-open"].hidden = true;
   const windowListeners = {};
   const document = {
     body: fakeNode("body"),
@@ -171,8 +173,46 @@ test("chemistry page references the full A4 raster of the configured local origi
   const png = fs.readFileSync(assetPath);
   assert.deepEqual(pngDimensions(png), { width: 2481, height: 3508 });
   assert.ok(png.length > 250_000, `formula sheet is unexpectedly small: ${png.length} bytes`);
+  assert.equal(
+    crypto.createHash("sha256").update(png).digest("hex"),
+    "e1ca7f9914fa4920e6a5f3a80281e82ad5003c8d86cfc85c487f8cf94e4dafee"
+  );
   assert.match(html, /<img\b[^>]*src="assets\/formelblad-ks\.png"/);
   assert.equal(subjectData.formulaSheetUrl, "assets/formelblad-ks.png");
+});
+
+test("formula-sheet URLs accept only safe local relative asset paths", () => {
+  const app = require("../assets/js/app.js");
+
+  assert.equal(app.isSafeLocalAssetPath("assets/formelblad-ks.png"), true);
+  [
+    "https://example.test/formelblad.png",
+    "http://example.test/formelblad.png",
+    "//example.test/formelblad.png",
+    "/absolute/formelblad.png",
+    "data:image/png;base64,AAAA",
+    "javascript:alert(1)",
+    "assets\\formelblad-ks.png",
+    "assets/../Underlag/source.pdf",
+    "assets/%2e%2e/Underlag/source.pdf",
+    "assets/%252e%252e/Underlag/source.pdf",
+    "%2fabsolute/formelblad.png",
+    "assets/formelblad\n.png",
+    "assets/%00formelblad.png"
+  ].forEach((value) => {
+    assert.equal(app.isSafeLocalAssetPath(value), false, value);
+  });
+});
+
+test("an unsafe configured formula URL stays hidden and produces a controlled warning", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+  harness.subjectData.formulaSheetUrl = "assets/%252e%252e/Underlag/source.pdf";
+
+  assert.deepEqual(app.mount(harness.root, harness.subjectData), { ok: true });
+  assert.equal(harness.nodes["formula-open"].hidden, true);
+  assert.equal(harness.nodes["formula-image"].src, undefined);
+  assert.match(harness.nodes["status-region"].textContent, /Formelbladet kunde inte öppnas.*säker lokal/);
 });
 
 test("chemistry formula dialog keeps the original image as its only visible formula content", () => {
@@ -491,7 +531,7 @@ test("app exports the same public helpers in CommonJS and the browser namespace"
   const context = vm.createContext({ window: {}, document, module: undefined });
 
   vm.runInContext(source, context, { filename: "app.js" });
-  ["mount", "questionStatus", "canShowSolution"].forEach((name) => {
+  ["mount", "questionStatus", "canShowSolution", "isSafeLocalAssetPath"].forEach((name) => {
     assert.equal(typeof app[name], "function", `CommonJS ${name}`);
     assert.equal(typeof context.window.KS.app[name], "function", `browser ${name}`);
   });

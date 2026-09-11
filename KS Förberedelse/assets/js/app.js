@@ -11,6 +11,30 @@
     return typeof value === "string" ? Boolean(value.trim()) : Boolean(String(value).trim());
   }
 
+  function isSafeLocalAssetPath(value) {
+    if (typeof value !== "string" || !value || value.trim() !== value) return false;
+    if (/[\\\u0000-\u001f\u007f]/u.test(value)) return false;
+
+    let decoded = value;
+    for (let pass = 0; pass <= value.length; pass += 1) {
+      let next;
+      try {
+        next = decodeURIComponent(decoded);
+      } catch (error) {
+        return false;
+      }
+      if (next === decoded) break;
+      decoded = next;
+      if (pass === value.length) return false;
+    }
+
+    if (/[\\\u0000-\u001f\u007f?#]/u.test(decoded)) return false;
+    if (/^(?:\/|[a-z][a-z\d+.-]*:)/iu.test(decoded)) return false;
+    return decoded.split("/").every(function (segment) {
+      return Boolean(segment) && segment !== "." && segment !== "..";
+    });
+  }
+
   function questionStatus(snapshot, questionId) {
     const answers = snapshot && snapshot.answers && snapshot.answers[questionId]
       ? snapshot.answers[questionId]
@@ -593,7 +617,9 @@
       button.addEventListener("click", function () { closeDialog(button.closest("dialog")); });
     });
 
-    const formulaUrl = subjectData.formulaSheetUrl || "";
+    const configuredFormulaUrl = subjectData.formulaSheetUrl;
+    const hasConfiguredFormulaUrl = configuredFormulaUrl !== undefined && configuredFormulaUrl !== null && configuredFormulaUrl !== "";
+    const formulaUrl = isSafeLocalAssetPath(configuredFormulaUrl) ? configuredFormulaUrl : "";
     let formulaZoom = 100;
     let formulaFitWidth = 0;
     let formulaFitHeight = 0;
@@ -630,6 +656,7 @@
       elements.formulaContent.focus();
     }
 
+    if (elements.formulaOpen) elements.formulaOpen.hidden = true;
     if (formulaUrl && elements.formulaOpen && elements.formulaContent && elements.formulaImage) {
       elements.formulaOpen.hidden = false;
       elements.formulaImage.src = formulaUrl;
@@ -658,6 +685,8 @@
       if (win) win.addEventListener("resize", function () {
         if (formulaZoom === 100) fitFormulaSheet();
       });
+    } else if (hasConfiguredFormulaUrl) {
+      announce("Formelbladet kunde inte öppnas eftersom sökvägen inte är en säker lokal resurs.");
     } else {
       const formulaHtml = subjectData.formulaSheetHtml || subjectData.formulaHtml || "";
       if (formulaHtml && elements.formulaOpen && elements.formulaContent) {
@@ -731,6 +760,7 @@
   return {
     mount: mount,
     questionStatus: questionStatus,
-    canShowSolution: canShowSolution
+    canShowSolution: canShowSolution,
+    isSafeLocalAssetPath: isSafeLocalAssetPath
   };
 });
