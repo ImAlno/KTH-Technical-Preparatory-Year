@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="sv">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Träna inför kontrollskrivningen i kemi.">
+    <title>Kemi KS – KS-förberedelse</title>
+    <link rel="stylesheet" href="../assets/app.css">
+  </head>
+  <body data-subject-key="chemistry">
+    <header class="app-header">
+      <div class="header-inner">
+        <a class="back-link" href="../index.html">Alla ämnen</a>
+        <div class="subject-heading">
+          <strong id="subject-name">Kemi KS</strong>
+          <span id="session-state">Inte startat</span>
+        </div>
+        <section class="timer" aria-label="Tid">
+          <output id="timer-display" aria-label="Återstående tid">02:00:00</output>
+          <button id="timer-start" type="button">Starta</button>
+          <button id="timer-pause" type="button">Pausa</button>
+          <button id="timer-reset" type="button">Återställ</button>
+        </section>
+        <div class="header-actions">
+          <button id="history-open" class="text-button" type="button">Rensa historik</button>
+          <button id="formula-open" class="text-button" type="button" hidden>Formelblad</button>
+          <button id="print-exam" class="text-button" type="button">Skriv ut prov</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="exam-layout">
+      <nav class="question-nav" aria-label="Uppgifter">
+        <ol id="question-list"></ol>
+      </nav>
+      <main id="exam-app" tabindex="-1">
+        <section class="empty-state">
+          <h1>Laddar provet</h1>
+          <p>Frågorna förbereds.</p>
+        </section>
+      </main>
+    </div>
+
+    <p id="status-region" class="status-region" role="status" aria-live="polite"></p>
+
+    <dialog id="submit-dialog" aria-labelledby="submit-title">
+      <h2 id="submit-title">Rätta provet?</h2>
+      <p id="submit-message"></p>
+      <div class="dialog-actions">
+        <button class="neutral-button" type="button" data-dialog-close>Fortsätt svara</button>
+        <button id="submit-confirm" class="primary-button" type="button">Rätta och lås svaren</button>
+      </div>
+    </dialog>
+
+    <dialog id="history-dialog" aria-labelledby="history-title">
+      <h2 id="history-title">Rensa frågehistoriken?</h2>
+      <p>Nästa prov kan då välja frågor som du nyligen har fått.</p>
+      <div class="dialog-actions">
+        <button class="neutral-button" type="button" data-dialog-close>Avbryt</button>
+        <button id="history-confirm" class="primary-button" type="button">Rensa historiken</button>
+      </div>
+    </dialog>
+
+    <dialog id="formula-dialog" class="formula-dialog" aria-labelledby="formula-title">
+      <h2 id="formula-title">Formelblad</h2>
+      <div id="formula-content" class="formula-dialog-content"></div>
+      <div class="dialog-actions">
+        <button class="neutral-button" type="button" data-dialog-close>Stäng</button>
+        <button id="print-formula" class="primary-button" type="button">Skriv ut formelblad</button>
+      </div>
+    </dialog>
+
+    <dialog id="recovery-dialog" aria-labelledby="recovery-title">
+      <h2 id="recovery-title">Ett sparat prov finns</h2>
+      <p id="recovery-message">Fortsätt där du slutade eller starta ett nytt prov.</p>
+      <div class="dialog-actions">
+        <button id="recovery-continue" class="primary-button" type="button">Fortsätt provet</button>
+        <button id="recovery-new" class="neutral-button" type="button">Starta nytt</button>
+        <button id="recovery-back" class="neutral-button" type="button" hidden>Gå tillbaka</button>
+      </div>
+    </dialog>
+
+    <script src="../assets/js/subject-config.js"></script>
+    <script src="../assets/js/units.js"></script>
+    <script src="../assets/js/expression-parser.js"></script>
+    <script src="../assets/js/chemistry-parser.js"></script>
+    <script src="../assets/js/grading.js"></script>
+    <script src="../assets/js/storage.js"></script>
+    <script src="../assets/js/timer.js"></script>
+    <script src="../assets/js/exam-engine.js"></script>
+    <script src="../assets/js/app.js"></script>
+  </body>
+</html>
