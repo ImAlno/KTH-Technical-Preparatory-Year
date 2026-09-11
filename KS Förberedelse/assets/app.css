@@ -341,6 +341,34 @@ summary:focus-visible {
   padding: 12px 14px;
 }
 
+.answer-input {
+  display: flex;
+  align-items: stretch;
+}
+
+.answer-input input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  border-radius: 10px 0 0 10px;
+}
+
+.answer-unit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 3.25rem;
+  padding: 12px 14px;
+  color: var(--secondary);
+  background: var(--background);
+  border: 1px solid var(--line);
+  border-left: 0;
+  border-radius: 0 10px 10px 0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .answer-field textarea {
   min-height: 9rem;
   resize: vertical;
@@ -693,7 +721,10 @@ dialog p {
   }
 
   .formula-dialog {
+    display: flex;
+    flex-direction: column;
     width: calc(100% - 16px);
+    max-height: calc(100vh - 16px);
     padding: 12px;
   }
 
@@ -703,12 +734,18 @@ dialog p {
 
   .formula-controls {
     margin-top: 10px;
-    overflow-x: auto;
-    flex-wrap: nowrap;
+    overflow-x: visible;
+    flex-wrap: wrap;
   }
 
   .formula-controls > * {
     flex: 0 0 auto;
+  }
+
+  .formula-dialog-content {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 12rem;
   }
 }
 
@@ -737,6 +774,10 @@ dialog p {
   :root,
   body {
     background: #ffffff;
+  }
+
+  .formula-dialog::backdrop {
+    background: transparent;
   }
 
   .app-header,
@@ -780,7 +821,7 @@ dialog p {
   }
 
   .print-answer-space {
-    min-height: 70mm;
+    min-height: 55mm;
     margin-top: 10mm;
     border: 1px solid #d2d2d7;
   }

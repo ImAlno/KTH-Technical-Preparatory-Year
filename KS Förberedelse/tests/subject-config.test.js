@@ -27,3 +27,28 @@ test("all subject configs match the real KS limits", () => {
     ]
   );
 });
+
+test("validates the complete public subject configuration contract", () => {
+  const valid = { ...config.SUBJECTS.math };
+  Object.values(config.SUBJECTS).forEach((subject) => {
+    assert.equal(config.validateSubjectConfig(subject), true, subject.id);
+  });
+
+  [
+    null,
+    {},
+    { ...valid, id: " " },
+    { ...valid, id: 7 },
+    { ...valid, name: " " },
+    { ...valid, questionCount: 0 },
+    { ...valid, questionCount: "5" },
+    { ...valid, maxPoints: 0 },
+    { ...valid, maxPoints: Infinity },
+    { ...valid, passPoints: -1 },
+    { ...valid, passPoints: valid.maxPoints + 1 },
+    { ...valid, durationMinutes: 0 },
+    { ...valid, durationMinutes: "105" }
+  ].forEach((subject) => {
+    assert.equal(config.validateSubjectConfig(subject), false, JSON.stringify(subject));
+  });
+});

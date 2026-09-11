@@ -35,10 +35,13 @@
 
   function validateSubjectConfig(value) {
     return Boolean(
-      value && value.id &&
-      value.questionCount > 0 &&
-      value.maxPoints >= value.passPoints &&
-      value.durationMinutes > 0
+      value && typeof value === "object" && !Array.isArray(value) &&
+      typeof value.id === "string" && value.id.trim() &&
+      typeof value.name === "string" && value.name.trim() &&
+      Number.isInteger(value.questionCount) && value.questionCount > 0 &&
+      Number.isFinite(value.maxPoints) && value.maxPoints > 0 &&
+      Number.isFinite(value.passPoints) && value.passPoints > 0 && value.maxPoints >= value.passPoints &&
+      Number.isFinite(value.durationMinutes) && value.durationMinutes > 0
     );
   }
 

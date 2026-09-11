@@ -48,6 +48,28 @@ function scriptSources(html) {
   return Array.from(html.matchAll(/<script\s+src="([^"]+)"\s*><\/script>/g), (match) => match[1]);
 }
 
+function shippedHtmlAndJavaScript() {
+  const files = [];
+  const directories = [ROOT];
+
+  while (directories.length) {
+    const directory = directories.pop();
+    fs.readdirSync(directory, { withFileTypes: true }).forEach((entry) => {
+      const absolutePath = path.join(directory, entry.name);
+      const relativePath = path.relative(ROOT, absolutePath);
+      if (entry.isDirectory()) {
+        if (relativePath !== "tests" && relativePath !== "Underlag") directories.push(absolutePath);
+      } else if (/\.(?:html|js)$/u.test(entry.name)) {
+        files.push(absolutePath);
+      }
+    });
+  }
+
+  return files.sort();
+}
+
+const ALL_SHIPPED_HTML_AND_JS = shippedHtmlAndJavaScript();
+
 function fakeNode(tagName) {
   const listeners = {};
   return {
@@ -91,6 +113,10 @@ function fakeNode(tagName) {
     close() { this.removeAttribute("open"); },
     focus() { this.focused = true; }
   };
+}
+
+function descendants(node) {
+  return [node].concat((node.children || []).flatMap(descendants));
 }
 
 function recoveryHarness(savedSnapshot, options) {
@@ -162,6 +188,21 @@ test("all subject pages keep shared dependency order and load their complete que
     scripts.forEach((source) => {
       assert.equal(fs.existsSync(path.resolve(path.dirname(path.join(ROOT, file)), source)), true, `${file}: ${source}`);
     });
+  }
+});
+
+test("every subject page exposes the complete local application", () => {
+  for (const page of SUBJECT_PAGES) {
+    const html = fs.readFileSync(path.join(ROOT, page), "utf8");
+    assert.match(html, /assets\/js\/exam-engine\.js/, page);
+    assert.match(html, /assets\/js\/app\.js/, page);
+    assert.doesNotMatch(html, /https?:\/\//, page);
+  }
+});
+
+test("source underlag is never loaded by a student page", () => {
+  for (const page of ALL_SHIPPED_HTML_AND_JS) {
+    assert.doesNotMatch(fs.readFileSync(page, "utf8"), /Underlag\//, path.relative(ROOT, page));
   }
 });
 
@@ -278,6 +319,30 @@ test("formula controls load the configured sheet, clamp zoom, reset fit, pan, an
   assert.equal(harness.document.body.dataset.printMode, undefined);
 });
 
+test("numeric answer fields expose the requested unit as a fixed accessible suffix", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+  harness.subjectData.slots[1][0].fields = [{
+    id: "acceleration",
+    label: "Acceleration",
+    kind: "numeric",
+    points: 1,
+    expected: 2.5,
+    targetUnit: "m/s2",
+    tolerance: { absolute: 0.01 }
+  }];
+
+  assert.deepEqual(app.mount(harness.root, harness.subjectData), { ok: true });
+  const rendered = descendants(harness.root);
+  const input = rendered.find((node) => node.tagName === "INPUT");
+  const suffix = rendered.find((node) => node.className === "answer-unit");
+
+  assert.ok(input, "the numeric answer input is rendered");
+  assert.ok(suffix, "the target unit is rendered beside the input");
+  assert.equal(suffix.textContent, "m/s²");
+  assert.equal(input.attributes["aria-describedby"], suffix.id);
+});
+
 test("subject shells expose semantic landmarks, live feedback and native dialogs", () => {
   for (const file of SUBJECT_PAGES) {
     const html = read(file);
@@ -363,6 +428,13 @@ test("print mode removes interaction and prints every prompt with answer space",
   assert.match(css, /\.print-answer-space/);
   assert.match(css, /break-inside:\s*avoid/);
   assert.match(source, /`Uppgift \$\{position \+ 1\}: \$\{question\.title\} \(\$\{formatPoints\(question\.points\)\} p\)`/);
+});
+
+test("formula-sheet printing removes the modal backdrop from the A4 page", () => {
+  const css = read("assets/app.css");
+  const printRules = css.slice(css.indexOf("@media print"));
+
+  assert.match(printRules, /\.formula-dialog::backdrop\s*\{[^}]*background:\s*transparent/s);
 });
 
 test("recovery cannot be dismissed while no session exists", () => {

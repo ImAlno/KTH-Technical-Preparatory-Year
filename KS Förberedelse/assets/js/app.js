@@ -96,6 +96,10 @@
     return Number.isInteger(value) ? String(value) : String(value).replace(".", ",");
   }
 
+  function formatUnitSuffix(value) {
+    return String(value).replace(/2/g, "²").replace(/3/g, "³");
+  }
+
   function formatTime(milliseconds) {
     const seconds = Math.max(0, Math.ceil(milliseconds / 1000));
     const hours = Math.floor(seconds / 3600);
@@ -307,8 +311,25 @@
           session.setAnswer(question.id, field.id, control.value);
           renderNavigation();
         });
-        wrapper.append(label, control);
-        if (field.help) wrapper.append(createElement(document, "p", "field-help", field.help));
+        wrapper.append(label);
+        const describedBy = [];
+        if (field.kind === "numeric" && nonEmpty(field.targetUnit) && field.targetUnit !== "1") {
+          const inputGroup = createElement(document, "div", "answer-input");
+          const unit = createElement(document, "span", "answer-unit", formatUnitSuffix(field.targetUnit));
+          unit.id = `${id}-unit`;
+          describedBy.push(unit.id);
+          inputGroup.append(control, unit);
+          wrapper.append(inputGroup);
+        } else {
+          wrapper.append(control);
+        }
+        if (field.help) {
+          const help = createElement(document, "p", "field-help", field.help);
+          help.id = `${id}-help`;
+          describedBy.push(help.id);
+          wrapper.append(help);
+        }
+        if (describedBy.length) control.setAttribute("aria-describedby", describedBy.join(" "));
         if (fieldIndex === 0) control.dataset.firstAnswer = "true";
         container.append(wrapper);
       });
