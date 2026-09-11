@@ -27,6 +27,21 @@ test("normalizes and converts first-class square-area units", () => {
   assert.deepEqual(units.convert(1, "m²", "m"), { ok: false, reason: "incompatible-dimension" });
 });
 
+test("normalizes and converts first-class molar-mass units", () => {
+  ["g/mol", "g mol−1", "g·mol⁻¹"].forEach((variant) => {
+    assert.equal(units.normalizeUnit(variant), "g/mol");
+  });
+  assert.equal(units.normalizeUnit("kg/mol"), "kg/mol");
+  assert.equal(units.convert(1, "kg/mol", "g/mol").value, 1000);
+  assert.deepEqual(units.convert(18.02, "g/mol", "g"), { ok: false, reason: "incompatible-dimension" });
+});
+
+test("represents counts with a genuine dimensionless unit", () => {
+  assert.equal(units.normalizeUnit("1"), "1");
+  assert.equal(units.convert(7, "1", "1").value, 7);
+  assert.deepEqual(units.convert(7, "1", "mol"), { ok: false, reason: "incompatible-dimension" });
+});
+
 test("refuses incompatible or unknown units", () => {
   assert.deepEqual(units.convert(1, "N", "kg"), { ok: false, reason: "incompatible-dimension" });
   assert.equal(units.convert(1, "glim", "m").ok, false);

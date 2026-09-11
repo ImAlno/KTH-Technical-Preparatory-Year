@@ -20,7 +20,7 @@ const SHARED_DEPENDENCIES = [
   "../assets/js/timer.js",
   "../assets/js/exam-engine.js"
 ];
-const QUESTION_SCRIPTS = [
+const FIVE_SLOT_QUESTION_SCRIPTS = [
   "questions/slot-1.js",
   "questions/slot-2.js",
   "questions/slot-3.js",
@@ -28,6 +28,7 @@ const QUESTION_SCRIPTS = [
   "questions/slot-5.js",
   "questions.js"
 ];
+const SIX_SLOT_QUESTION_SCRIPTS = FIVE_SLOT_QUESTION_SCRIPTS.slice(0, -1).concat("questions/slot-6.js", "questions.js");
 
 function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
@@ -120,16 +121,15 @@ function recoveryHarness(savedSnapshot, options) {
   return { adapter, document, nodes, root, subjectData, values };
 }
 
-test("subject pages keep shared dependency order and load only implemented question banks", () => {
+test("all subject pages keep shared dependency order and load their complete question banks", () => {
   for (const file of SUBJECT_PAGES) {
     const html = read(file);
     const scripts = scriptSources(html);
-    const hasQuestionBank = file.startsWith("Matematik") || file.startsWith("Fysik");
-    const expected = SHARED_DEPENDENCIES.concat(hasQuestionBank ? QUESTION_SCRIPTS : [], "../assets/js/app.js");
+    const questionScripts = file.startsWith("Kemi") ? SIX_SLOT_QUESTION_SCRIPTS : FIVE_SLOT_QUESTION_SCRIPTS;
+    const expected = SHARED_DEPENDENCIES.concat(questionScripts, "../assets/js/app.js");
 
     assert.doesNotMatch(html, /https?:\/\//, file);
     assert.deepEqual(scripts, expected, file);
-    if (file.startsWith("Kemi")) assert.doesNotMatch(html, /(?:questions|slot-?\d+)\.js/i, file);
     scripts.forEach((source) => {
       assert.equal(fs.existsSync(path.resolve(path.dirname(path.join(ROOT, file)), source)), true, `${file}: ${source}`);
     });

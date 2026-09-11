@@ -7,6 +7,7 @@
   }
 })(typeof window !== "undefined" ? window : null, function () {
   const UNIT_DEFINITIONS = {
+    "1": { dimension: "dimensionless", factor: 1, aliases: ["1"] },
     "kg": { dimension: "mass", factor: 1, aliases: ["kg"] },
     "g": { dimension: "mass", factor: 1e-3, aliases: ["g", "gram"] },
     "mg": { dimension: "mass", factor: 1e-6, aliases: ["mg"] },
@@ -34,6 +35,8 @@
     "g/cm3": { dimension: "density", factor: 1000, aliases: ["g/cm3", "g/cm^3", "g/cm³"] },
     "mol": { dimension: "amount", factor: 1, aliases: ["mol"] },
     "mol/dm3": { dimension: "concentration", factor: 1000, aliases: ["mol/dm3", "mol/dm^3", "mol/dm³", "M"] },
+    "g/mol": { dimension: "molar-mass", factor: 1, aliases: ["g/mol", "g mol-1", "g·mol⁻¹"] },
+    "kg/mol": { dimension: "molar-mass", factor: 1000, aliases: ["kg/mol", "kg mol-1", "kg·mol⁻¹"] },
     "%": { dimension: "percent", factor: 1, aliases: ["%", "procent"] }
   };
 
