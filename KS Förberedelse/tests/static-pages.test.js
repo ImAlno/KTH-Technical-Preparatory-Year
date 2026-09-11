@@ -20,7 +20,7 @@ const SHARED_DEPENDENCIES = [
   "../assets/js/timer.js",
   "../assets/js/exam-engine.js"
 ];
-const MATH_QUESTION_SCRIPTS = [
+const QUESTION_SCRIPTS = [
   "questions/slot-1.js",
   "questions/slot-2.js",
   "questions/slot-3.js",
@@ -124,11 +124,12 @@ test("subject pages keep shared dependency order and load only implemented quest
   for (const file of SUBJECT_PAGES) {
     const html = read(file);
     const scripts = scriptSources(html);
-    const expected = SHARED_DEPENDENCIES.concat(file.startsWith("Matematik") ? MATH_QUESTION_SCRIPTS : [], "../assets/js/app.js");
+    const hasQuestionBank = file.startsWith("Matematik") || file.startsWith("Fysik");
+    const expected = SHARED_DEPENDENCIES.concat(hasQuestionBank ? QUESTION_SCRIPTS : [], "../assets/js/app.js");
 
     assert.doesNotMatch(html, /https?:\/\//, file);
     assert.deepEqual(scripts, expected, file);
-    if (!file.startsWith("Matematik")) assert.doesNotMatch(html, /(?:questions|slot-?\d+)\.js/i, file);
+    if (file.startsWith("Kemi")) assert.doesNotMatch(html, /(?:questions|slot-?\d+)\.js/i, file);
     scripts.forEach((source) => {
       assert.equal(fs.existsSync(path.resolve(path.dirname(path.join(ROOT, file)), source)), true, `${file}: ${source}`);
     });
