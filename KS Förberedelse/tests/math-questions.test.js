@@ -3,9 +3,12 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const crypto = require("node:crypto");
+const childProcess = require("node:child_process");
 const exam = require("../assets/js/exam-engine.js");
 const expression = require("../assets/js/expression-parser.js");
 const grading = require("../assets/js/grading.js");
+const diagramKit = require("../assets/js/diagram-kit.js");
 
 const MATH_ROOT = path.join(__dirname, "../Matematik KS2");
 const SLOT_FAMILIES = {
@@ -59,9 +62,8 @@ function loadSlots() {
 }
 
 function loadSubjectDataFresh() {
-  const files = [1, 2, 3, 4, 5].map((slot) => path.join(MATH_ROOT, `questions/slot-${slot}.js`));
-  files.push(path.join(MATH_ROOT, "questions.js"));
-  files.forEach((file) => { delete require.cache[require.resolve(file)]; });
+  const assembly = path.join(MATH_ROOT, "questions.js");
+  delete require.cache[require.resolve(assembly)];
   return require(path.join(MATH_ROOT, "questions.js"));
 }
 
@@ -88,6 +90,30 @@ function asksForComputerDerivation(html) {
 
 function close(left, right, tolerance = 1e-8) {
   return Math.abs(left - right) <= tolerance * Math.max(1, Math.abs(left), Math.abs(right));
+}
+
+function assertPointClose(actual, expected, message) {
+  assert.equal(actual.length, 2, message);
+  actual.forEach((value, index) => assert.ok(close(value, expected[index]), `${message}: ${actual} != ${expected}`));
+}
+
+function subtractPoints(a, b) {
+  return [a[0] - b[0], a[1] - b[1]];
+}
+
+function crossVectors(a, b) {
+  return a[0] * b[1] - a[1] * b[0];
+}
+
+function dotVectors(a, b) {
+  return a[0] * b[0] + a[1] * b[1];
+}
+
+function diagramElement(question, suffix) {
+  const id = `${question.id}-${suffix}`;
+  const found = question.sourceData.diagram.elements.find((element) => element.id === id);
+  assert.ok(found, `${question.id}: missing semantic diagram element ${id}`);
+  return found;
 }
 
 function sortedUnique(values) {
@@ -283,13 +309,14 @@ function memoryStore() {
 test("math has exactly 25 complete, stable and unique questions in every slot", () => {
   const first = loadSlots();
   const serialized = JSON.stringify(first);
-  Object.values(first).flat().forEach((question) => delete require.cache[require.resolve(path.join(MATH_ROOT, `questions/slot-${question.slot}.js`))]);
-  const second = loadSlots();
   const questions = Object.values(first).flat();
+
+  const freshProcessSource = `const path = require("node:path"); const root = ${JSON.stringify(MATH_ROOT)}; const slots = Object.fromEntries([1,2,3,4,5].map((slot) => [slot, require(path.join(root, "questions/slot-" + slot + ".js"))])); process.stdout.write(JSON.stringify(slots));`;
+  const freshSerialized = childProcess.execFileSync(process.execPath, ["-e", freshProcessSource], { encoding: "utf8" });
 
   assert.deepEqual(Object.values(first).map((slot) => slot.length), [25, 25, 25, 25, 25]);
   assert.equal(new Set(questions.map((question) => question.id)).size, 125);
-  assert.equal(serialized, JSON.stringify(second), "fresh module loads must preserve every stable question");
+  assert.equal(serialized, freshSerialized, "fresh module loads must preserve every stable question");
   questions.forEach((question) => {
     assert.equal(question.points, 2, question.id);
     assert.equal(question.slot, Number(question.id.match(/math-s([1-5])-/)[1]), question.id);
@@ -496,6 +523,107 @@ test("geometry answers match independent constructions and every schematic SVG i
   });
 });
 
+test("slot-five geometry metadata remains byte-for-byte preserved outside the rebuilt diagram", () => {
+  const projection = loadSlots()[5].map(({ id, points, workOnPaper, fields, solutionHtml, rubric, sourceData }) => {
+    const stableSourceData = Object.fromEntries(Object.entries(sourceData).filter(([key]) => key !== "diagram"));
+    return { id, points, workOnPaper, fields, solutionHtml, rubric, sourceData: stableSourceData };
+  });
+  const hash = crypto.createHash("sha256").update(JSON.stringify(projection)).digest("hex");
+  assert.equal(hash, "1a4b7fb1f0430843f4b7445c967876124379d8cdfc21cfac784fe7c5cdfd7cc6");
+});
+
+test("all 25 slot-five diagrams expose independent semantic family invariants", () => {
+  const questions = loadSlots()[5];
+  const allDomIds = [];
+  questions.forEach((question) => {
+    const manifest = question.sourceData.diagram;
+    const p = question.sourceData.parameters;
+    assert.doesNotThrow(() => diagramKit.validateManifest(manifest), question.id);
+    assert.equal(manifest.purpose, "prompt", question.id);
+    assert.equal(manifest.id, `${question.id}-diagram`, question.id);
+    assert.equal(manifest.titleId, `${question.id}-diagram-title`, question.id);
+    assert.equal(manifest.descriptionId, `${question.id}-diagram-desc`, question.id);
+    allDomIds.push(...manifest.domIds);
+
+    const outline = diagramElement(question, "outline");
+    const labels = manifest.labels;
+    assert.ok(labels.length >= 3, `${question.id}: expected family labels`);
+    labels.forEach((label) => {
+      assert.ok(manifest.elements.some((element) => element.id === label.anchorId && element.collision), `${question.id}: label owner ${label.anchorId}`);
+      assert.ok(label.avoid.length >= 2, `${question.id}: ${label.id} needs meaningful reserved geometry`);
+      assert.ok(label.avoid.includes(outline.id), `${question.id}: ${label.id} must reserve the outline`);
+      assert.ok(label.minClearance >= 6, `${question.id}: ${label.id} clearance`);
+    });
+
+    if (question.sourceData.family === "right-triangle") {
+      const [rightVertex, angleVertex, apex] = outline.points;
+      assert.ok(Math.abs(dotVectors(subtractPoints(angleVertex, rightVertex), subtractPoints(apex, rightVertex))) <= 1e-8, question.id);
+      const marker = diagramElement(question, "right-marker");
+      const firstOffset = subtractPoints(marker.points[0], rightVertex);
+      const lastOffset = subtractPoints(marker.points[2], rightVertex);
+      assert.ok(Math.abs(crossVectors(firstOffset, subtractPoints(apex, rightVertex))) <= 1e-8, `${question.id}: marker first arm`);
+      assert.ok(Math.abs(crossVectors(lastOffset, subtractPoints(angleVertex, rightVertex))) <= 1e-8, `${question.id}: marker last arm`);
+      const givenAngle = diagramElement(question, "given-angle");
+      assertPointClose(givenAngle.vertex, angleVertex, `${question.id}: requested angle vertex`);
+      assert.ok(close(Math.acos(dotVectors(givenAngle.fromRay, givenAngle.toRay)) * 180 / Math.PI, p.angleDegrees), question.id);
+      const adjacent = diagramElement(question, "adjacent-dimension");
+      assertPointClose(adjacent.a, rightVertex, `${question.id}: adjacent dimension start`);
+      assertPointClose(adjacent.b, angleVertex, `${question.id}: adjacent dimension end`);
+    } else if (question.sourceData.family === "non-right-triangle-area") {
+      const [vertex, sideAEnd, sideBEnd] = outline.points;
+      const sideA = diagramElement(question, "side-a-dimension");
+      const sideB = diagramElement(question, "side-b-dimension");
+      assertPointClose(sideA.a, vertex, `${question.id}: side a starts at included angle`);
+      assertPointClose(sideA.b, sideAEnd, `${question.id}: side a endpoint`);
+      assertPointClose(sideB.a, vertex, `${question.id}: side b starts at included angle`);
+      assertPointClose(sideB.b, sideBEnd, `${question.id}: side b endpoint`);
+      const angle = diagramElement(question, "included-angle");
+      assertPointClose(angle.vertex, vertex, `${question.id}: included angle vertex`);
+      assert.ok(close(Math.acos(dotVectors(angle.fromRay, angle.toRay)) * 180 / Math.PI, p.angleDegrees), question.id);
+    } else if (question.sourceData.family === "parallel-transversal") {
+      const [a, b, c] = outline.points;
+      const transversal = diagramElement(question, "transversal");
+      const d = transversal.from; const e = transversal.to;
+      assert.ok(Math.abs(crossVectors(subtractPoints(d, a), subtractPoints(b, a))) <= 1e-8, `${question.id}: D on AB`);
+      assert.ok(Math.abs(crossVectors(subtractPoints(e, a), subtractPoints(c, a))) <= 1e-8, `${question.id}: E on AC`);
+      assert.ok(dotVectors(subtractPoints(d, a), subtractPoints(d, b)) <= 1e-8, `${question.id}: D within AB`);
+      assert.ok(dotVectors(subtractPoints(e, a), subtractPoints(e, c)) <= 1e-8, `${question.id}: E within AC`);
+      assert.ok(Math.abs(crossVectors(subtractPoints(e, d), subtractPoints(c, b))) <= 1e-8, `${question.id}: DE parallel BC`);
+    } else if (question.sourceData.family === "composite-quadrilateral") {
+      const cutTopLeft = outline.points[1];
+      const cutBottomLeft = outline.points[2];
+      const cutBottomRight = outline.points[3];
+      const removedTopRight = [cutBottomRight[0], cutTopLeft[1]];
+      const cutWidth = diagramElement(question, "cut-width-dimension");
+      const cutHeight = diagramElement(question, "cut-height-dimension");
+      assertPointClose(cutWidth.a, cutTopLeft, `${question.id}: cut width begins on removed rectangle`);
+      assertPointClose(cutWidth.b, removedTopRight, `${question.id}: cut width ends on removed rectangle`);
+      assertPointClose(cutHeight.a, removedTopRight, `${question.id}: cut height begins on removed rectangle`);
+      assertPointClose(cutHeight.b, cutBottomRight, `${question.id}: cut height ends on removed rectangle`);
+      assert.ok(close(Math.abs(cutBottomLeft[1] - cutTopLeft[1]) / Math.abs(cutBottomRight[0] - cutBottomLeft[0]), p.cutHeight / p.cutWidth), question.id);
+    } else {
+      const [apex, baseLeft, baseRight] = outline.points;
+      const height = diagramElement(question, "height");
+      const midpoint = [(baseLeft[0] + baseRight[0]) / 2, (baseLeft[1] + baseRight[1]) / 2];
+      assertPointClose(height.from, apex, `${question.id}: height starts at apex`);
+      assertPointClose(height.to, midpoint, `${question.id}: height reaches base midpoint`);
+      assert.ok(Math.abs(dotVectors(subtractPoints(height.to, height.from), subtractPoints(baseRight, baseLeft))) <= 1e-8, `${question.id}: height perpendicular to base`);
+      const marker = diagramElement(question, "right-marker");
+      const firstOffset = subtractPoints(marker.points[0], midpoint);
+      const lastOffset = subtractPoints(marker.points[2], midpoint);
+      assert.ok(Math.abs(crossVectors(firstOffset, subtractPoints(apex, midpoint))) <= 1e-8, `${question.id}: midpoint marker follows height`);
+      assert.ok(Math.abs(crossVectors(lastOffset, subtractPoints(baseRight, midpoint))) <= 1e-8, `${question.id}: midpoint marker follows base`);
+    }
+  });
+  assert.equal(new Set(allDomIds).size, allDomIds.length, "all SVG, title, description, element and fragment IDs must be unique");
+});
+
+test("slot five fails loudly when the diagram kit is absent in either module environment", () => {
+  const source = fs.readFileSync(path.join(MATH_ROOT, "questions/slot-5.js"), "utf8");
+  assert.throws(() => vm.runInNewContext(source, { window: {} }), /diagram.?kit|diagram dependency/i);
+  assert.throws(() => vm.runInNewContext(source, { module: { exports: {} }, require() { return undefined; } }), /diagram.?kit|diagram dependency/i);
+});
+
 test("geometry solutions retain every requested trailing decimal", () => {
   loadSlots()[5].forEach((question) => {
     const data = question.sourceData;
@@ -516,6 +644,7 @@ test("subject assembly works in CommonJS and through ordered classic browser scr
   const context = vm.createContext({ window: {} });
   [
     "../assets/js/subject-config.js",
+    "../assets/js/diagram-kit.js",
     "questions/slot-1.js", "questions/slot-2.js", "questions/slot-3.js", "questions/slot-4.js", "questions/slot-5.js", "questions.js"
   ].forEach((relative) => {
     const filename = path.resolve(MATH_ROOT, relative);

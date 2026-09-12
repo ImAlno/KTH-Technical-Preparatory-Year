@@ -1,12 +1,19 @@
 (function (root, factory) {
-  const bank = factory();
+  const diagramKit = typeof module === "object" && module.exports
+    ? require("../../assets/js/diagram-kit.js")
+    : root && root.KS && root.KS.diagram;
+  const bank = factory(diagramKit);
   if (typeof module === "object" && module.exports) module.exports = bank;
   if (root) {
     root.KS_MATH_SLOTS = root.KS_MATH_SLOTS || {};
     root.KS_MATH_SLOTS[5] = bank;
   }
-})(typeof window !== "undefined" ? window : null, function () {
+})(typeof window !== "undefined" ? window : null, function (diagramKit) {
   "use strict";
+
+  if (!diagramKit || typeof diagramKit.create !== "function" || typeof diagramKit.validateManifest !== "function") {
+    throw new Error("diagram-kit dependency is required before constructing mathematics slot 5");
+  }
 
   const FAMILY_ROWS = [
     ["right-triangle", [
@@ -98,92 +105,222 @@
     return Math.sqrt(p.equalSide * p.equalSide - Math.pow(p.base / 2, 2));
   }
 
-  function svgShell(id, title, description, body) {
-    return '<svg class="question-figure" viewBox="0 0 360 220" role="img" aria-labelledby="' + id + '-title ' + id + '-desc">' +
-      '<title id="' + id + '-title">' + title + '</title>' +
-      '<desc id="' + id + '-desc">' + description + '</desc>' + body + '</svg>';
+  function add(a, b) {
+    return [a[0] + b[0], a[1] + b[1]];
+  }
+
+  function subtract(a, b) {
+    return [a[0] - b[0], a[1] - b[1]];
+  }
+
+  function scale(vector, factor) {
+    return [vector[0] * factor, vector[1] * factor];
+  }
+
+  function midpoint(a, b) {
+    return scale(add(a, b), 0.5);
+  }
+
+  function interpolate(a, b, ratio) {
+    return add(a, scale(subtract(b, a), ratio));
+  }
+
+  function unit(vector) {
+    const length = Math.hypot(vector[0], vector[1]);
+    return scale(vector, 1 / length);
+  }
+
+  function label(diagram, id, suffix, at, text, anchorId, avoid, textAnchor) {
+    diagram.add("labels", diagramKit.label({
+      id: id + "-" + suffix,
+      at: at,
+      text: text,
+      anchorId: anchorId,
+      avoid: avoid,
+      minClearance: 6,
+      textAnchor: textAnchor || "middle",
+      fontSize: 14,
+      background: true
+    }));
+  }
+
+  function makeDiagram(id, title, description) {
+    return diagramKit.create({ id: id + "-diagram", title: title, description: description, width: 360, height: 240, purpose: "prompt" });
   }
 
   function rightTriangleFigure(id, p) {
-    return svgShell(id, "Rätvinklig triangel med markerad vinkel", "En schematisk rätvinklig triangel där den närliggande kateten och en spetsig vinkel är kända.",
-      '<path d="M55 180 L305 180 L55 45 Z" fill="none" stroke="currentColor" stroke-width="3"/>' +
-      '<path d="M55 160 L75 160 L75 180" fill="none" stroke="currentColor" stroke-width="2"/>' +
-      '<path d="M270 180 A35 35 0 0 0 276 163" fill="none" stroke="currentColor" stroke-width="2"/>' +
-      '<text x="245" y="164" font-size="15">' + clean(p.angleDegrees) + '°</text>' +
-      '<text x="145" y="204" font-size="15">' + clean(p.adjacent) + ' ' + p.unit + '</text>' +
-      '<text x="24" y="112" font-size="16">h</text>');
+    const diagram = makeDiagram(id, "Rätvinklig triangel med markerad vinkel", "En schematisk rätvinklig triangel där den närliggande kateten och en spetsig vinkel är kända.");
+    const radians = p.angleDegrees * Math.PI / 180;
+    const adjacentPixels = Math.min(235, 140 / Math.tan(radians));
+    const rightVertex = [55, 185];
+    const angleVertex = [55 + adjacentPixels, 185];
+    const apex = [55, 185 - adjacentPixels * Math.tan(radians)];
+    const outlineId = id + "-outline";
+    const dimensionId = id + "-adjacent-dimension";
+    const markerId = id + "-right-marker";
+    const angleId = id + "-given-angle";
+    diagram.add("geometry", diagramKit.polygon({ id: outlineId, points: [rightVertex, angleVertex, apex], role: "shape", strokeWidth: 3 }));
+    diagram.add("information", diagramKit.polyline({ id: markerId, points: [add(rightVertex, [0, -18]), add(rightVertex, [18, -18]), add(rightVertex, [18, 0])], role: "marker", strokeWidth: 2 }));
+    diagram.add("information", diagramKit.angleArc({ id: angleId, vertex: angleVertex, fromRay: rightVertex, toRay: apex, radius: 25, role: "angle", strokeWidth: 2 }));
+    const adjacentDimension = diagramKit.dimension({ id: dimensionId, a: rightVertex, b: angleVertex, offset: 22, role: "dimension" });
+    diagram.add("information", adjacentDimension);
+    const angleDirection = unit(add(unit(subtract(rightVertex, angleVertex)), unit(subtract(apex, angleVertex))));
+    label(diagram, id, "angle-label", add(angleVertex, scale(angleDirection, 43)), clean(p.angleDegrees) + "°", angleId, [outlineId, angleId, markerId]);
+    label(diagram, id, "adjacent-label", add(midpoint(adjacentDimension.start, adjacentDimension.end), [0, 20]), clean(p.adjacent) + " " + p.unit, dimensionId, [outlineId, dimensionId, markerId]);
+    label(diagram, id, "height-label", [35, (rightVertex[1] + apex[1]) / 2], "h", outlineId, [outlineId, markerId]);
+    return diagram.finish();
   }
 
   function areaTriangleFigure(id, p) {
-    return svgShell(id, "Triangel med två sidor och mellanliggande vinkel", "En schematisk triangel där två sidlängder och vinkeln mellan dem är markerade.",
-      '<path d="M55 180 L315 180 L142 45 Z" fill="none" stroke="currentColor" stroke-width="3"/>' +
-      '<path d="M86 180 A31 31 0 0 1 75 155" fill="none" stroke="currentColor" stroke-width="2"/>' +
-      '<text x="85" y="156" font-size="15">' + clean(p.angleDegrees) + '°</text>' +
-      '<text x="80" y="105" font-size="15">' + clean(p.sideA) + ' ' + p.unit.replace("²", "") + '</text>' +
-      '<text x="185" y="204" font-size="15">' + clean(p.sideB) + ' ' + p.unit.replace("²", "") + '</text>');
+    const diagram = makeDiagram(id, "Triangel med två sidor och mellanliggande vinkel", "En schematisk triangel där två sidlängder och vinkeln mellan dem är markerade.");
+    const radians = p.angleDegrees * Math.PI / 180;
+    const pixelsPerUnit = 115 / Math.max(p.sideA, p.sideB);
+    const vertex = [170, 180];
+    const sideAEnd = add(vertex, [p.sideA * pixelsPerUnit, 0]);
+    const sideBEnd = add(vertex, [p.sideB * pixelsPerUnit * Math.cos(radians), -p.sideB * pixelsPerUnit * Math.sin(radians)]);
+    const outlineId = id + "-outline";
+    const sideAId = id + "-side-a-dimension";
+    const sideBId = id + "-side-b-dimension";
+    const angleId = id + "-included-angle";
+    diagram.add("geometry", diagramKit.polygon({ id: outlineId, points: [vertex, sideAEnd, sideBEnd], role: "shape", strokeWidth: 3 }));
+    const sideA = diagramKit.dimension({ id: sideAId, a: vertex, b: sideAEnd, offset: 22, role: "dimension" });
+    const sideB = diagramKit.dimension({ id: sideBId, a: vertex, b: sideBEnd, offset: -18, role: "dimension" });
+    diagram.add("information", sideA);
+    diagram.add("information", sideB);
+    diagram.add("information", diagramKit.angleArc({ id: angleId, vertex: vertex, fromRay: sideAEnd, toRay: sideBEnd, radius: 27, role: "angle", strokeWidth: 2 }));
+    const angleDirection = unit(add(unit(subtract(sideAEnd, vertex)), unit(subtract(sideBEnd, vertex))));
+    label(diagram, id, "angle-label", add(vertex, scale(angleDirection, 45)), clean(p.angleDegrees) + "°", angleId, [outlineId, angleId, sideAId, sideBId]);
+    label(diagram, id, "side-a-label", add(midpoint(sideA.start, sideA.end), [0, 20]), clean(p.sideA) + " " + p.unit.replace("²", ""), sideAId, [outlineId, sideAId, angleId]);
+    label(diagram, id, "side-b-label", add(midpoint(sideB.start, sideB.end), scale(sideB.normal, -10)), clean(p.sideB) + " " + p.unit.replace("²", ""), sideBId, [outlineId, sideBId, angleId]);
+    return diagram.finish();
   }
 
   function parallelFigure(id, p) {
-    return svgShell(id, "Triangel med ett parallellt tvärsegment", "I triangeln ligger D på AB och E på AC. Segmentet DE är parallellt med BC.",
-      '<path d="M180 28 L42 190 L330 190 Z" fill="none" stroke="currentColor" stroke-width="3"/>' +
-      '<path d="M112 108 L252 108" fill="none" stroke="currentColor" stroke-width="3"/>' +
-      '<text x="175" y="22" font-size="15">A</text><text x="27" y="207" font-size="15">B</text><text x="334" y="207" font-size="15">C</text>' +
-      '<text x="94" y="109" font-size="15">D</text><text x="257" y="109" font-size="15">E</text>' +
-      '<text x="125" y="67" font-size="13">AD = ' + clean(p.ad) + ' ' + p.unit + '</text>' +
-      '<text x="62" y="151" font-size="13">DB = ' + clean(p.db) + ' ' + p.unit + '</text>' +
-      '<text x="213" y="67" font-size="13">AE = ' + clean(p.ae) + ' ' + p.unit + '</text>' +
-      '<text x="268" y="151" font-size="14">EC = ?</text>');
+    const diagram = makeDiagram(id, "Triangel med ett parallellt tvärsegment", "I triangeln ligger D på AB och E på AC. Segmentet DE är parallellt med BC.");
+    const a = [180, 32]; const b = [48, 185]; const c = [312, 185];
+    const ratio = p.ad / (p.ad + p.db);
+    const d = interpolate(a, b, ratio); const e = interpolate(a, c, ratio);
+    const outlineId = id + "-outline"; const transversalId = id + "-transversal";
+    diagram.add("geometry", diagramKit.polygon({ id: outlineId, points: [a, b, c], role: "shape", strokeWidth: 3 }));
+    [["point-a", a], ["point-b", b], ["point-c", c], ["point-d", d], ["point-e", e]].forEach(function (entry) {
+      diagram.add("information", diagramKit.circle({ id: id + "-" + entry[0], center: entry[1], radius: 2.5, role: "point", strokeWidth: 1.5 }));
+    });
+    diagram.add("connections", diagramKit.line({ id: transversalId, a: d, b: e, role: "connection", strokeWidth: 3 }));
+    [
+      ["ad-dimension", a, d, 13, "AD = " + clean(p.ad) + " " + p.unit],
+      ["db-dimension", d, b, 13, "DB = " + clean(p.db) + " " + p.unit],
+      ["ae-dimension", a, e, -13, "AE = " + clean(p.ae) + " " + p.unit],
+      ["ec-dimension", e, c, -13, "EC = ?"]
+    ].forEach(function (entry) {
+      const dimension = diagramKit.dimension({ id: id + "-" + entry[0], a: entry[1], b: entry[2], offset: entry[3], role: "dimension" });
+      diagram.add("information", dimension);
+      label(diagram, id, entry[0].replace("dimension", "label"), midpoint(dimension.start, dimension.end), entry[4], dimension.id, [outlineId, transversalId, dimension.id], "middle");
+    });
+    const pointLabels = [["A", a, [0, -10]], ["B", b, [-12, 16]], ["C", c, [12, 16]], ["D", d, [-10, 4]], ["E", e, [10, 4]]];
+    pointLabels.forEach(function (entry) {
+      label(diagram, id, "vertex-" + entry[0].toLowerCase(), add(entry[1], entry[2]), entry[0], id + "-point-" + entry[0].toLowerCase(), [outlineId, transversalId], "middle");
+    });
+    return diagram.finish();
   }
 
   function compositeFigure(id, p) {
-    return svgShell(id, "L-formad sammansatt fyrhörning", "En schematisk ytterrektangel med en rektangulär urtagning i det övre högra hörnet.",
-      '<path d="M45 32 H225 V112 H315 V190 H45 Z" fill="none" stroke="currentColor" stroke-width="3"/>' +
-      '<path d="M225 32 H315 V112" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="6 5"/>' +
-      '<text x="145" y="211" font-size="14">' + clean(p.outerWidth) + ' ' + p.unit.replace("²", "") + '</text>' +
-      '<text x="6" y="116" font-size="14">' + clean(p.outerHeight) + ' ' + p.unit.replace("²", "") + '</text>' +
-      '<text x="242" y="24" font-size="13">' + clean(p.cutWidth) + ' ' + p.unit.replace("²", "") + '</text>' +
-      '<text x="319" y="78" font-size="13">' + clean(p.cutHeight) + ' ' + p.unit.replace("²", "") + '</text>');
+    const diagram = makeDiagram(id, "L-formad sammansatt fyrhörning", "En schematisk ytterrektangel med en rektangulär urtagning i det övre högra hörnet.");
+    const pixelsPerUnit = Math.min(250 / p.outerWidth, 145 / p.outerHeight);
+    const outerPixelWidth = p.outerWidth * pixelsPerUnit;
+    const outerPixelHeight = p.outerHeight * pixelsPerUnit;
+    const left = (360 - outerPixelWidth) / 2; const right = left + outerPixelWidth; const bottom = 185; const top = bottom - outerPixelHeight;
+    const cutLeft = right - p.cutWidth * pixelsPerUnit;
+    const cutBottom = top + p.cutHeight * pixelsPerUnit;
+    const outerTopLeft = [left, top]; const cutTopLeft = [cutLeft, top];
+    const cutBottomLeft = [cutLeft, cutBottom]; const cutBottomRight = [right, cutBottom];
+    const outerBottomRight = [right, bottom]; const outerBottomLeft = [left, bottom]; const removedTopRight = [right, top];
+    const outlineId = id + "-outline";
+    diagram.add("geometry", diagramKit.polygon({ id: outlineId, points: [outerTopLeft, cutTopLeft, cutBottomLeft, cutBottomRight, outerBottomRight, outerBottomLeft], role: "shape", strokeWidth: 3 }));
+    const dimensions = [
+      ["outer-width-dimension", outerBottomLeft, outerBottomRight, 18, clean(p.outerWidth) + " " + p.unit.replace("²", "")],
+      ["outer-height-dimension", outerTopLeft, outerBottomLeft, 18, clean(p.outerHeight) + " " + p.unit.replace("²", "")],
+      ["cut-width-dimension", cutTopLeft, removedTopRight, 14, clean(p.cutWidth) + " " + p.unit.replace("²", "")],
+      ["cut-height-dimension", removedTopRight, cutBottomRight, 14, clean(p.cutHeight) + " " + p.unit.replace("²", "")]
+    ];
+    dimensions.forEach(function (entry) {
+      const dimension = diagramKit.dimension({ id: id + "-" + entry[0], a: entry[1], b: entry[2], offset: entry[3], role: "dimension" });
+      diagram.add("information", dimension);
+      const labelOffset = entry[0] === "outer-width-dimension" ? [0, 20] : [0, 5];
+      label(diagram, id, entry[0].replace("dimension", "label"), add(midpoint(dimension.start, dimension.end), labelOffset), entry[4], dimension.id, [outlineId, dimension.id], "middle");
+    });
+    return diagram.finish();
   }
 
   function symmetricFigure(id, p) {
-    return svgShell(id, "Likbent triangulär konstruktion", "En schematisk likbent triangel med höjden dragen från toppen till basens mittpunkt.",
-      '<path d="M180 30 L42 190 L318 190 Z" fill="none" stroke="currentColor" stroke-width="3"/>' +
-      '<path d="M180 30 V190" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="7 5"/>' +
-      '<path d="M180 173 H197 V190" fill="none" stroke="currentColor" stroke-width="2"/>' +
-      '<text x="89" y="104" font-size="14">' + clean(p.equalSide) + ' ' + p.unit + '</text>' +
-      '<text x="235" y="104" font-size="14">' + clean(p.equalSide) + ' ' + p.unit + '</text>' +
-      '<text x="145" y="211" font-size="14">' + clean(p.base) + ' ' + p.unit + '</text><text x="186" y="112" font-size="16">h</text>');
+    const diagram = makeDiagram(id, "Likbent triangulär konstruktion", "En schematisk likbent triangel med höjden dragen från toppen till basens mittpunkt.");
+    const physicalHalfBase = p.base / 2;
+    const physicalHeight = Math.sqrt(p.equalSide * p.equalSide - physicalHalfBase * physicalHalfBase);
+    const halfWidth = Math.min(120, 140 * physicalHalfBase / physicalHeight);
+    const heightPixels = halfWidth * physicalHeight / physicalHalfBase;
+    const baseMidpoint = [180, 185]; const apex = [180, 185 - heightPixels];
+    const baseLeft = [180 - halfWidth, 185]; const baseRight = [180 + halfWidth, 185];
+    const outlineId = id + "-outline"; const heightId = id + "-height"; const markerId = id + "-right-marker";
+    diagram.add("geometry", diagramKit.polygon({ id: outlineId, points: [apex, baseLeft, baseRight], role: "shape", strokeWidth: 3 }));
+    diagram.add("connections", diagramKit.line({ id: heightId, a: apex, b: baseMidpoint, role: "line", strokeWidth: 2 }));
+    diagram.add("information", diagramKit.polyline({ id: markerId, points: [add(baseMidpoint, [0, -16]), add(baseMidpoint, [16, -16]), add(baseMidpoint, [16, 0])], role: "marker", strokeWidth: 2 }));
+    const baseDimension = diagramKit.dimension({ id: id + "-base-dimension", a: baseLeft, b: baseRight, offset: 18, role: "dimension" });
+    const leftDimension = diagramKit.dimension({ id: id + "-equal-left-dimension", a: apex, b: baseLeft, offset: 13, role: "dimension" });
+    const rightDimension = diagramKit.dimension({ id: id + "-equal-right-dimension", a: apex, b: baseRight, offset: -13, role: "dimension" });
+    diagram.add("information", baseDimension); diagram.add("information", leftDimension); diagram.add("information", rightDimension);
+    label(diagram, id, "base-label", add(midpoint(baseDimension.start, baseDimension.end), [0, 20]), clean(p.base) + " " + p.unit, baseDimension.id, [outlineId, baseDimension.id, heightId]);
+    label(diagram, id, "equal-left-label", midpoint(leftDimension.start, leftDimension.end), clean(p.equalSide) + " " + p.unit, leftDimension.id, [outlineId, leftDimension.id, heightId]);
+    label(diagram, id, "equal-right-label", midpoint(rightDimension.start, rightDimension.end), clean(p.equalSide) + " " + p.unit, rightDimension.id, [outlineId, rightDimension.id, heightId]);
+    label(diagram, id, "height-label", add(midpoint(apex, baseMidpoint), [12, 0]), "h", heightId, [outlineId, heightId, markerId], "start");
+    return diagram.finish();
   }
 
   function presentation(family, p, id) {
     const rounding = "Avrunda svaret till " + roundingText(p.decimals) + " och ange det i " + p.unit + ".";
-    if (family === "right-triangle") return {
+    if (family === "right-triangle") {
+      const figure = rightTriangleFigure(id, p);
+      return {
       prompt: "En mättriangel har en känd katet intill vinkeln " + clean(p.angleDegrees) + "°. Kateten är " + clean(p.adjacent) + " " + p.unit + ". Bestäm den motstående kateten <var>h</var>. " + rounding,
-      figure: rightTriangleFigure(id, p),
+      figure: figure.html,
+      diagram: figure.manifest,
       relation: "I en rätvinklig triangel gäller tan(v) = motstående katet/närliggande katet.",
       calculation: "h = " + clean(p.adjacent) + " · tan(" + clean(p.angleDegrees) + "°)"
-    };
-    if (family === "non-right-triangle-area") return {
+      };
+    }
+    if (family === "non-right-triangle-area") {
+      const figure = areaTriangleFigure(id, p);
+      return {
       prompt: "En triangulär skiva har två sidor som är " + clean(p.sideA) + " och " + clean(p.sideB) + " " + p.unit.replace("²", "") + ". Vinkeln mellan sidorna är " + clean(p.angleDegrees) + "°. Bestäm skivans area. " + rounding,
-      figure: areaTriangleFigure(id, p),
+      figure: figure.html,
+      diagram: figure.manifest,
       relation: "För två sidor och deras mellanliggande vinkel gäller A = ab · sin(v)/2.",
       calculation: "A = " + clean(p.sideA) + " · " + clean(p.sideB) + " · sin(" + clean(p.angleDegrees) + "°)/2"
-    };
-    if (family === "parallel-transversal") return {
+      };
+    }
+    if (family === "parallel-transversal") {
+      const figure = parallelFigure(id, p);
+      return {
       prompt: "I triangeln ligger D på sidan AB och E på sidan AC, med DE parallell med BC. Längderna är AD = " + clean(p.ad) + " " + p.unit + ", DB = " + clean(p.db) + " " + p.unit + " och AE = " + clean(p.ae) + " " + p.unit + ". Bestäm EC. " + rounding,
-      figure: parallelFigure(id, p),
+      figure: figure.html,
+      diagram: figure.manifest,
       relation: "Eftersom DE ∥ BC är trianglarna ADE och ABC likformiga. Delarna på de två sidorna är därför proportionella: EC/AE = DB/AD.",
       calculation: "EC = AE · DB/AD = " + clean(p.ae) + " · " + clean(p.db) + "/" + clean(p.ad)
-    };
-    if (family === "composite-quadrilateral") return {
+      };
+    }
+    if (family === "composite-quadrilateral") {
+      const figure = compositeFigure(id, p);
+      return {
       prompt: "En L-formad platta kan ses som en rektangel med bredd " + clean(p.outerWidth) + " och höjden " + clean(p.outerHeight) + " " + p.unit.replace("²", "") + ", där ett rektangulärt hörn på " + clean(p.cutWidth) + " × " + clean(p.cutHeight) + " " + p.unit.replace("²", "") + " har tagits bort. Bestäm plattans area. " + rounding,
-      figure: compositeFigure(id, p),
+      figure: figure.html,
+      diagram: figure.manifest,
       relation: "Arean av den sammansatta fyrhörningen är ytterrektangelns area minus urtagningens area.",
       calculation: "A = " + clean(p.outerWidth) + " · " + clean(p.outerHeight) + " − " + clean(p.cutWidth) + " · " + clean(p.cutHeight)
-    };
+      };
+    }
+    const figure = symmetricFigure(id, p);
     return {
       prompt: "En symmetrisk triangulär ram har basen " + clean(p.base) + " " + p.unit + " och två lika långa sidor på " + clean(p.equalSide) + " " + p.unit + ". Bestäm ramens vinkelräta höjd <var>h</var>. " + rounding,
-      figure: symmetricFigure(id, p),
+      figure: figure.html,
+      diagram: figure.manifest,
       relation: "Symmetriaxeln halverar basen och bildar en rät vinkel. Pythagoras sats ger h² + (bas/2)² = sida².",
       calculation: "h = √(" + clean(p.equalSide) + "² − (" + clean(p.base) + "/2)²)"
     };
@@ -221,7 +358,8 @@
         family: family,
         parameters: p,
         decimals: p.decimals,
-        unit: p.unit
+        unit: p.unit,
+        diagram: shown.diagram
       }
     };
   }

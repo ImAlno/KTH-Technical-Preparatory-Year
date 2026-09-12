@@ -8,6 +8,66 @@ function close(actual, expected, epsilon = 1e-8) {
   assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} is not within ${epsilon} of ${expected}`);
 }
 
+function normalizedPoint(point, center, radius) {
+  return [(point[0] - center[0]) / radius, (point[1] - center[1]) / radius];
+}
+
+function assertPhysicalRope(rope, requestedSide) {
+  const center = rope.pulley.center;
+  const radius = rope.pulley.radius;
+  const from = normalizedPoint(rope.from, center, radius);
+  const fromTangent = normalizedPoint(rope.fromTangent, center, radius);
+  const toTangent = normalizedPoint(rope.toTangent, center, radius);
+  const to = normalizedPoint(rope.to, center, radius);
+  const crossThree = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const intersectsInterior = (a, b, c, d) => {
+    const scale = Math.max(1, Math.hypot(b[0] - a[0], b[1] - a[1]) * Math.hypot(d[0] - c[0], d[1] - c[1]));
+    const epsilon = 1e-10 * scale;
+    const ab0 = crossThree(a, b, c); const ab1 = crossThree(a, b, d);
+    const cd0 = crossThree(c, d, a); const cd1 = crossThree(c, d, b);
+    return ab0 * ab1 < -(epsilon * epsilon) && cd0 * cd1 < -(epsilon * epsilon);
+  };
+  const segmentDistance = (a, b) => {
+    const delta = [b[0] - a[0], b[1] - a[1]];
+    const squared = delta[0] * delta[0] + delta[1] * delta[1];
+    const t = Math.max(0, Math.min(1, -(a[0] * delta[0] + a[1] * delta[1]) / squared));
+    return Math.hypot(a[0] + t * delta[0], a[1] + t * delta[1]);
+  };
+  const unit = (value) => {
+    const magnitude = Math.hypot(value[0], value[1]);
+    return [value[0] / magnitude, value[1] / magnitude];
+  };
+  const dotPair = (a, b) => a[0] * b[0] + a[1] * b[1];
+
+  assert.equal(rope.arc.turns, 0);
+  assert.ok(rope.arc.delta > 0 && rope.arc.delta <= 2 * Math.PI + 1e-10);
+  assert.equal(intersectsInterior(from, fromTangent, toTangent, to), false);
+  assert.ok(segmentDistance(from, fromTangent) >= 1 - 1e-9);
+  assert.ok(segmentDistance(toTangent, to) >= 1 - 1e-9);
+
+  const incoming = unit([fromTangent[0] - from[0], fromTangent[1] - from[1]]);
+  const outgoing = unit([to[0] - toTangent[0], to[1] - toTangent[1]]);
+  const firstArc = unit([rope.arc.sweep * -fromTangent[1], rope.arc.sweep * fromTangent[0]]);
+  const lastArc = unit([rope.arc.sweep * -toTangent[1], rope.arc.sweep * toTangent[0]]);
+  assert.ok(Math.abs(dotPair(fromTangent, incoming)) <= 1e-8);
+  assert.ok(Math.abs(dotPair(toTangent, outgoing)) <= 1e-8);
+  assert.ok(dotPair(incoming, firstArc) >= 1 - 1e-8);
+  assert.ok(dotPair(lastArc, outgoing) >= 1 - 1e-8);
+
+  const expectedLength = Math.hypot(rope.from[0] - rope.fromTangent[0], rope.from[1] - rope.fromTangent[1]) +
+    radius * rope.arc.delta + Math.hypot(rope.to[0] - rope.toTangent[0], rope.to[1] - rope.toTangent[1]);
+  assert.ok(Math.abs(rope.length - expectedLength) <= 1e-10 * Math.max(radius, expectedLength));
+
+  if (requestedSide) {
+    const side = Array.isArray(requestedSide) ? requestedSide : ({ top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] })[requestedSide];
+    const start = Math.atan2(fromTangent[1], fromTangent[0]);
+    const target = Math.atan2(side[1], side[0]);
+    const normalizeAngle = (angle) => ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    const travel = rope.arc.sweep === 1 ? normalizeAngle(target - start) : normalizeAngle(start - target);
+    assert.ok(travel <= rope.arc.delta + 1e-9);
+  }
+}
+
 test("normalizes finite vectors and rejects zero, non-finite, and malformed vectors", () => {
   assert.deepEqual(kit.normalize([3, 4]), [0.6, 0.8]);
   assert.throws(() => kit.normalize([0, 0]), /zero|degenerate/i);
@@ -291,6 +351,70 @@ test("finished manifests are provenance-bound and deeply frozen", () => {
   assert.throws(() => kit.validateManifest(JSON.parse(JSON.stringify(output.manifest))), /provenance|origin|manifest/i);
   assert.throws(() => { output.manifest.width = 999; }, /read only|frozen|strict/i);
   assert.equal(output.manifest.width, 30);
+});
+
+test("no public validateManifest argument bypasses closure-private provenance", () => {
+  const diagram = kit.create({ id: "kit-unforgeable-provenance", title: "A", description: "B", width: 30, height: 30, purpose: "prompt" });
+  diagram.add("geometry", kit.line({ id: "unforgeable-line", a: [2, 2], b: [20, 2] }));
+  const output = diagram.finish();
+  assert.doesNotThrow(() => kit.validateManifest(output.manifest));
+  for (const publicArgument of [true, 1, {}, Symbol("internal")]) {
+    const clone = JSON.parse(JSON.stringify(output.manifest));
+    assert.throws(() => kit.validateManifest(clone, publicArgument), /provenance|origin|manifest/i);
+    clone.width = 29;
+    assert.throws(() => kit.validateManifest(clone, publicArgument), /provenance|origin|manifest/i);
+  }
+});
+
+test("scaled asymmetric ropes never leak INVARIANT and deterministic multi-scale fuzz stays physical", () => {
+  const asymmetricScale = 1e-6;
+  for (const side of [undefined, "top", "bottom", [0, -1], [0, 1]]) {
+    const options = { id: "rope-asymmetric-scaled", from: [0, -10 * asymmetricScale], pulley: { center: [0, 0], radius: 2 * asymmetricScale }, to: [8 * asymmetricScale, 0] };
+    if (side !== undefined) options.side = side;
+    try {
+      assertPhysicalRope(kit.ropeAroundCircle(options), side);
+    } catch (error) {
+      assert.equal(error.code, "NO_SIDE", `scaled asymmetric side ${JSON.stringify(side)} leaked ${error.code}`);
+    }
+  }
+
+  let seed = 0x8badf00d;
+  const random = () => ((seed = (1664525 * seed + 1013904223) >>> 0) / 4294967296);
+  const samples = Array.from({ length: 80 }, () => ({
+    fromAngle: random() * 2 * Math.PI,
+    toAngle: random() * 2 * Math.PI,
+    fromRadius: 3 + random() * 12,
+    toRadius: 3 + random() * 12
+  }));
+  const modes = [
+    { name: "omitted", minimum: 75 },
+    { name: "named-top", side: "top", minimum: 20 },
+    { name: "named-bottom", side: "bottom", minimum: 20 },
+    { name: "vector-right", side: [1, 0], minimum: 18 },
+    { name: "vector-bottom", side: [0, 1], minimum: 20 }
+  ];
+  for (const scale of [1e-6, 1, 1e6]) {
+    for (const mode of modes) {
+      let successes = 0;
+      samples.forEach((sample, index) => {
+        const options = {
+          id: `rope-multiscale-${mode.name}-${scale}-${index}`,
+          from: [scale * sample.fromRadius * Math.cos(sample.fromAngle), scale * sample.fromRadius * Math.sin(sample.fromAngle)],
+          pulley: { center: [0, 0], radius: 2 * scale },
+          to: [scale * sample.toRadius * Math.cos(sample.toAngle), scale * sample.toRadius * Math.sin(sample.toAngle)]
+        };
+        if (mode.side !== undefined) options.side = mode.side;
+        try {
+          const rope = kit.ropeAroundCircle(options);
+          assertPhysicalRope(rope, mode.side);
+          successes += 1;
+        } catch (error) {
+          assert.equal(error.code, "NO_SIDE", `${mode.name} at scale ${scale} leaked ${error.code}`);
+        }
+      });
+      assert.ok(successes >= mode.minimum, `${mode.name} at scale ${scale}: ${successes} successes, expected at least ${mode.minimum}`);
+    }
+  }
 });
 
 test("path and dimension paint records include exact stroke extents and one dimension path", () => {

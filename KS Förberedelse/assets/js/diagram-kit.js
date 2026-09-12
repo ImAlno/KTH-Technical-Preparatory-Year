@@ -202,22 +202,26 @@
 
   function segmentsIntersectInterior(a, b, c, d) {
     const ab = sub(b, a); const cd = sub(d, c); const denominator = cross(ab, cd);
-    if (Math.abs(denominator) <= EPSILON) {
-      if (Math.abs(cross(sub(c, a), ab)) > EPSILON) return false;
+    const abLength = length(ab); const cdLength = length(cd);
+    const parallelTolerance = 1e-12 * abLength * cdLength;
+    if (Math.abs(denominator) <= parallelTolerance) {
+      const ac = sub(c, a);
+      const collinearTolerance = 1e-12 * Math.max(1, length(ac) / abLength) * dot(ab, ab);
+      if (Math.abs(cross(ac, ab)) > collinearTolerance) return false;
       const squaredLength = dot(ab, ab);
       const t0 = dot(sub(c, a), ab) / squaredLength; const t1 = dot(sub(d, a), ab) / squaredLength;
       const overlapStart = Math.max(0, Math.min(t0, t1)); const overlapEnd = Math.min(1, Math.max(t0, t1));
-      return overlapEnd - overlapStart > EPSILON && overlapEnd > EPSILON && overlapStart < 1 - EPSILON;
+      return overlapEnd - overlapStart > 1e-12 && overlapEnd > 1e-12 && overlapStart < 1 - 1e-12;
     }
     const delta = sub(c, a);
     const t = cross(delta, cd) / denominator; const u = cross(delta, ab) / denominator;
-    return t > EPSILON && t < 1 - EPSILON && u > EPSILON && u < 1 - EPSILON;
+    return t > 1e-12 && t < 1 - 1e-12 && u > 1e-12 && u < 1 - 1e-12;
   }
   function segmentPenetratesCircle(a, b, center, radius) {
     const segment = sub(b, a); const squaredLength = dot(segment, segment);
     const t = Math.max(0, Math.min(1, dot(sub(center, a), segment) / squaredLength));
     const closest = add(a, mul(segment, t));
-    return length(sub(closest, center)) < radius - 1e-9;
+    return length(sub(closest, center)) / radius < 1 - 1e-10;
   }
 
   function ropeAroundCircle(options) {
@@ -274,7 +278,9 @@
     const toSegment = { kind: "segment", from: clone(toTangent), to: clone(to) };
     [fromTangent, toTangent].forEach(function (point, index) {
       const external = index ? to : from;
-      if (Math.abs(dot(sub(point, pulley.center), sub(external, point))) > 1e-6) fail("INVARIANT", "rope tangent is not orthogonal to its radius");
+      const radiusDirection = normalize(sub(point, pulley.center));
+      const segmentDirection = normalize(sub(external, point));
+      if (Math.abs(dot(radiusDirection, segmentDirection)) > 1e-8) fail("INVARIANT", "rope tangent is not orthogonal to its radius");
     });
     if (selected.firstContinuity < 1 - 1e-6 || selected.lastContinuity < 1 - 1e-6) fail("INVARIANT", "rope contacts are not C1 continuous");
     const path = "M " + from[0] + " " + from[1] + " L " + fromTangent[0] + " " + fromTangent[1] + " A " + r + " " + r + " 0 " + (delta > Math.PI ? 1 : 0) + " " + (sweep === 1 ? 1 : 0) + " " + toTangent[0] + " " + toTangent[1] + " L " + to[0] + " " + to[1];
@@ -667,12 +673,8 @@
     fail("INVALID_ELEMENT", "cannot serialize unknown element kind");
   }
 
-  function validateManifest(manifest, internal) {
+  function validateManifestStructure(manifest) {
     if (!manifest || typeof manifest !== "object") fail("INVALID_MANIFEST", "manifest is required");
-    if (!internal) {
-      const provenance = MANIFEST_META.get(manifest);
-      if (!provenance || !deepEqual(manifest, provenance.snapshot)) fail("INVALID_MANIFEST", "manifest provenance invalid; accessibility aria/canonical geometry/path tamper detected");
-    }
     id(manifest.id, "manifest.id");
     if (typeof manifest.title !== "string" || !manifest.title.trim() || typeof manifest.description !== "string" || !manifest.description.trim()) fail("MISSING_ACCESSIBILITY", "manifest title and description are required");
     if (manifest.purpose !== "prompt" && manifest.purpose !== "solution") fail("INVALID_PURPOSE", "manifest purpose must be prompt or solution");
@@ -795,6 +797,13 @@
     return true;
   }
 
+  function validateManifest(manifest) {
+    if (!manifest || typeof manifest !== "object") fail("INVALID_MANIFEST", "manifest is required");
+    const provenance = MANIFEST_META.get(manifest);
+    if (!provenance || !deepEqual(manifest, provenance.snapshot)) fail("INVALID_MANIFEST", "manifest provenance invalid; accessibility aria/canonical geometry/path tamper detected");
+    return validateManifestStructure(manifest);
+  }
+
   function create(options) {
     const opts = options || {};
     const diagramId = id(opts.id, "diagram.id");
@@ -855,7 +864,7 @@
           fragmentIds: Array.from(new Set(fragmentIds))
         };
         manifest.domIds = allDomIds;
-        validateManifest(manifest, true);
+        validateManifestStructure(manifest);
         const body = layers.map((layer) => '<g data-layer="' + layer.name + '">' + layer.elements.map(attrsFor).join("") + "</g>").join("");
         const arrowElements = layers.flatMap((layer) => layer.elements).filter((element) => element.kind === "arrow");
         const marker = arrowElements.length ? '<defs>' + arrowElements.map((arrowElement) => '<marker id="' + escapeAttr(arrowElement._markerId) + '" viewBox="0 0 ' + number(arrowElement.headLength) + ' ' + number(arrowElement.headWidth) + '" markerWidth="' + number(arrowElement.headLength) + '" markerHeight="' + number(arrowElement.headWidth) + '" markerUnits="userSpaceOnUse" refX="' + number(arrowElement.headLength) + '" refY="' + number(arrowElement.headWidth / 2) + '" orient="auto"><path id="' + escapeAttr(arrowElement._markerPathId) + '" d="M0,0 L' + number(arrowElement.headLength) + ',' + number(arrowElement.headWidth / 2) + ' L0,' + number(arrowElement.headWidth) + ' z" fill="currentColor" data-role="marker" data-geometry-id="' + escapeAttr(arrowElement._markerPathId) + '"></path></marker>').join("") + '</defs>' : "";
