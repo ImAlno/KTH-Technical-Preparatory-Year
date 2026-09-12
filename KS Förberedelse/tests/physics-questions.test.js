@@ -258,18 +258,24 @@ function asksForComputerDerivation(html) {
 
 function asksForComputerDrawing(text) {
   const drawVerb = "(?:rit(?:a|ar|as|ad|ade|at|ades|ning)|skiss(?:a|ar|as|ad|ade|at|ades|ning))";
-  const forceWork = "(?:kraftfigur(?:en|er|erna)?|kraftdiagram(?:met|mer|men)?|frilägg(?:ning|ningen)?|skiss(?:en|ar|arna)?|vektorfigur(?:en|er|erna)?|diagram(?:met|mer|men)?)";
+  const workAction = `(?:${drawVerb}|redovisa|redogör|beskriv|skriv(?:\\s+in)?|ange|visa(?:r|de)?)`;
+  const forceWork = "(?:kraftfigur(?:en|er|erna)?|kraftdiagram(?:met|mer|men)?|frilägg(?:ning|ningen|ningar|ningarna)?|skiss(?:en|er|erna|ar|arna)?|vektorfigur(?:en|er|erna)?|diagram(?:met|mer|men)?)";
   const workTerm = new RegExp(`\\b(?:${forceWork}|${drawVerb})\\b`, "i");
-  const computerDestination = /\b(?:på\s+(?:skärmen|datorn)|i\s+(?:svarsfältet|svarsrutan|rutan|formuläret)|digitalt|online|här)\b/i;
-  const cleanFinalAnswer = /\b(?:sluts?svaret?|svar(?:et)?|resultatet)\b/i;
-  const finalAnswerAction = /\b(?:ange(?:s|r)?|skriv(?:s|er)?(?:\s+in)?|svara(?:s|r)?|besvara(?:s|r)?|lämna(?:s|r)?)\b/i;
-  const segments = text.split(/[.!?;]+/).flatMap((sentence) => sentence.split(/\s+\b(?:och|men|samt|eller|därefter|sedan|så)\b\s*/i)).map((segment) => segment.trim()).filter(Boolean);
-  return segments.some((segment, index) => {
-    if (!workTerm.test(segment)) return false;
-    if (computerDestination.test(segment)) return true;
-    const next = segments[index + 1] || "";
-    const nextIsCleanFinalAnswer = cleanFinalAnswer.test(next) && finalAnswerAction.test(next) && !workTerm.test(next);
-    return computerDestination.test(next) && !nextIsCleanFinalAnswer;
+  const drawingAction = new RegExp(`\\b${workAction}\\b`, "i");
+  const computerDestination = /\b(?:på\s+(?:skärmen|datorn)|digitalt|online|här)\b/i;
+  const answerBoxDestination = /\b(?:i\s+(?:svarsfältet|svarsrutan|rutan|formuläret))\b/i;
+  const cleanFinalAnswer = /\b(?:sluts?svaret?|svar(?:et|a)?|resultatet)\b/i;
+  const finalAnswerAction = /\b(?:ange(?:s|r)?|skriv(?:s|er)?(?:\s+in)?|svara(?:s|r)?|uppge(?:s|r)?|besvara(?:s|r)?|lämna(?:s|r)?)\b/i;
+  const segments = text.split(/[.!?;,]+/).flatMap((sentence) => sentence.split(/\s+\b(?:och|men|samt|eller|därefter|sedan|så)\b\s*/i)).map((segment) => segment.trim()).filter(Boolean);
+  return segments.some((segment) => {
+    const hasWorkTerm = workTerm.test(segment);
+    const isCleanFinalAnswer = cleanFinalAnswer.test(segment) && finalAnswerAction.test(segment) && !hasWorkTerm;
+    if (isCleanFinalAnswer || !hasWorkTerm) return false;
+    if (computerDestination.test(segment)) return drawingAction.test(segment);
+    if (answerBoxDestination.test(segment)) {
+      return drawingAction.test(segment) || finalAnswerAction.test(segment);
+    }
+    return false;
   });
 }
 
@@ -709,6 +715,13 @@ test("physics prompt audit catches wrapped derivation and computer-directed forc
     ["<p>I räknehäftet ritas kraftfiguren och endast slutsvaret anges digitalt.</p>", false],
     ["<p>I räknehäftet ritas kraftfigurerna och endast slutsvaret skrivs digitalt.</p>", false],
     ["<p>Rita kraftfigurer i räknehäftet; endast slutsvaret besvaras digitalt.</p>", false],
+    ["<p>I räknehäftet rita kraftfiguren och svara digitalt.</p>", false],
+    ["<p>I räknehäftet rita kraftfiguren och uppge slutsvaret digitalt.</p>", false],
+    ["<p>I räknehäftet ritas kraftfiguren, endast slutsvaret anges digitalt.</p>", false],
+    ["<p>Diagrammet visas på skärmen.</p>", false],
+    ["<p>Kraftdiagrammet visas på skärmen.</p>", false],
+    ["<p>Diagrammen visas på skärmen.</p>", false],
+    ["<p>Skissen visas på skärmen.</p>", false],
     ["<p>På skärmen ritar du en kraftfigur.</p>", true],
     ["<p>Digitalt: rita en kraftfigur.</p>", true],
     ["<p>Rita en kraftfigur på datorn.</p>", true],
@@ -719,6 +732,10 @@ test("physics prompt audit catches wrapped derivation and computer-directed forc
     ["<p>Rita kraftfiguren och skriv svar: kraftfigur i svarsrutan.</p>", true],
     ["<p>Kraftfigurerna ritas digitalt.</p>", true],
     ["<p>Ritade kraftfigurer på datorn.</p>", true],
+    ["<p>Friläggningar ritas på skärmen.</p>", true],
+    ["<p>Friläggningarna ritas på skärmen.</p>", true],
+    ["<p>Skisser ritas på skärmen.</p>", true],
+    ["<p>Skisserna ritas på skärmen.</p>", true],
     ["<p>I räknehäftet gör du beräkningen; på skärmen ritar du kraftfiguren.</p>", true],
     ["<p>Digitalt ritar du kraftfiguren; i räknehäftet gör du beräkningen.</p>", true],
     ["<p>Beräkna kraftfiguren i räknehäftet innan du anger slutsvaret.</p>", false],
