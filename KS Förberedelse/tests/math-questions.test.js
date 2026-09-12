@@ -222,6 +222,87 @@ function unionBoxes(boxes) {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
+function boxCenter(box) {
+  return [box.x + box.width / 2, box.y + box.height / 2];
+}
+
+function pointDistance(left, right) {
+  return Math.hypot(left[0] - right[0], left[1] - right[1]);
+}
+
+function pointInsideBox(point, box) {
+  return point[0] >= box.x && point[0] <= box.x + box.width && point[1] >= box.y && point[1] <= box.y + box.height;
+}
+
+function segmentIntersectsBox(from, to, box) {
+  if (pointInsideBox(from, box) || pointInsideBox(to, box)) return true;
+  const delta = subtractPoints(to, from);
+  let minimum = 0; let maximum = 1;
+  const boundaries = [
+    [-delta[0], from[0] - box.x],
+    [delta[0], box.x + box.width - from[0]],
+    [-delta[1], from[1] - box.y],
+    [delta[1], box.y + box.height - from[1]]
+  ];
+  for (const [direction, distance] of boundaries) {
+    if (close(direction, 0, 1e-12)) {
+      if (distance < 0) return false;
+      continue;
+    }
+    const ratio = distance / direction;
+    if (direction < 0) minimum = Math.max(minimum, ratio);
+    else maximum = Math.min(maximum, ratio);
+    if (minimum > maximum) return false;
+  }
+  return true;
+}
+
+function serializedPaintedStrokes(question, element) {
+  const attributes = parseTagAttributes(question.promptHtml, element.id);
+  const strokeWidth = Number(attributes["stroke-width"] || 0);
+  if (element.kind === "line") return [{ kind: "segment", from: [Number(attributes.x1), Number(attributes.y1)], to: [Number(attributes.x2), Number(attributes.y2)], strokeWidth }];
+  if (element.kind === "circle") return [{ kind: "circle", center: [Number(attributes.cx), Number(attributes.cy)], radius: Number(attributes.r), strokeWidth }];
+  if (element.kind === "polygon" || element.kind === "polyline") {
+    const points = attributes.points.trim().split(/\s+/u).map((pair) => pair.split(",").map(Number));
+    const limit = element.kind === "polygon" ? points.length : points.length - 1;
+    return Array.from({ length: limit }, (_, index) => ({ kind: "segment", from: points[index], to: points[(index + 1) % points.length], strokeWidth }));
+  }
+  if (element.kind === "dimension") {
+    const tokens = attributes.d.match(/[ML]|[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/giu) || [];
+    const strokes = []; let command; let current;
+    for (let index = 0; index < tokens.length;) {
+      if (/^[ML]$/u.test(tokens[index])) command = tokens[index++];
+      const next = [Number(tokens[index++]), Number(tokens[index++])];
+      if (command === "L") strokes.push({ kind: "segment", from: current, to: next, strokeWidth });
+      current = next;
+    }
+    return strokes;
+  }
+  if (element.kind === "angleArc") {
+    const values = (attributes.d.match(/[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/giu) || []).map(Number);
+    const start = values.slice(0, 2); const end = values.slice(7, 9);
+    const startAngle = Math.atan2(start[1] - element.vertex[1], start[0] - element.vertex[0]);
+    const endAngle = Math.atan2(end[1] - element.vertex[1], end[0] - element.vertex[0]);
+    const normalizeAngle = (angle) => ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    const radians = element.sweep === 1 ? normalizeAngle(endAngle - startAngle) : normalizeAngle(startAngle - endAngle);
+    const steps = Math.max(12, Math.ceil(radians * element.radius * 2));
+    const points = Array.from({ length: steps + 1 }, (_, index) => {
+      const angle = startAngle + element.sweep * radians * index / steps;
+      return [element.vertex[0] + element.radius * Math.cos(angle), element.vertex[1] + element.radius * Math.sin(angle)];
+    });
+    return points.slice(1).map((point, index) => ({ kind: "segment", from: points[index], to: point, strokeWidth }));
+  }
+  assert.fail(`unsupported serialized painted geometry ${element.kind} for ${element.id}`);
+}
+
+function paintedStrokeIntersectsBox(stroke, box, clearance) {
+  if (stroke.kind === "segment") return segmentIntersectsBox(stroke.from, stroke.to, expandedBox(box, clearance + stroke.strokeWidth / 2));
+  const protectedBox = expandedBox(box, clearance);
+  const closestX = Math.max(protectedBox.x, Math.min(stroke.center[0], protectedBox.x + protectedBox.width));
+  const closestY = Math.max(protectedBox.y, Math.min(stroke.center[1], protectedBox.y + protectedBox.height));
+  return pointDistance(stroke.center, [closestX, closestY]) <= stroke.radius + stroke.strokeWidth / 2;
+}
+
 function diagramElement(question, suffix) {
   const id = `${question.id}-${suffix}`;
   const found = question.sourceData.diagram.elements.find((element) => element.id === id);
@@ -425,7 +506,7 @@ test("math has exactly 25 complete, stable and unique questions in every slot", 
   const questions = Object.values(first).flat();
 
   const freshProcessSource = `const path = require("node:path"); const root = ${JSON.stringify(MATH_ROOT)}; const slots = Object.fromEntries([1,2,3,4,5].map((slot) => [slot, require(path.join(root, "questions/slot-" + slot + ".js"))])); process.stdout.write(JSON.stringify(slots));`;
-  const freshSerialized = childProcess.execFileSync(process.execPath, ["-e", freshProcessSource], { encoding: "utf8" });
+  const freshSerialized = childProcess.execFileSync(process.execPath, ["-e", freshProcessSource], { encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
 
   assert.deepEqual(Object.values(first).map((slot) => slot.length), [25, 25, 25, 25, 25]);
   assert.equal(new Set(questions.map((question) => question.id)).size, 125);
@@ -645,11 +726,12 @@ test("slot-five geometry metadata remains byte-for-byte preserved outside the re
   assert.equal(hash, "1a4b7fb1f0430843f4b7445c967876124379d8cdfc21cfac784fe7c5cdfd7cc6");
 });
 
-test("serialized slot-five label backgrounds clear labels, declared avoid geometry, and the viewBox", () => {
+test("serialized slot-five labels clear every non-owner painted shape and remain in typed local zones", () => {
   const failures = [];
   loadSlots()[5].forEach((question) => {
     const manifest = question.sourceData.diagram;
-    manifest.elements.filter((element) => !["label", "rect"].includes(element.kind)).forEach((element) => {
+    const semanticGeometry = manifest.elements.filter((element) => !["label", "rect"].includes(element.kind));
+    semanticGeometry.forEach((element) => {
       const computed = unionBoxes(serializedCollisionBoxes(question, element));
       Object.keys(computed).forEach((key) => assert.ok(close(computed[key], element.bbox[key]), `${element.id}: independent serialized ${key} bbox`));
     });
@@ -657,16 +739,39 @@ test("serialized slot-five label backgrounds clear labels, declared avoid geomet
     labelledBoxes.forEach(({ label, box }, index) => {
       if (!(box.x >= 0 && box.y >= 0 && box.x + box.width <= manifest.width && box.y + box.height <= manifest.height)) failures.push(`${label.id}: background overflows viewBox`);
       labelledBoxes.slice(index + 1).forEach(({ label: other, box: otherBox }) => {
-        if (boxesOverlap(box, otherBox)) failures.push(`${question.id}: ${label.id} overlaps ${other.id}`);
+        if (boxesOverlap(expandedBox(box, 6), otherBox)) failures.push(`${question.id}: ${label.id} lacks 6px clearance from ${other.id}`);
       });
-      label.avoid.forEach((avoidId) => {
-        if (avoidId === label.anchorId) return;
-        const target = manifest.elements.find((element) => element.id === avoidId);
-        assert.ok(target, `${label.id}: missing avoid target ${avoidId}`);
-        serializedCollisionBoxes(question, target).forEach((targetBox, segmentIndex) => {
-          if (boxesOverlap(box, expandedBox(targetBox, label.minClearance))) failures.push(`${question.id}: ${label.id} violates ${label.minClearance}px clearance from ${avoidId} segment ${segmentIndex}`);
+      const nonAnchorGeometry = semanticGeometry.filter((element) => element.id !== label.anchorId);
+      assert.deepEqual(label.avoid.slice().sort(), nonAnchorGeometry.map((element) => element.id).sort(), `${label.id}: avoid metadata must name every visible non-anchor semantic primitive`);
+      nonAnchorGeometry.forEach((target) => {
+        serializedPaintedStrokes(question, target).forEach((stroke, segmentIndex) => {
+          if (paintedStrokeIntersectsBox(stroke, box, label.minClearance)) failures.push(`${question.id}: ${label.id} violates ${label.minClearance}px clearance from ${target.id} painted part ${segmentIndex}`);
         });
       });
+
+      const center = boxCenter(box);
+      const anchor = semanticGeometry.find((element) => element.id === label.anchorId);
+      assert.ok(anchor, `${label.id}: missing true semantic owner`);
+      if (label.id.endsWith("angle-label")) {
+        const fromRay = normalizeVector(anchor.fromRay); const toRay = normalizeVector(anchor.toRay); const centerRay = subtractPoints(center, anchor.vertex);
+        const determinant = crossVectors(fromRay, toRay);
+        const firstWeight = crossVectors(centerRay, toRay) / determinant;
+        const secondWeight = crossVectors(fromRay, centerRay) / determinant;
+        assert.ok(firstWeight > 0 && secondWeight > 0, `${label.id}: background center must stay inside the requested angle sector`);
+        assert.ok(pointDistance(center, anchor.vertex) >= 24 && pointDistance(center, anchor.vertex) <= 110, `${label.id}: angle radius must stay controlled`);
+      } else if (label.id.includes("-vertex-")) {
+        assert.equal(anchor.kind, "circle", label.id);
+        assert.ok(pointDistance(center, anchor.center) <= 32 + 1e-8, `${label.id}: vertex label detached from vertex`);
+      } else if (anchor.kind === "dimension") {
+        assert.ok(pointDistance(center, [(anchor.anchors[0][0] + anchor.anchors[1][0]) / 2, (anchor.anchors[0][1] + anchor.anchors[1][1]) / 2]) <= 30, `${label.id}: dimension label detached from measured segment`);
+      } else if (label.id.endsWith("height-label") && anchor.kind === "line") {
+        assert.ok(pointDistance(center, [(anchor.from[0] + anchor.to[0]) / 2, (anchor.from[1] + anchor.to[1]) / 2]) <= 30, `${label.id}: height label detached from height`);
+      } else if (label.id.endsWith("height-label") && anchor.kind === "polygon") {
+        const sideMidpoint = [(anchor.points[0][0] + anchor.points[2][0]) / 2, (anchor.points[0][1] + anchor.points[2][1]) / 2];
+        assert.ok(pointDistance(center, sideMidpoint) <= 30, `${label.id}: side label detached from owning side`);
+      } else {
+        assert.fail(`${label.id}: missing typed placement contract`);
+      }
     });
   });
   assert.deepEqual(failures, []);
@@ -691,7 +796,7 @@ test("all 25 slot-five diagrams expose independent semantic family invariants", 
     labels.forEach((label) => {
       assert.ok(manifest.elements.some((element) => element.id === label.anchorId && element.collision), `${question.id}: label owner ${label.anchorId}`);
       assert.ok(label.avoid.length >= 2, `${question.id}: ${label.id} needs meaningful reserved geometry`);
-      assert.ok(label.avoid.includes(outline.id), `${question.id}: ${label.id} must reserve the outline`);
+      if (label.anchorId !== outline.id) assert.ok(label.avoid.includes(outline.id), `${question.id}: ${label.id} must reserve the non-owner outline`);
       assert.ok(label.minClearance >= 6, `${question.id}: ${label.id} clearance`);
     });
 
