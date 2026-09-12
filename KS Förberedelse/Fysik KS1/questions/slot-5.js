@@ -112,25 +112,177 @@
     return p.frictionCoefficient * p.massKg * G;
   }
 
-  function dynamicsSvg(id, family, row) {
+  function addShape(diagram, shapes, layer, shape) {
+    shapes.push(shape);
+    diagram.add(layer, shape);
+    return shape;
+  }
+
+  function makeDiagram(id, title, description, purpose, width, height) {
+    return diagramKit.create({ id: id, title: title, description: description, purpose: purpose, width: width, height: height });
+  }
+
+  function finishFigure(diagram, shapes, labelSpecs) {
+    const labelZones = [];
+    labelSpecs.forEach(function (spec) {
+      const label = diagramKit.label({
+        id: spec.id,
+        at: spec.at,
+        text: spec.text,
+        anchorId: spec.anchorId,
+        avoid: shapes.filter(function (shape) { return shape.id !== spec.anchorId; }).map(function (shape) { return shape.id; }),
+        minClearance: 6,
+        textAnchor: spec.textAnchor || "middle",
+        fontSize: spec.fontSize || 14,
+        background: true
+      });
+      diagram.add("labels", label);
+      labelZones.push({ type: spec.type, bounds: spec.zone, labelIds: [label.id] });
+    });
+    const result = diagram.finish();
+    return { html: result.html, manifest: result.manifest, labelZones: labelZones };
+  }
+
+  function angleLabelAt(arc, distance, fontSize) {
+    const start = Math.atan2(arc.fromRay[1], arc.fromRay[0]);
+    const end = Math.atan2(arc.toRay[1], arc.toRay[0]);
+    let delta = end - start;
+    if (arc.sweep === 1 && delta < 0) delta += Math.PI * 2;
+    if (arc.sweep === -1 && delta > 0) delta -= Math.PI * 2;
+    const angle = start + delta / 2;
+    return [arc.vertex[0] + distance * Math.cos(angle), arc.vertex[1] + distance * Math.sin(angle) + fontSize * 0.375];
+  }
+
+  function situationFigure(id, family, row) {
     const p = row.givens;
-    let drawing;
-    let desc;
+    const description = family === "inclined-plane"
+      ? "En kropp ligger med hela nederkanten mot ett lutande plan och rör sig nedför planet. Vinkel, massa och kinetisk friktionskraft är utskrivna."
+      : family === "connected-masses"
+        ? "En kropp vilar på ett bord och är kopplad med ett sammanhängande tangentrep över en ideal trissa till en hängande kropp. Rörelseriktningar, massor och kinetiskt friktionstal är utskrivna."
+        : "En kropp ligger med hela nederkanten mot ett horisontellt underlag och rör sig åt höger. Endast givna rörelse- och kraftdata visas.";
+    const diagram = makeDiagram(id + "-diagram", row.scenario + ": dynamiksituation", description + " Figuren är schematisk och inte skalenlig och visar inte den fullständiga kraftfiguren.", "prompt", family === "connected-masses" ? 700 : 660, family === "inclined-plane" ? 420 : family === "connected-masses" ? 440 : 390);
+    const shapes = [];
+    const labels = [];
+
     if (family === "inclined-plane") {
-      drawing = '<path d="M75 190 L440 190 L440 65 Z" fill="#f5f5f7" stroke="#1d1d1f" stroke-width="3"/><rect x="285" y="100" width="75" height="48" fill="#dbeafe" stroke="#1d1d1f" transform="rotate(-19 322 124)"/><path d="M110 188 A45 45 0 0 1 153 173" fill="none" stroke="#6e6e73"/><text x="147" y="174">' + clean(p.angleDeg) + '°</text><text x="210" y="40">m = ' + clean(p.massKg) + ' kg, Fᶠ = ' + clean(p.frictionForceN) + " N</text>";
-      desc = "En kropp rör sig nedför ett lutande plan. Massan, lutningsvinkeln och den kinetiska friktionskraften är utskrivna.";
+      const theta = radians(p.angleDeg);
+      const vertex = [70, 320];
+      const tangent = [Math.cos(theta), -Math.sin(theta)];
+      const outward = [-Math.sin(theta), -Math.cos(theta)];
+      const planeEnd = [vertex[0] + 530 * tangent[0], vertex[1] + 530 * tangent[1]];
+      const supportStart = [vertex[0] + 500 * tangent[0], vertex[1] + 500 * tangent[1]];
+      const plane = addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-plane", a: vertex, b: planeEnd, role: "support", strokeWidth: 3 }));
+      addShape(diagram, shapes, "geometry", diagramKit.polygon({ id: id + "-plane-support", points: [supportStart, planeEnd, [planeEnd[0], supportStart[1]]], role: "support", strokeWidth: 2 }));
+      const body = addShape(diagram, shapes, "geometry", diagramKit.bodyOnLine({ id: id + "-body", line: { a: vertex, b: planeEnd }, bottomCenter: [vertex[0] + 350 * tangent[0], vertex[1] + 350 * tangent[1]], width: 105, height: 65, outwardNormal: outward, role: "body", strokeWidth: 2.5 }));
+      const horizontal = addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-horizontal-reference", a: vertex, b: [210, vertex[1]], role: "line", strokeWidth: 1.5 }));
+      const angle = addShape(diagram, shapes, "information", diagramKit.angleArc({ id: id + "-incline-angle", vertex: vertex, fromRay: horizontal.b, toRay: plane.b, radius: 55, role: "angle", strokeWidth: 2 }));
+      const motionFrom = body.topLeft;
+      const motion = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-motion-arrow", from: motionFrom, to: [motionFrom[0] - 92 * tangent[0], motionFrom[1] - 92 * tangent[1]], role: "motion", strokeWidth: 2.5, headLength: 11, headWidth: 9 }));
+      labels.push(
+        { id: id + "-angle-label", at: angleLabelAt(angle, 190, 10), text: clean(p.angleDeg) + "°", anchorId: angle.id, fontSize: 10, type: "angle", zone: { x: 220, y: 230, width: 90, height: 95 } },
+        { id: id + "-motion-label", at: [motion.to[0] + 10 * outward[0], motion.to[1] + 10 * outward[1]], text: "rörelse nedför", anchorId: motion.id, fontSize: 12, type: "motion", zone: { x: 125, y: 55, width: 250, height: 155 } },
+        { id: id + "-mass-label", at: [vertex[0] + 300 * tangent[0] - 60 * outward[0], vertex[1] + 300 * tangent[1] - 60 * outward[1] + 5.25], text: "m = " + clean(p.massKg) + " kg", anchorId: body.id, type: "given", zone: { x: 300, y: 165, width: 125, height: 190 } },
+        { id: id + "-friction-label", at: [vertex[0] + 410 * tangent[0] - 60 * outward[0], vertex[1] + 410 * tangent[1] - 60 * outward[1] + 5.25], text: "Fᶠ = " + clean(p.frictionForceN) + " N", anchorId: plane.id, type: "given", zone: { x: 390, y: 105, width: 165, height: 225 } }
+      );
     } else if (family === "connected-masses") {
-      drawing = '<line x1="65" y1="135" x2="365" y2="135" stroke="#1d1d1f" stroke-width="4"/><rect data-role="table-body" x="145" y="75" width="85" height="60" fill="#dbeafe" stroke="#1d1d1f"/><circle data-role="pulley" cx="365" cy="105" r="30" fill="#f5f5f7" stroke="#1d1d1f"/><path data-role="rope" d="M230 75 L365 75 A30 30 0 0 1 395 105 L395 160" fill="none" stroke="#0071e3" stroke-width="4"/><rect data-role="hanging-body" x="360" y="160" width="70" height="48" fill="#dbeafe" stroke="#1d1d1f"/><text x="120" y="55">m₁ = ' + clean(p.tableMassKg) + ' kg, μₖ = ' + clean(p.frictionCoefficient) + '</text><text x="355" y="232">m₂ = ' + clean(p.hangingMassKg) + " kg</text>";
-      desc = "En kropp på ett horisontellt bord är kopplad över en ideal trissa till en hängande kropp. Kropparna har börjat röra sig, och massor samt kinetiskt friktionstal är utskrivna.";
+      const tabletop = addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-tabletop", a: [65, 250], b: [520, 250], role: "support", strokeWidth: 4 }));
+      const tableBody = addShape(diagram, shapes, "geometry", diagramKit.bodyOnLine({ id: id + "-table-body", line: { a: tabletop.a, b: tabletop.b }, bottomCenter: [265, 250], width: 150, height: 126, outwardNormal: [0, -1], role: "table-body", strokeWidth: 2.5 }));
+      const hangingBody = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-hanging-body", x: 528, y: 285, width: 80, height: 70, role: "hanging-body", strokeWidth: 2.5 }));
+      const pulley = addShape(diagram, shapes, "connections", diagramKit.circle({ id: id + "-pulley", center: [520, 172], radius: 48, role: "pulley", strokeWidth: 3 }));
+      addShape(diagram, shapes, "connections", diagramKit.ropeAroundCircle({ id: id + "-rope", from: tableBody.topRight, to: [568, hangingBody.y], pulley: { center: pulley.center, radius: pulley.radius }, side: "top", role: "rope", strokeWidth: 3 }));
+      const tableMotion = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-table-motion-arrow", from: [tableBody.bottomRight[0], 205], to: [425, 205], role: "motion", strokeWidth: 2.5, headLength: 11, headWidth: 9 }));
+      const hangingMotion = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-hanging-motion-arrow", from: [568, hangingBody.y + hangingBody.height], to: [568, 405], role: "motion", strokeWidth: 2.5, headLength: 11, headWidth: 9 }));
+      labels.push(
+        { id: id + "-table-motion-label", at: [390, 108], text: "rörelse åt höger", anchorId: tableMotion.id, fontSize: 12, type: "motion", zone: { x: 300, y: 75, width: 180, height: 45 } },
+        { id: id + "-hanging-motion-label", at: [650, 425], text: "rörelse nedåt", anchorId: hangingMotion.id, fontSize: 12, type: "motion", zone: { x: 590, y: 395, width: 110, height: 42 } },
+        { id: id + "-table-mass-label", at: [155, 330], text: "m₁ = " + clean(p.tableMassKg) + " kg", anchorId: tableBody.id, type: "given", zone: { x: 75, y: 300, width: 165, height: 45 } },
+        { id: id + "-friction-label", at: [350, 330], text: "μₖ = " + clean(p.frictionCoefficient), anchorId: tabletop.id, type: "given", zone: { x: 285, y: 300, width: 135, height: 45 } },
+        { id: id + "-hanging-mass-label", at: [635, 260], text: "m₂ = " + clean(p.hangingMassKg) + " kg", anchorId: hangingBody.id, type: "given", zone: { x: 585, y: 225, width: 110, height: 45 } }
+      );
     } else {
-      const force = family === "horizontal-pull" ? p.pullForceN : family === "unknown-friction" ? p.driveForceN : null;
-      drawing = '<line x1="60" y1="165" x2="460" y2="165" stroke="#1d1d1f" stroke-width="4"/><rect x="185" y="95" width="125" height="70" fill="#dbeafe" stroke="#1d1d1f"/><line x1="310" y1="130" x2="410" y2="130" stroke="#0071e3" stroke-width="4"/><path d="M413 130 l-16 -8 v16 z" fill="#0071e3"/><text x="325" y="112">' + (force === null ? "F söks" : "F = " + clean(force) + " N") + '</text><text x="250" y="205" text-anchor="middle">m = ' + clean(p.massKg) + " kg</text>";
-      if (family === "horizontal-pull") drawing += '<text x="250" y="228" text-anchor="middle">μ = ' + clean(p.frictionCoefficient) + "</text>";
-      if (family === "unknown-pull") drawing += '<text x="250" y="228" text-anchor="middle">a = ' + clean(p.accelerationMps2) + " m/s², μ = " + clean(p.frictionCoefficient) + "</text>";
-      if (family === "unknown-friction") drawing += '<text x="250" y="228" text-anchor="middle">0 → ' + clean(p.finalSpeedMps) + " m/s på " + clean(p.elapsedS) + " s</text>";
-      desc = "En kropp rör sig åt höger på ett horisontellt underlag. Givna mass-, kraft-, friktions- och rörelsedata är utskrivna.";
+      const ground = addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-ground", a: [70, 260], b: [590, 260], role: "ground", strokeWidth: 4 }));
+      const body = addShape(diagram, shapes, "geometry", diagramKit.bodyOnLine({ id: id + "-body", line: { a: ground.a, b: ground.b }, bottomCenter: [300, 260], width: 150, height: 82, outwardNormal: [0, -1], role: "body", strokeWidth: 2.5 }));
+      let primaryArrow;
+      if (family === "horizontal-pull") {
+        primaryArrow = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-applied-force", from: [body.bottomRight[0], 219], to: [525, 219], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+        labels.push({ id: id + "-applied-force-label", at: [500, 190], text: "F = " + clean(p.pullForceN) + " N", anchorId: primaryArrow.id, type: "given-force", zone: { x: 430, y: 155, width: 155, height: 48 } });
+      } else if (family === "unknown-pull") {
+        primaryArrow = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-motion-arrow", from: [body.bottomRight[0], 219], to: [525, 219], role: "motion", strokeWidth: 2.5, headLength: 11, headWidth: 9 }));
+        labels.push({ id: id + "-motion-label", at: [485, 190], text: "a = " + clean(p.accelerationMps2) + " m/s²", anchorId: primaryArrow.id, type: "motion", zone: { x: 400, y: 155, width: 180, height: 48 } });
+      } else {
+        primaryArrow = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-drive-force", from: [body.bottomRight[0], 219], to: [525, 219], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+        const motion = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-motion-arrow", from: [300, body.topLeft[1]], to: [430, body.topLeft[1]], role: "motion", strokeWidth: 2.5, headLength: 11, headWidth: 9 }));
+        labels.push(
+          { id: id + "-drive-force-label", at: [505, 190], text: "Fᴅ = " + clean(p.driveForceN) + " N", anchorId: primaryArrow.id, type: "given-force", zone: { x: 435, y: 155, width: 150, height: 48 } },
+          { id: id + "-motion-label", at: [350, 145], text: "0 → " + clean(p.finalSpeedMps) + " m/s på " + clean(p.elapsedS) + " s", anchorId: motion.id, fontSize: 12, type: "motion", zone: { x: 245, y: 110, width: 220, height: 48 } }
+        );
+      }
+      labels.push(
+        { id: id + "-mass-label", at: [150, 340], text: "m = " + clean(p.massKg) + " kg", anchorId: body.id, type: "given", zone: { x: 65, y: 310, width: 175, height: 45 } },
+        { id: id + "-friction-data-label", at: [455, 340], text: family === "unknown-friction" ? "friktionen söks" : "μₖ = " + clean(p.frictionCoefficient), anchorId: ground.id, type: "given", zone: { x: 365, y: 310, width: 185, height: 45 } }
+      );
     }
-    return '<svg viewBox="0 0 520 260" role="img" aria-labelledby="' + id + "-svg-title " + id + '-svg-desc"><title id="' + id + '-svg-title">' + row.scenario + ": dynamiksituation</title><desc id=\"" + id + '-svg-desc">' + desc + " Bilden är schematisk och inte skalenlig; pillängderna kodar inte kraftstorlek.</desc>" + drawing + '<text x="260" y="252" text-anchor="middle">Schematisk och inte skalenlig</text></svg>';
+    return finishFigure(diagram, shapes, labels);
+  }
+
+  function solutionFigure(id, family, row) {
+    const p = row.givens;
+    const diagram = makeDiagram(id + "-solution-diagram", row.scenario + ": fullständig kraftfigur", "Fullständig friläggning med alla krafter, angreppspunkter och riktningar som används i Newtons andra lag. Pillängderna kodar inte kraftstorlek.", "solution", 700, 440);
+    const shapes = [];
+    const labels = [];
+    function force(arrowId, from, to) {
+      return addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-" + arrowId, from: from, to: to, role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+    }
+    function forceLabel(labelId, at, text, owner, zone) {
+      labels.push({ id: id + "-" + labelId, at: at, text: text, anchorId: owner.id, type: "force", zone: zone });
+    }
+
+    if (family === "connected-masses") {
+      const tableBody = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-isolated-table-body", x: 180, y: 185, width: 100, height: 70, role: "body", strokeWidth: 2.5 }));
+      const hangingBody = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-isolated-hanging-body", x: 470, y: 185, width: 100, height: 70, role: "body", strokeWidth: 2.5 }));
+      const tableCenter = [230, 220];
+      const hangingCenter = [520, 220];
+      const tableNormal = force("table-force-normal", tableCenter, [230, 65]);
+      const tableWeight = force("table-force-weight", tableCenter, [230, 390]);
+      const tableTension = force("table-force-tension", tableCenter, [405, 220]);
+      const tableFriction = force("table-force-friction", tableCenter, [65, 220]);
+      const hangingTension = force("hanging-force-tension", hangingCenter, [520, 65]);
+      const hangingWeight = force("hanging-force-weight", hangingCenter, [520, 390]);
+      forceLabel("table-force-normal-label", [255, 70], "N", tableNormal, { x: 240, y: 45, width: 45, height: 35 });
+      forceLabel("table-force-weight-label", [255, 400], "m₁g", tableWeight, { x: 235, y: 375, width: 55, height: 40 });
+      forceLabel("table-force-tension-label", [420, 205], "T", tableTension, { x: 405, y: 180, width: 45, height: 35 });
+      forceLabel("table-force-friction-label", [50, 205], "Fᶠ", tableFriction, { x: 30, y: 180, width: 45, height: 35 });
+      forceLabel("hanging-force-tension-label", [545, 70], "T", hangingTension, { x: 530, y: 45, width: 45, height: 35 });
+      forceLabel("hanging-force-weight-label", [545, 400], "m₂g", hangingWeight, { x: 525, y: 375, width: 55, height: 40 });
+      void tableBody; void hangingBody;
+    } else if (family === "inclined-plane") {
+      const theta = radians(p.angleDeg);
+      const tangent = [Math.cos(theta), -Math.sin(theta)];
+      const outward = [-Math.sin(theta), -Math.cos(theta)];
+      const line = { a: [160, 320], b: [160 + 430 * tangent[0], 320 + 430 * tangent[1]] };
+      const body = addShape(diagram, shapes, "geometry", diagramKit.bodyOnLine({ id: id + "-isolated-body", line: line, bottomCenter: [160 + 180 * tangent[0], 320 + 180 * tangent[1]], width: 110, height: 70, outwardNormal: outward, role: "body", strokeWidth: 2.5 }));
+      const center = body.center;
+      const weight = force("force-weight", center, [center[0], center[1] + 140]);
+      const normal = force("force-normal", center, [center[0] + 125 * outward[0], center[1] + 125 * outward[1]]);
+      const friction = force("force-friction", center, [center[0] + 145 * tangent[0], center[1] + 145 * tangent[1]]);
+      forceLabel("force-weight-label", [weight.to[0] + 30, weight.to[1] + 5], "mg", weight, { x: 285, y: 310, width: 100, height: 95 });
+      forceLabel("force-normal-label", [normal.to[0] - 20, normal.to[1] - 8], "N", normal, { x: 175, y: 35, width: 130, height: 115 });
+      forceLabel("force-friction-label", [friction.to[0] + 25, friction.to[1] - 8], "Fᶠ", friction, { x: 390, y: 70, width: 155, height: 170 });
+    } else {
+      const body = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-isolated-body", x: 280, y: 180, width: 120, height: 80, role: "body", strokeWidth: 2.5 }));
+      const center = [340, 220];
+      const normal = force("force-normal", center, [340, 60]);
+      const weight = force("force-weight", center, [340, 385]);
+      const applied = force("force-applied", center, [565, 220]);
+      const friction = force("force-friction", center, [105, 220]);
+      const appliedText = family === "unknown-friction" ? "Fᴅ" : "F";
+      forceLabel("force-normal-label", [365, 65], "N", normal, { x: 350, y: 40, width: 45, height: 35 });
+      forceLabel("force-weight-label", [370, 395], "mg", weight, { x: 350, y: 370, width: 55, height: 40 });
+      forceLabel("force-applied-label", [590, 200], appliedText, applied, { x: 570, y: 175, width: 55, height: 40 });
+      forceLabel("force-friction-label", [75, 200], "Fᶠ", friction, { x: 50, y: 175, width: 55, height: 40 });
+      void body;
+    }
+    return finishFigure(diagram, shapes, labels);
   }
 
   function promptText(family, row) {
@@ -191,16 +343,18 @@
     const expected = roundSignificant(exact, figures);
     const normal = normalForce(family, row.givens);
     const friction = frictionForce(family, row.givens);
+    const promptFigure = situationFigure(id, family, row);
+    const answerFigure = solutionFigure(id, family, row);
     if (!(normal > 0) || !(friction > 0) || !(exact > 0)) throw new Error("Ogiltig fysikparameter i " + row.scenario);
     return {
       id: id,
       slot: 5,
       title: row.scenario,
       points: 2,
-      promptHtml: "<p>" + promptText(family, row) + " Använd g = 9,82 m/s² och försumma övriga motstånd.</p>" + dynamicsSvg(id, family, row) + "<p><small>Figuren är schematisk och inte skalenlig; använd endast utskrivna data.</small></p><p>Rita kraftfigur(er). Svara i " + info.unitLabel + ". Avrunda till " + figures + " värdesiffror.</p>",
+      promptHtml: "<p>" + promptText(family, row) + " Använd g = 9,82 m/s² och försumma övriga motstånd.</p>" + promptFigure.html + "<p><small>Figuren är schematisk och inte skalenlig; använd endast utskrivna data.</small></p><p>Rita kraftfigur(er). Svara i " + info.unitLabel + ". Avrunda till " + figures + " värdesiffror.</p>",
       fields: [{ id: "answer", label: "Svar (" + info.unitLabel + "; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: info.targetUnit, tolerance: tolerance(expected, figures), help: "Ange den efterfrågade accelerationens eller kraftens storlek." }],
       workOnPaper: dynamicsWorkOnPaper(family),
-      solutionHtml: solution(family, row.givens, exact, expected, figures, info.unitLabel),
+      solutionHtml: solution(family, row.givens, exact, expected, figures, info.unitLabel) + answerFigure.html,
       rubric: [
         { points: 1, text: rubricDiagram(family) },
         { points: 1, text: "Newtons första/andra lag och friktionssambandet används konsekvent och ger rätt storlek, enhet och avrundning." }
@@ -219,7 +373,11 @@
         significantFigures: figures,
         targetUnit: info.targetUnit,
         requestedUnitLabel: info.unitLabel,
-        scenario: row.scenario
+        scenario: row.scenario,
+        diagram: promptFigure.manifest,
+        solutionDiagram: answerFigure.manifest,
+        diagramLabelZones: promptFigure.labelZones,
+        solutionLabelZones: answerFigure.labelZones
       }
     };
   }

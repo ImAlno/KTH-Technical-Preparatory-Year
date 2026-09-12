@@ -224,12 +224,6 @@ function assertDynamicsResidual(question) {
   assertResidualBracket(question, residualAt);
 }
 
-function attributesForRole(html, tag, role) {
-  const element = html.match(new RegExp(`<${tag}\\b(?=[^>]*data-role="${role}")[^>]*>`));
-  assert.ok(element, `missing <${tag}> with data-role=${role}`);
-  return Object.fromEntries(Array.from(element[0].matchAll(/([\w-]+)="([^"]*)"/g), (match) => [match[1], match[2]]));
-}
-
 function manifestElement(manifest, id) {
   const element = manifest.elements.find((candidate) => candidate.id === id);
   assert.ok(element, `missing semantic diagram element ${id}`);
@@ -325,6 +319,20 @@ function paintedParts(element) {
     ]);
     return points.slice(1).map((point, index) => ({ kind: "segment", from: points[index], to: point, width }));
   }
+  if (element.kind === "rope") {
+    const pieces = element.segments;
+    const arc = pieces[1];
+    const start = Math.atan2(arc.from[1] - arc.center[1], arc.from[0] - arc.center[0]);
+    const points = Array.from({ length: 65 }, (_, index) => [
+      arc.center[0] + arc.radius * Math.cos(start + arc.sweep * arc.delta * index / 64),
+      arc.center[1] + arc.radius * Math.sin(start + arc.sweep * arc.delta * index / 64)
+    ]);
+    return [
+      { kind: "segment", from: pieces[0].from, to: pieces[0].to, width },
+      ...points.slice(1).map((point, index) => ({ kind: "segment", from: points[index], to: point, width })),
+      { kind: "segment", from: pieces[2].from, to: pieces[2].to, width }
+    ];
+  }
   assert.fail(`unsupported painted primitive ${element.id}/${element.kind}`);
 }
 
@@ -359,6 +367,48 @@ function pointOnSegment(point, start, end, tolerance = 1e-8) {
   if (pointLineDistance(point, start, end) > tolerance) return false;
   return point[0] >= Math.min(start[0], end[0]) - tolerance && point[0] <= Math.max(start[0], end[0]) + tolerance &&
     point[1] >= Math.min(start[1], end[1]) - tolerance && point[1] <= Math.max(start[1], end[1]) + tolerance;
+}
+
+function pointStrictlyInsidePolygon(point, polygon, tolerance = 1e-8) {
+  if (polygon.some((start, index) => pointOnSegment(point, start, polygon[(index + 1) % polygon.length], tolerance))) return false;
+  let inside = false;
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
+    const left = polygon[index];
+    const right = polygon[previous];
+    if ((left[1] > point[1]) !== (right[1] > point[1]) &&
+        point[0] < (right[0] - left[0]) * (point[1] - left[1]) / (right[1] - left[1]) + left[0]) inside = !inside;
+  }
+  return inside;
+}
+
+function pointSegmentDistance(point, start, end) {
+  const delta = subtractPoints(end, start);
+  const squared = delta[0] ** 2 + delta[1] ** 2;
+  const parameter = Math.max(0, Math.min(1, ((point[0] - start[0]) * delta[0] + (point[1] - start[1]) * delta[1]) / squared));
+  return Math.hypot(point[0] - start[0] - parameter * delta[0], point[1] - start[1] - parameter * delta[1]);
+}
+
+function polygonFor(element) {
+  if (element.kind === "rect") return [[element.x, element.y], [element.x + element.width, element.y], [element.x + element.width, element.y + element.height], [element.x, element.y + element.height]];
+  if (element.kind === "body" || element.kind === "polygon") return element.points;
+  assert.fail(`unsupported body primitive ${element.id}/${element.kind}`);
+}
+
+function pointOnPrimitiveBoundary(point, element, tolerance = 1e-8) {
+  return primitiveSegments(element).some(([start, end]) => pointOnSegment(point, start, end, tolerance));
+}
+
+function normalizedDirection(from, to) {
+  const delta = subtractPoints(to, from);
+  const magnitude = Math.hypot(delta[0], delta[1]);
+  return [delta[0] / magnitude, delta[1] / magnitude];
+}
+
+function directedAngleTravel(fromAngle, toAngle, sweep) {
+  let delta = sweep === 1 ? toAngle - fromAngle : fromAngle - toAngle;
+  while (delta < 0) delta += Math.PI * 2;
+  while (delta >= Math.PI * 2) delta -= Math.PI * 2;
+  return delta;
 }
 
 function primitiveSegments(element) {
@@ -806,6 +856,238 @@ test("slots one through four expose exactly 100 prompt and 40 solution manifests
     domIds.push(...manifest.domIds);
   });
   assert.equal(new Set(domIds).size, domIds.length, "all slot 1-4 fragment IDs are globally unique");
+});
+
+test("all physics figures have the exact prompt and former-drawing solution inventory", () => {
+  const slots = loadSlots();
+  const prompts = Object.values(slots).flatMap((questions) => questions.map((question) => ({ question, manifest: question.sourceData.diagram, html: question.promptHtml })));
+  const solutions = Object.values(slots).flatMap((questions) => questions.filter((question) => question.sourceData.solutionDiagram).map((question) => ({ question, manifest: question.sourceData.solutionDiagram, html: question.solutionHtml })));
+  const expectedSolutionIds = new Set([
+    ...slots[1].filter((question) => question.sourceData.family === "contact-equilibrium").map((question) => question.id),
+    ...slots[4].map((question) => question.id),
+    ...slots[5].map((question) => question.id)
+  ]);
+
+  assert.equal(prompts.length, 125);
+  assert.equal(solutions.length, 65);
+  Object.values(slots).flat().forEach((question) => assert.equal(Boolean(question.sourceData.solutionDiagram), expectedSolutionIds.has(question.id), question.id));
+  const domIds = [];
+  prompts.concat(solutions).forEach(({ question, manifest, html }, index) => {
+    assert.doesNotThrow(() => diagramKit.validateManifest(manifest), question.id);
+    const isSolution = index >= prompts.length;
+    assert.equal(manifest.purpose, isSolution ? "solution" : "prompt", question.id);
+    assert.equal(manifest.id, `${question.id}-${isSolution ? "solution-" : ""}diagram`, question.id);
+    assert.equal(manifest.ariaLabelledby, `${manifest.id}-title ${manifest.id}-desc`, question.id);
+    assert.ok(html.includes(`id="${manifest.id}"`), question.id);
+    assert.ok(html.includes(`aria-labelledby="${manifest.ariaLabelledby}"`), question.id);
+    if (isSolution) assert.equal((html.match(/<svg\b/gu) || []).length, 1, `${question.id}: exactly one solution SVG`);
+    domIds.push(...manifest.domIds);
+  });
+  assert.equal(new Set(domIds).size, domIds.length, "all 190 physics figure DOM IDs are globally unique");
+});
+
+test("all slot-five prompts derive contacts, angles, arrows and pulley topology from physical geometry", () => {
+  const questions = loadSlots()[5];
+  const horizontalFamilies = new Set(["horizontal-pull", "unknown-pull", "unknown-friction"]);
+  assert.equal(questions.length, 25);
+
+  questions.forEach((question) => {
+    const manifest = question.sourceData.diagram;
+    const family = question.sourceData.family;
+    assert.doesNotThrow(() => diagramKit.validateManifest(manifest), question.id);
+    assert.equal(manifest.purpose, "prompt", question.id);
+    assert.equal(manifest.elements.some((element) => /force-(?:weight|normal|friction)/u.test(element.id)), false, `${question.id}: prompt must not reveal the requested force set`);
+    assert.ok(manifest.elements.filter((element) => element.role === "force").length <= 1, `${question.id}: prompt has at most one given force`);
+
+    if (horizontalFamilies.has(family)) {
+      const ground = manifestElement(manifest, `${question.id}-ground`);
+      const body = manifestElement(manifest, `${question.id}-body`);
+      assert.equal(body.kind, "body", question.id);
+      body.points.slice(0, 2).forEach((corner) => {
+        assert.ok(pointOnSegment(corner, ground.from, ground.to, 0.01), `${question.id}: whole bottom edge lies on floor`);
+      });
+      body.points.slice(2).forEach((corner) => assert.ok(Math.abs(pointLineDistance(corner, ground.from, ground.to) - body.height) <= 0.01, `${question.id}: body stays on one side of floor`));
+      const requiredArrows = family === "horizontal-pull"
+        ? [`${question.id}-applied-force`]
+        : family === "unknown-pull"
+          ? [`${question.id}-motion-arrow`]
+          : [`${question.id}-drive-force`, `${question.id}-motion-arrow`];
+      requiredArrows.forEach((arrowId) => {
+        const arrow = manifestElement(manifest, arrowId);
+        assert.ok(pointOnPrimitiveBoundary(arrow.from, body), `${arrowId}: starts on body`);
+        assert.ok(arrow.to[0] > arrow.from[0] && close(arrow.to[1], arrow.from[1]), `${arrowId}: points right`);
+      });
+    } else if (family === "inclined-plane") {
+      const plane = manifestElement(manifest, `${question.id}-plane`);
+      const support = manifestElement(manifest, `${question.id}-plane-support`);
+      const horizontal = manifestElement(manifest, `${question.id}-horizontal-reference`);
+      const body = manifestElement(manifest, `${question.id}-body`);
+      const arc = manifestElement(manifest, `${question.id}-incline-angle`);
+      const motion = manifestElement(manifest, `${question.id}-motion-arrow`);
+      body.points.slice(0, 2).forEach((corner) => assert.ok(pointOnSegment(corner, plane.from, plane.to, 0.01), `${question.id}: both bottom corners lie on actual incline`));
+      body.points.slice(2).forEach((corner) => {
+        const displacement = subtractPoints(corner, body.points[0]);
+        assert.ok(displacement[0] * body.outwardNormal[0] + displacement[1] * body.outwardNormal[1] > 0, `${question.id}: other corners point outward`);
+      });
+      assertPoint(arc.vertex, plane.from, `${question.id}: angle uses plane vertex`);
+      assertPoint(horizontal.from, arc.vertex, `${question.id}: horizontal reference shares vertex`);
+      assert.ok(close(horizontal.from[1], horizontal.to[1]) && horizontal.to[0] > horizontal.from[0], `${question.id}: horizontal reference ray`);
+      const planeDirection = normalizedDirection(plane.from, plane.to);
+      assert.ok(close(arc.fromRay[0], 1) && close(arc.fromRay[1], 0), `${question.id}: angle begins on horizontal`);
+      assertPoint(arc.toRay, planeDirection, `${question.id}: angle ends on incline`);
+      assert.ok(close(Math.acos(arc.fromRay[0] * arc.toRay[0] + arc.fromRay[1] * arc.toRay[1]) * 180 / Math.PI, question.sourceData.givens.angleDeg), `${question.id}: authored incline angle`);
+      const angleLabel = manifest.labels.find((label) => label.id === `${question.id}-angle-label`);
+      const angleBox = manifest.backgrounds.find((background) => background.labelId === angleLabel.id).bbox;
+      const labelCenter = boxCenter(angleBox);
+      const labelRay = normalizedDirection(arc.vertex, labelCenter);
+      const fromAngle = Math.atan2(arc.fromRay[1], arc.fromRay[0]);
+      const labelAngle = Math.atan2(labelRay[1], labelRay[0]);
+      const totalTravel = directedAngleTravel(fromAngle, Math.atan2(arc.toRay[1], arc.toRay[0]), arc.sweep);
+      const labelTravel = directedAngleTravel(fromAngle, labelAngle, arc.sweep);
+      assert.ok(labelTravel > 0 && labelTravel < totalTravel, `${question.id}: angle label lies in correct sector`);
+      assert.ok(Math.hypot(labelCenter[0] - arc.vertex[0], labelCenter[1] - arc.vertex[1]) > arc.radius + 6, `${question.id}: angle label lies outside arc`);
+      assert.equal(pointStrictlyInsidePolygon(labelCenter, support.points), false, `${question.id}: angle label is outside support triangle`);
+      assert.ok(pointOnPrimitiveBoundary(motion.from, body), `${question.id}: motion starts on body`);
+      const downhill = [-planeDirection[0], -planeDirection[1]];
+      const motionDirection = normalizedDirection(motion.from, motion.to);
+      assert.ok(motionDirection[0] * downhill[0] + motionDirection[1] * downhill[1] > 1 - 1e-8, `${question.id}: motion points down slope`);
+    } else {
+      const table = manifestElement(manifest, `${question.id}-tabletop`);
+      const tableBody = manifestElement(manifest, `${question.id}-table-body`);
+      const hangingBody = manifestElement(manifest, `${question.id}-hanging-body`);
+      const pulley = manifestElement(manifest, `${question.id}-pulley`);
+      const rope = manifestElement(manifest, `${question.id}-rope`);
+      const bodies = [polygonFor(tableBody), polygonFor(hangingBody)];
+      assert.equal(tableBody.role, "table-body", `${question.id}: preserve table-body role`);
+      assert.equal(hangingBody.role, "hanging-body", `${question.id}: preserve hanging-body role`);
+      assert.equal(pulley.role, "pulley", `${question.id}: preserve pulley role`);
+      assert.equal(rope.role, "rope", `${question.id}: preserve rope role`);
+      tableBody.points.slice(0, 2).forEach((corner) => assert.ok(pointOnSegment(corner, table.from, table.to, 0.01), `${question.id}: table body rests on tabletop`));
+      assert.ok(pointOnPrimitiveBoundary(rope.from, tableBody), `${question.id}: rope starts at actual table-body attachment`);
+      assert.ok(pointOnPrimitiveBoundary(rope.to, hangingBody), `${question.id}: rope ends at actual hanging-body attachment`);
+      assert.equal(rope.segments.length, 3, `${question.id}: line-arc-line rope`);
+      const [incoming, ropeArc, outgoing] = rope.segments;
+      assertPoint(incoming.from, rope.from, `${question.id}: continuous incoming start`);
+      assertPoint(incoming.to, rope.fromTangent, `${question.id}: continuous first tangent`);
+      assertPoint(ropeArc.from, rope.fromTangent, `${question.id}: arc starts at first tangent`);
+      assertPoint(ropeArc.to, rope.toTangent, `${question.id}: arc ends at second tangent`);
+      assertPoint(outgoing.from, rope.toTangent, `${question.id}: continuous second tangent`);
+      assertPoint(outgoing.to, rope.to, `${question.id}: continuous rope endpoint`);
+      [rope.fromTangent, rope.toTangent].forEach((tangent, index) => {
+        const external = index === 0 ? rope.from : rope.to;
+        const radiusDirection = normalizedDirection(pulley.center, tangent);
+        const straightDirection = normalizedDirection(tangent, external);
+        assert.ok(Math.abs(radiusDirection[0] * straightDirection[0] + radiusDirection[1] * straightDirection[1]) <= 1e-8, `${question.id}: straight segment tangent ${index + 1}`);
+      });
+      const incomingDirection = normalizedDirection(incoming.from, incoming.to);
+      const outgoingDirection = normalizedDirection(outgoing.from, outgoing.to);
+      const firstArcDirection = normalizedDirection([0, 0], [ropeArc.sweep * -(ropeArc.from[1] - pulley.center[1]), ropeArc.sweep * (ropeArc.from[0] - pulley.center[0])]);
+      const lastArcDirection = normalizedDirection([0, 0], [ropeArc.sweep * -(ropeArc.to[1] - pulley.center[1]), ropeArc.sweep * (ropeArc.to[0] - pulley.center[0])]);
+      assert.ok(incomingDirection[0] * firstArcDirection[0] + incomingDirection[1] * firstArcDirection[1] > 1 - 1e-7, `${question.id}: C1 at first tangent`);
+      assert.ok(outgoingDirection[0] * lastArcDirection[0] + outgoingDirection[1] * lastArcDirection[1] > 1 - 1e-7, `${question.id}: C1 at second tangent`);
+      const ropeSamples = [];
+      [incoming, outgoing].forEach((segment) => {
+        for (let index = 1; index < 10; index += 1) ropeSamples.push([segment.from[0] + (segment.to[0] - segment.from[0]) * index / 10, segment.from[1] + (segment.to[1] - segment.from[1]) * index / 10]);
+      });
+      const startAngle = Math.atan2(ropeArc.from[1] - pulley.center[1], ropeArc.from[0] - pulley.center[0]);
+      for (let index = 0; index <= 20; index += 1) ropeSamples.push([pulley.center[0] + pulley.radius * Math.cos(startAngle + ropeArc.sweep * ropeArc.delta * index / 20), pulley.center[1] + pulley.radius * Math.sin(startAngle + ropeArc.sweep * ropeArc.delta * index / 20)]);
+      ropeSamples.forEach((point) => bodies.forEach((body) => assert.equal(pointStrictlyInsidePolygon(point, body), false, `${question.id}: rope stays outside bodies`)));
+      bodies.forEach((body) => {
+        assert.equal(pointStrictlyInsidePolygon(pulley.center, body), false, `${question.id}: pulley center outside body`);
+        assert.ok(Math.min(...body.map((point, index) => pointSegmentDistance(pulley.center, point, body[(index + 1) % body.length]))) >= pulley.radius - 0.01, `${question.id}: pulley does not enter body interior`);
+      });
+      const tableMotion = manifestElement(manifest, `${question.id}-table-motion-arrow`);
+      const hangingMotion = manifestElement(manifest, `${question.id}-hanging-motion-arrow`);
+      assert.ok(pointOnPrimitiveBoundary(tableMotion.from, tableBody) && tableMotion.to[0] > tableMotion.from[0] && close(tableMotion.to[1], tableMotion.from[1]), `${question.id}: table motion starts at body and points right`);
+      assert.ok(pointOnPrimitiveBoundary(hangingMotion.from, hangingBody) && hangingMotion.to[1] > hangingMotion.from[1] && close(hangingMotion.to[0], hangingMotion.from[0]), `${question.id}: hanging motion starts at body and points down`);
+    }
+  });
+});
+
+test("all slot-five solution figures contain complete force sets that satisfy each body's equations and moments", () => {
+  const arrowVector = (arrow, magnitude) => {
+    const direction = normalizedDirection(arrow.from, arrow.to);
+    return [direction[0] * magnitude, direction[1] * magnitude];
+  };
+  const addVectors = (vectors) => vectors.reduce((sum, vector) => [sum[0] + vector[0], sum[1] + vector[1]], [0, 0]);
+  const centerOf = (body) => body.kind === "rect"
+    ? [body.x + body.width / 2, body.y + body.height / 2]
+    : body.points.reduce((sum, point) => [sum[0] + point[0] / body.points.length, sum[1] + point[1] / body.points.length], [0, 0]);
+  const assertBodyForces = (question, body, forceSpecs, expectedResultant) => {
+    const center = centerOf(body);
+    const vectors = forceSpecs.map(({ id, magnitude, direction }) => {
+      const arrow = manifestElement(question.sourceData.solutionDiagram, `${question.id}-${id}`);
+      assert.equal(arrow.role, "force", `${question.id}/${id}`);
+      assert.ok(pointStrictlyInsidePolygon(arrow.from, polygonFor(body)) || pointOnPrimitiveBoundary(arrow.from, body), `${question.id}/${id}: force originates on isolated body`);
+      const unit = normalizedDirection(arrow.from, arrow.to);
+      assert.ok(unit[0] * direction[0] + unit[1] * direction[1] > 1 - 1e-8, `${question.id}/${id}: force direction`);
+      const vector = arrowVector(arrow, magnitude);
+      return { arrow, vector };
+    });
+    const resultant = addVectors(vectors.map((item) => item.vector));
+    assert.ok(close(resultant[0], expectedResultant[0], 1e-8) && close(resultant[1], expectedResultant[1], 1e-8), `${question.id}: component equation ${resultant} != ${expectedResultant}`);
+    const moment = vectors.reduce((sum, item) => sum + (item.arrow.from[0] - center[0]) * item.vector[1] - (item.arrow.from[1] - center[1]) * item.vector[0], 0);
+    assert.ok(close(moment, 0, 1e-8), `${question.id}: signed moment about isolated body centre`);
+  };
+
+  loadSlots()[5].forEach((question) => {
+    const data = question.sourceData;
+    const p = data.givens;
+    const manifest = data.solutionDiagram;
+    assert.doesNotThrow(() => diagramKit.validateManifest(manifest), question.id);
+    assert.equal(manifest.purpose, "solution", question.id);
+    assert.equal((question.solutionHtml.match(/<svg\b/gu) || []).length, 1, question.id);
+    const forceElements = manifest.elements.filter((element) => element.role === "force");
+    forceElements.forEach((force) => assert.ok(manifest.labels.some((label) => label.anchorId === force.id), `${force.id}: labelled force`));
+
+    if (data.family === "connected-masses") {
+      assert.equal(forceElements.length, 6, `${question.id}: complete two-body force set`);
+      const tableBody = manifestElement(manifest, `${question.id}-isolated-table-body`);
+      const hangingBody = manifestElement(manifest, `${question.id}-isolated-hanging-body`);
+      const friction = p.frictionCoefficient * p.tableMassKg * G;
+      const acceleration = (p.hangingMassKg * G - friction) / (p.tableMassKg + p.hangingMassKg);
+      const tension = p.tableMassKg * acceleration + friction;
+      assertBodyForces(question, tableBody, [
+        { id: "table-force-weight", magnitude: p.tableMassKg * G, direction: [0, 1] },
+        { id: "table-force-normal", magnitude: p.tableMassKg * G, direction: [0, -1] },
+        { id: "table-force-tension", magnitude: tension, direction: [1, 0] },
+        { id: "table-force-friction", magnitude: friction, direction: [-1, 0] }
+      ], [p.tableMassKg * acceleration, 0]);
+      assertBodyForces(question, hangingBody, [
+        { id: "hanging-force-weight", magnitude: p.hangingMassKg * G, direction: [0, 1] },
+        { id: "hanging-force-tension", magnitude: tension, direction: [0, -1] }
+      ], [0, p.hangingMassKg * acceleration]);
+      const tensionLabels = manifest.labels.filter((label) => label.anchorId.endsWith("force-tension"));
+      assert.equal(tensionLabels.length, 2, `${question.id}: paired tension labels`);
+      assert.ok(tensionLabels.every((label) => label.text === "T"), `${question.id}: same ideal-rope tension`);
+      assert.ok(centerOf(tableBody)[0] + 100 < centerOf(hangingBody)[0], `${question.id}: isolated bodies are separated`);
+    } else if (data.family === "inclined-plane") {
+      assert.equal(forceElements.length, 3, `${question.id}: complete incline force set`);
+      const body = manifestElement(manifest, `${question.id}-isolated-body`);
+      const theta = p.angleDeg * Math.PI / 180;
+      const uphill = [Math.cos(theta), -Math.sin(theta)];
+      const outward = [-Math.sin(theta), -Math.cos(theta)];
+      const downhill = [-uphill[0], -uphill[1]];
+      const acceleration = G * Math.sin(theta) - p.frictionForceN / p.massKg;
+      assertBodyForces(question, body, [
+        { id: "force-weight", magnitude: p.massKg * G, direction: [0, 1] },
+        { id: "force-normal", magnitude: p.massKg * G * Math.cos(theta), direction: outward },
+        { id: "force-friction", magnitude: p.frictionForceN, direction: uphill }
+      ], [p.massKg * acceleration * downhill[0], p.massKg * acceleration * downhill[1]]);
+    } else {
+      assert.equal(forceElements.length, 4, `${question.id}: complete horizontal force set`);
+      const body = manifestElement(manifest, `${question.id}-isolated-body`);
+      const acceleration = data.family === "unknown-pull" ? p.accelerationMps2 : data.family === "unknown-friction" ? p.finalSpeedMps / p.elapsedS : (p.pullForceN - p.frictionCoefficient * p.massKg * G) / p.massKg;
+      const friction = data.family === "unknown-friction" ? p.driveForceN - p.massKg * acceleration : p.frictionCoefficient * p.massKg * G;
+      const applied = data.family === "horizontal-pull" ? p.pullForceN : data.family === "unknown-pull" ? p.massKg * acceleration + friction : p.driveForceN;
+      assertBodyForces(question, body, [
+        { id: "force-weight", magnitude: p.massKg * G, direction: [0, 1] },
+        { id: "force-normal", magnitude: p.massKg * G, direction: [0, -1] },
+        { id: "force-applied", magnitude: applied, direction: [1, 0] },
+        { id: "force-friction", magnitude: friction, direction: [-1, 0] }
+      ], [p.massKg * acceleration, 0]);
+    }
+  });
 });
 
 test("all vertical-motion prompts derive origin, ground, body, trajectory and motion direction from one semantic path", () => {
@@ -1341,12 +1623,12 @@ test("body dimensions derive from manifest geometry and lie outward from each so
   });
 });
 
-test("all 140 slot one-through-four figures keep exact opaque labels clear, local and attached", () => {
+test("all 190 physics figures keep exact opaque labels clear, local and attached", () => {
   const slots = loadSlots();
-  const figures = [1, 2, 3, 4].flatMap((slot) => slots[slot].map((question) => ({ question, purpose: "prompt", manifest: question.sourceData.diagram, html: question.promptHtml })))
-    .concat([1, 2, 3, 4].flatMap((slot) => slots[slot].filter((question) => question.sourceData.solutionDiagram).map((question) => ({ question, purpose: "solution", manifest: question.sourceData.solutionDiagram, html: question.solutionHtml }))));
+  const figures = [1, 2, 3, 4, 5].flatMap((slot) => slots[slot].map((question) => ({ question, purpose: "prompt", manifest: question.sourceData.diagram, html: question.promptHtml })))
+    .concat([1, 2, 3, 4, 5].flatMap((slot) => slots[slot].filter((question) => question.sourceData.solutionDiagram).map((question) => ({ question, purpose: "solution", manifest: question.sourceData.solutionDiagram, html: question.solutionHtml }))));
   const failures = [];
-  assert.equal(figures.length, 140);
+  assert.equal(figures.length, 190);
   figures.forEach(({ question, purpose, manifest, html }) => {
     const geometry = manifest.elements.filter((element) => !["label", "label-background"].includes(element.role));
     const labelBoxes = manifest.labels.map((label) => {
@@ -1374,11 +1656,17 @@ test("all 140 slot one-through-four figures keep exact opaque labels clear, loca
         const zones = question.sourceData.diagramLayout;
         const zone = label.id.endsWith("-height-label") ? zones.height : label.id.endsWith("-positive-label") || label.id.endsWith("-origin-label") ? zones.sign : zones.velocity;
         assert.ok(box.x >= zone.x && box.y >= zone.y && box.x + box.width <= zone.x + zone.width && box.y + box.height <= zone.y + zone.height, `${label.id}: inside typed motion zone`);
-      } else if (question.slot === 4) {
+      } else if (question.slot === 4 || question.slot === 5) {
         const zoneGroups = purpose === "solution" ? question.sourceData.solutionLabelZones : question.sourceData.diagramLabelZones;
         const zone = zoneGroups && zoneGroups.find((candidate) => candidate.labelIds.includes(label.id));
-        assert.ok(zone && ["given", "given-force", "given-vector", "angle", "force"].includes(zone.type), `${label.id}: typed local zone`);
+        assert.ok(zone && ["given", "given-force", "given-vector", "angle", "force", "motion"].includes(zone.type), `${label.id}: typed local zone`);
         assert.ok(box.x >= zone.bounds.x && box.y >= zone.bounds.y && box.x + box.width <= zone.bounds.x + zone.bounds.width && box.y + box.height <= zone.bounds.y + zone.bounds.height, `${label.id}: inside local zone`);
+        if (question.slot === 5) {
+          const ownerDistance = Math.min(...paintedParts(owner).map((part) => part.kind === "segment"
+            ? pointSegmentDistance(center, part.from, part.to)
+            : Math.abs(Math.hypot(center[0] - part.center[0], center[1] - part.center[1]) - part.radius)));
+          assert.ok(ownerDistance <= 160, `${label.id}: attached to semantic owner`);
+        }
       } else if (label.id.includes("-tick-label-") || label.id.endsWith("-title")) {
         assert.equal(question.sourceData.family, "graph-interpretation", label.id);
       } else if (owner.kind === "dimension") {
@@ -1406,7 +1694,7 @@ test("every physics slot fails with a controlled error when diagram-kit is absen
   });
 });
 
-test("wall-contact and pulley-rope SVG topology matches the stated force models", () => {
+test("wall-contact SVG topology matches the stated force models", () => {
   loadSlots()[4]
     .filter((question) => question.sourceData.family === "frictionless-wall-contact")
     .forEach((question) => {
@@ -1429,27 +1717,6 @@ test("wall-contact and pulley-rope SVG topology matches the stated force models"
       assert.ok(x2 > x1 && y2 < y1, `${question.id}: cable must run upward toward wall`);
       assert.ok(close((y1 - y2) / (x2 - x1), Math.tan(question.sourceData.givens.cableAngleDeg * Math.PI / 180)), `${question.id}: drawn cable angle`);
       assert.ok(close((x2 - x1) * (cy - y1) - (y2 - y1) * (cx - x1), 0), `${question.id}: cable line of action must pass through center`);
-    });
-
-  loadSlots()[5]
-    .filter((question) => question.sourceData.family === "connected-masses")
-    .forEach((question) => {
-      const body = attributesForRole(question.promptHtml, "rect", "table-body");
-      const pulley = attributesForRole(question.promptHtml, "circle", "pulley");
-      const rope = attributesForRole(question.promptHtml, "path", "rope");
-      const coordinates = rope.d.match(/^M([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+) A([\d.]+) ([\d.]+) 0 0 1 ([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+)$/);
-      assert.ok(coordinates, `${question.id}: rope needs straight–arc–straight topology`);
-      const [, startX, startY, tangentX, tangentY, arcRx, arcRy, arcEndX, arcEndY, tailX, tailY] = coordinates.map(Number);
-      const cx = Number(pulley.cx);
-      const cy = Number(pulley.cy);
-      const radius = Number(pulley.r);
-      assert.ok(close(startX, Number(body.x) + Number(body.width)), `${question.id}: rope starts on table body`);
-      assert.ok(startY >= Number(body.y) && startY <= Number(body.y) + Number(body.height), `${question.id}: rope attachment lies on body edge`);
-      assert.ok(close(startY, tangentY), `${question.id}: first segment is horizontal`);
-      assert.ok(close(tangentX, cx) && close(tangentY, cy - radius), `${question.id}: first segment reaches top tangent`);
-      assert.ok(close(arcRx, radius) && close(arcRy, radius), `${question.id}: rope follows pulley radius`);
-      assert.ok(close(arcEndX, cx + radius) && close(arcEndY, cy), `${question.id}: arc ends at right tangent`);
-      assert.ok(close(tailX, cx + radius) && tailY > arcEndY, `${question.id}: final segment hangs vertically`);
     });
 });
 

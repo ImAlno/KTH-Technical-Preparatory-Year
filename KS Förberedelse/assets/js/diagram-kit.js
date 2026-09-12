@@ -17,7 +17,7 @@
   const USED_FRAGMENT_IDS = new Set();
   const LAYERS = ["geometry", "connections", "information", "labels"];
   const ROLES = new Set([
-    "line", "support", "ground", "wall", "contact", "body", "circle", "pulley", "rope", "connection",
+    "line", "support", "ground", "wall", "contact", "body", "table-body", "hanging-body", "circle", "pulley", "rope", "connection",
     "force", "motion", "arrow", "dimension", "measure", "angle", "arc", "axis", "grid", "point", "marker",
     "shape", "label", "label-background", "decorative"
   ]);
