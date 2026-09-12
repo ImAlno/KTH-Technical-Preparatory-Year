@@ -87,6 +87,28 @@
     return { absolute: 0.500001 * Math.pow(10, exponent) };
   }
 
+  function addShape(diagram, shapes, layer, shape) {
+    shapes.push(shape);
+    diagram.add(layer, shape);
+    return shape;
+  }
+
+  function addLabel(diagram, shapes, options) {
+    const label = diagramKit.label({
+      id: options.id,
+      at: options.at,
+      text: options.text,
+      anchorId: options.anchorId,
+      avoid: shapes.filter(function (shape) { return shape.id !== options.anchorId; }).map(function (shape) { return shape.id; }),
+      minClearance: 6,
+      textAnchor: options.textAnchor || "middle",
+      fontSize: options.fontSize || 14,
+      background: true
+    });
+    diagram.add("labels", label);
+    return label;
+  }
+
   function answer(family, p) {
     if (family === "time-to-apex") return p.initialSpeedMps / G;
     if (family === "maximum-height") return p.initialHeightM + p.initialSpeedMps * p.initialSpeedMps / (2 * G);
@@ -106,14 +128,42 @@
     return "utgångshastigheten " + clean(p.initialSpeedMps) + " m/s från höjden " + clean(p.initialHeightM) + " m över marken";
   }
 
-  function motionSvg(id, row, family) {
+  function motionFigure(id, row, family) {
     const p = row.givens;
-    let marker = "";
-    if (p.initialHeightM !== undefined) marker += '<text x="345" y="178">y₀ = ' + clean(p.initialHeightM) + " m</text>";
-    if (p.initialSpeedMps !== undefined) marker += '<text x="280" y="54">v₀ = ' + clean(p.initialSpeedMps) + " m/s</text>";
-    if (p.laterVelocityMps !== undefined) marker += '<text x="280" y="90">v = ' + clean(p.laterVelocityMps) + " m/s efter " + clean(p.elapsedS) + " s</text>";
-    if (p.flightTimeS !== undefined) marker += '<text x="280" y="116">t = ' + clean(p.flightTimeS) + " s till marken</text>";
-    return '<svg viewBox="0 0 520 250" role="img" aria-labelledby="' + id + "-svg-title " + id + '-svg-desc"><title id="' + id + '-svg-title">' + row.scenario + ": vertikal rörelse</title><desc id=\"" + id + '-svg-desc">En kropp rör sig vertikalt utan luftmotstånd. Positiv riktning är uppåt. Bildens höjder och pilar kan inte mätas.</desc><line x1="75" y1="210" x2="450" y2="210" stroke="#1d1d1f" stroke-width="3"/><circle cx="245" cy="165" r="14" fill="#dbeafe" stroke="#1d1d1f"/><path d="M245 150 C205 115 215 55 245 35" fill="none" stroke="#0071e3" stroke-width="4" stroke-dasharray="7 5"/><path d="M245 32 l-9 16 h18 z" fill="#0071e3"/><line x1="120" y1="185" x2="120" y2="65" stroke="#6e6e73"/><path d="M120 62 l-7 13 h14 z" fill="#6e6e73"/><text x="94" y="58">+y</text>' + marker + '<text x="260" y="238" text-anchor="middle">Schematisk och inte skalenlig</text></svg>';
+    const diagram = diagramKit.create({
+      id: id + "-diagram",
+      title: row.scenario + ": vertikal rörelse",
+      description: "En kropp kastas vertikalt längs en namngiven bana från en markerad marknivå. Positiv riktning är uppåt och figurens längder är inte skalenliga.",
+      purpose: "prompt",
+      width: 620,
+      height: 340
+    });
+    const shapes = [];
+    const ground = addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-ground", a: [65, 270], b: [555, 270], role: "ground", strokeWidth: 3 }));
+    const trajectory = addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-trajectory", a: [300, 52], b: [300, 270], role: "motion", strokeWidth: 2 }));
+    const origin = addShape(diagram, shapes, "information", diagramKit.circle({ id: id + "-origin", center: [300, 270], radius: 4, role: "point", strokeWidth: 2 }));
+    const body = addShape(diagram, shapes, "geometry", diagramKit.circle({ id: id + "-body", center: [300, 188], radius: 17, role: "body", strokeWidth: 2.5 }));
+    const motion = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-motion-arrow", from: body.center, to: [300, 92], role: "motion", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+    const positive = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-positive-arrow", from: [112, 232], to: [112, 105], role: "axis", strokeWidth: 2.5, headLength: 11, headWidth: 9 }));
+    let height;
+    if (p.initialHeightM !== undefined) height = addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-height-measure", a: [350, 270], b: [350, 188], role: "measure", strokeWidth: 1.5 }));
+
+    addLabel(diagram, shapes, { id: id + "-positive-label", at: [82, 102], text: "+y", anchorId: positive.id, fontSize: 15 });
+    addLabel(diagram, shapes, { id: id + "-origin-label", at: [190, 304], text: "y = 0 (marknivå)", anchorId: origin.id, fontSize: 13 });
+    if (p.initialSpeedMps !== undefined) addLabel(diagram, shapes, { id: id + "-velocity-v0-label", at: [390, 78], text: "v₀ = " + clean(p.initialSpeedMps) + " m/s", anchorId: motion.id, textAnchor: "start", fontSize: 14 });
+    if (p.laterVelocityMps !== undefined) addLabel(diagram, shapes, { id: id + "-velocity-later-label", at: [390, 112], text: "v = " + clean(p.laterVelocityMps) + " m/s efter " + clean(p.elapsedS) + " s", anchorId: motion.id, textAnchor: "start", fontSize: 13 });
+    if (p.flightTimeS !== undefined) addLabel(diagram, shapes, { id: id + "-velocity-time-label", at: [390, 148], text: "t = " + clean(p.flightTimeS) + " s till marken", anchorId: motion.id, textAnchor: "start", fontSize: 13 });
+    if (height) addLabel(diagram, shapes, { id: id + "-height-label", at: [402, 233], text: "y₀ = " + clean(p.initialHeightM) + " m", anchorId: height.id, textAnchor: "start", fontSize: 14 });
+    const result = diagram.finish();
+    return {
+      html: result.html,
+      manifest: result.manifest,
+      layout: {
+        sign: { x: 35, y: 82, width: 245, height: 230 },
+        velocity: { x: 380, y: 56, width: 225, height: 108 },
+        height: { x: 390, y: 210, width: 180, height: 42 }
+      }
+    };
   }
 
   function solution(family, p, exact, expected, unitLabel, figures) {
@@ -157,12 +207,13 @@
     const info = FAMILY_INFO[family];
     const exact = answer(family, row.givens);
     const expected = roundSignificant(exact, figures);
+    const figure = motionFigure(id, row, family);
     return {
       id: id,
       slot: 3,
       title: row.scenario,
       points: 2,
-      promptHtml: "<p>" + row.object.charAt(0).toUpperCase() + row.object.slice(1) + " kastas vertikalt. Givet är " + givensText(family, row.givens) + ". Luftmotståndet försummas och g = 9,82 m/s². " + info.question + "</p>" + motionSvg(id, row, family) + "<p><small>Figuren är schematisk och inte skalenlig; använd tecken och utskrivna värden, inte pilarnas längder.</small></p><p>Svara i " + info.unitLabel + ". Avrunda till " + figures + " värdesiffror.</p>",
+      promptHtml: "<p>" + row.object.charAt(0).toUpperCase() + row.object.slice(1) + " kastas vertikalt. Givet är " + givensText(family, row.givens) + ". Luftmotståndet försummas och g = 9,82 m/s². " + info.question + "</p>" + figure.html + "<p><small>Figuren är schematisk och inte skalenlig; använd tecken och utskrivna värden, inte pilarnas längder.</small></p><p>Svara i " + info.unitLabel + ". Avrunda till " + figures + " värdesiffror.</p>",
       fields: [{ id: "answer", label: "Svar (" + info.unitLabel + "; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: info.targetUnit, tolerance: tolerance(expected, figures), help: "Ange den positiva tid, höjd eller fart som efterfrågas." }],
       workOnPaper: motionWorkOnPaper(family),
       solutionHtml: solution(family, row.givens, exact, expected, info.unitLabel, figures),
@@ -179,7 +230,9 @@
         significantFigures: figures,
         targetUnit: info.targetUnit,
         requestedUnitLabel: info.unitLabel,
-        scenario: row.scenario
+        scenario: row.scenario,
+        diagram: figure.manifest,
+        diagramLayout: figure.layout
       }
     };
   }

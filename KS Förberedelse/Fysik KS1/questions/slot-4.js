@@ -83,6 +83,32 @@
     return degrees * Math.PI / 180;
   }
 
+  function addShape(diagram, shapes, layer, shape) {
+    shapes.push(shape);
+    diagram.add(layer, shape);
+    return shape;
+  }
+
+  function addLabel(diagram, shapes, options) {
+    const label = diagramKit.label({
+      id: options.id,
+      at: options.at,
+      text: options.text,
+      anchorId: options.anchorId,
+      avoid: shapes.filter(function (shape) { return shape.id !== options.anchorId; }).map(function (shape) { return shape.id; }),
+      minClearance: 6,
+      textAnchor: options.textAnchor || "middle",
+      fontSize: options.fontSize || 14,
+      background: true
+    });
+    diagram.add("labels", label);
+    return label;
+  }
+
+  function makeDiagram(id, title, description, purpose, width, height) {
+    return diagramKit.create({ id: id, title: title, description: description, purpose: purpose, width: width, height: height });
+  }
+
   function answer(family, p) {
     if (family === "hanging-masses") return (p.upperMassKg + p.lowerMassKg) * G;
     if (family === "cables-at-angles") return p.massKg * G / (2 * Math.sin(radians(p.angleDeg)));
@@ -95,44 +121,158 @@
     return p.massKg * G / Math.sin(radians(p.cableAngleDeg));
   }
 
-  function vectorLines(forces) {
-    return forces.map(function (force, index) {
-      const magnitude = Math.sqrt(force.xN * force.xN + force.yN * force.yN);
-      const endX = 260 + 62 * force.xN / magnitude;
-      const endY = 105 - 62 * force.yN / magnitude;
-      return '<line x1="260" y1="105" x2="' + endX + '" y2="' + endY + '" stroke="#0071e3" stroke-width="4"/><circle cx="' + endX + '" cy="' + endY + '" r="5" fill="#0071e3"/><text x="' + (endX + 8) + '" y="' + (endY - 5) + '">F' + (index + 1) + " = (" + force.xN + ", " + force.yN + ") N</text>";
-    }).join("");
-  }
-
-  function situationSvg(id, family, row) {
+  function situationFigure(id, family, row) {
     const p = row.givens;
-    let drawing;
-    let desc;
+    const desc = family === "hanging-masses"
+      ? "Två kroppar hänger under varandra i två masslösa linor och är i vila. Övre och undre massan är utskrivna."
+      : family === "cables-at-angles"
+        ? "En kropp hänger symmetriskt i två lika linor. Varje lina bildar den utskrivna vinkeln med horisontalen."
+        : family === "missing-fourth-force"
+          ? "Tre kända krafter visas med sina x- och y-komposanter. Pilarna visar endast riktning och har avsiktligt samma längd."
+          : family === "supported-beams"
+            ? "En horisontell styv kropp vilar på två stöd. Kroppens massa och den vänstra stödreaktionen är utskrivna."
+            : "En sfärisk kropp ligger mot en friktionsfri lodrät vägg och hålls av en lina med utskriven vinkel över horisontalen.";
+    const diagram = makeDiagram(id + "-diagram", row.scenario + ": kraftsituation", desc + " Figuren är schematisk, inte skalenlig och visar inte den fullständiga kraftfiguren.", "prompt", 660, 400);
+    const shapes = [];
+    const labelZones = [];
+    function label(options, type, zone) {
+      const item = addLabel(diagram, shapes, options);
+      labelZones.push({ type: type, bounds: zone, labelIds: [item.id] });
+      return item;
+    }
     if (family === "hanging-masses") {
-      drawing = '<line x1="260" y1="25" x2="260" y2="65" stroke="#1d1d1f" stroke-width="4"/><rect x="225" y="65" width="70" height="45" fill="#dbeafe" stroke="#1d1d1f"/><line x1="260" y1="110" x2="260" y2="150" stroke="#1d1d1f" stroke-width="4"/><rect x="225" y="150" width="70" height="45" fill="#dbeafe" stroke="#1d1d1f"/><text x="308" y="93">m₁ = ' + clean(p.upperMassKg) + ' kg</text><text x="308" y="178">m₂ = ' + clean(p.lowerMassKg) + " kg</text>";
-      desc = "Två kroppar hänger under varandra i två masslösa linor och är i vila. Övre och undre massan är utskrivna.";
+      const ceiling = addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-ceiling", a: [220, 30], b: [440, 30], role: "support", strokeWidth: 4 }));
+      const upper = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-upper-body", x: 285, y: 90, width: 90, height: 55, role: "body", strokeWidth: 2.5 }));
+      const lower = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-lower-body", x: 285, y: 205, width: 90, height: 55, role: "body", strokeWidth: 2.5 }));
+      addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-upper-rope", a: [330, 30], b: [330, upper.y], role: "rope", strokeWidth: 3 }));
+      addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-lower-rope", a: [330, upper.y + upper.height], b: [330, lower.y], role: "rope", strokeWidth: 3 }));
+      label({ id: id + "-upper-mass-label", at: [435, 122], text: "m₁ = " + clean(p.upperMassKg) + " kg", anchorId: upper.id, textAnchor: "start" }, "given", { x: 425, y: 100, width: 190, height: 38 });
+      label({ id: id + "-lower-mass-label", at: [435, 237], text: "m₂ = " + clean(p.lowerMassKg) + " kg", anchorId: lower.id, textAnchor: "start" }, "given", { x: 425, y: 215, width: 190, height: 38 });
     } else if (family === "cables-at-angles") {
-      drawing = '<line x1="75" y1="32" x2="445" y2="32" stroke="#1d1d1f" stroke-width="4"/><line x1="125" y1="32" x2="260" y2="145" stroke="#0071e3" stroke-width="4"/><line x1="395" y1="32" x2="260" y2="145" stroke="#0071e3" stroke-width="4"/><rect x="215" y="145" width="90" height="48" fill="#dbeafe" stroke="#1d1d1f"/><text x="260" y="218" text-anchor="middle">m = ' + clean(p.massKg) + " kg, α = " + clean(p.angleDeg) + "° från horisontalen</text>";
-      desc = "En kropp hänger symmetriskt i två lika linor. Varje lina bildar den utskrivna vinkeln med horisontalen.";
+      const body = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-body", x: 280, y: 300, width: 100, height: 55, role: "body", strokeWidth: 2.5 }));
+      const rise = 160 * Math.tan(radians(p.angleDeg));
+      const leftAnchor = [120, body.y - rise];
+      const rightAnchor = [540, body.y - rise];
+      addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-ceiling", a: [70, leftAnchor[1]], b: [590, leftAnchor[1]], role: "support", strokeWidth: 4 }));
+      const leftCable = addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-left-cable", a: leftAnchor, b: [body.x, body.y], role: "rope", strokeWidth: 3 }));
+      addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-right-cable", a: rightAnchor, b: [body.x + body.width, body.y], role: "rope", strokeWidth: 3 }));
+      addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-horizontal-reference", a: [body.x - 90, body.y], b: [body.x, body.y], role: "line", strokeWidth: 1.5 }));
+      const angle = addShape(diagram, shapes, "information", diagramKit.angleArc({ id: id + "-cable-angle", vertex: [body.x, body.y], fromRay: [body.x - 60, body.y], toRay: leftAnchor, radius: 45, role: "angle", strokeWidth: 2 }));
+      label({ id: id + "-angle-label", at: [210, 336], text: "α = " + clean(p.angleDeg) + "°", anchorId: angle.id }, "angle", { x: 170, y: 315, width: 105, height: 42 });
+      label({ id: id + "-mass-label", at: [470, 335], text: "m = " + clean(p.massKg) + " kg", anchorId: body.id, textAnchor: "start" }, "given", { x: 460, y: 310, width: 150, height: 40 });
     } else if (family === "missing-fourth-force") {
-      drawing = '<line x1="90" y1="105" x2="430" y2="105" stroke="#d2d2d7"/><line x1="260" y1="25" x2="260" y2="190" stroke="#d2d2d7"/><circle cx="260" cy="105" r="10" fill="#1d1d1f"/>' + vectorLines(p.forces);
-      desc = "Tre kända krafter visas med sina x- och y-komposanter. Pilarna visar endast riktning och har avsiktligt samma längd.";
+      addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-x-axis", a: [80, 190], b: [580, 190], role: "axis", strokeWidth: 1.5 }));
+      addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-y-axis", a: [330, 45], b: [330, 330], role: "axis", strokeWidth: 1.5 }));
+      const node = addShape(diagram, shapes, "geometry", diagramKit.circle({ id: id + "-node", center: [330, 190], radius: 9, role: "point", strokeWidth: 2 }));
+      const vectors = p.forces.map(function (force, index) {
+        const magnitude = Math.hypot(force.xN, force.yN);
+        return addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-given-vector-" + (index + 1), from: node.center, to: [node.center[0] + 82 * force.xN / magnitude, node.center[1] - 82 * force.yN / magnitude], role: "arrow", strokeWidth: 3, headLength: 11, headWidth: 9 }));
+      });
+      p.forces.forEach(function (force, index) {
+        const vector = vectors[index];
+        label({ id: id + "-given-vector-" + (index + 1) + "-label", at: [455, 78 + index * 42], text: "F" + (index + 1) + " = (" + force.xN + ", " + force.yN + ") N", anchorId: vector.id, textAnchor: "start", fontSize: 13 }, "given-vector", { x: 445, y: 58 + index * 42, width: 185, height: 32 });
+      });
     } else if (family === "supported-beams") {
-      drawing = '<rect x="95" y="70" width="330" height="38" fill="#dbeafe" stroke="#1d1d1f"/><path d="M125 155 L165 108 L205 155 Z M315 155 L355 108 L395 155 Z" fill="#f5f5f7" stroke="#1d1d1f"/><line x1="165" y1="108" x2="165" y2="42" stroke="#0071e3" stroke-width="4"/><circle cx="165" cy="42" r="5" fill="#0071e3"/><text x="180" y="48">F₁ = ' + clean(p.knownSupportN) + ' N</text><text x="260" y="194" text-anchor="middle">m = ' + clean(p.massKg) + " kg</text>";
-      desc = "En horisontell styv kropp vilar på två stöd. Kroppens massa och den vänstra stödreaktionen är utskrivna.";
+      const baseline = { a: [90, 220], b: [570, 220] };
+      const body = addShape(diagram, shapes, "geometry", diagramKit.bodyOnLine({ id: id + "-body", line: baseline, bottomCenter: [330, 220], width: 400, height: 60, outwardNormal: [0, -1], role: "body", strokeWidth: 2.5 }));
+      const leftContact = [190, 220]; const rightContact = [470, 220];
+      addShape(diagram, shapes, "connections", diagramKit.polygon({ id: id + "-left-support", points: [leftContact, [158, 270], [222, 270]], role: "support", strokeWidth: 2 }));
+      addShape(diagram, shapes, "connections", diagramKit.polygon({ id: id + "-right-support", points: [rightContact, [438, 270], [502, 270]], role: "support", strokeWidth: 2 }));
+      const force = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-given-support-force", from: leftContact, to: [190, 70], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      label({ id: id + "-given-support-force-label", at: [230, 72], text: "F₁ = " + clean(p.knownSupportN) + " N", anchorId: force.id, textAnchor: "start" }, "given-force", { x: 220, y: 50, width: 160, height: 34 });
+      label({ id: id + "-mass-label", at: [470, 135], text: "m = " + clean(p.massKg) + " kg", anchorId: body.id, textAnchor: "start" }, "given", { x: 460, y: 112, width: 150, height: 35 });
     } else {
-      const wallX = 390;
-      const centerX = 330;
-      const centerY = 145;
-      const radius = 60;
+      const wallX = 500;
+      const centerX = 420;
+      const centerY = 220;
+      const radius = 80;
       const angle = radians(p.cableAngleDeg);
       const attachmentX = centerX + radius * Math.cos(angle);
       const attachmentY = centerY - radius * Math.sin(angle);
-      const anchorY = centerY - radius * Math.tan(angle);
-      drawing = '<line data-role="wall" x1="' + wallX + '" y1="18" x2="' + wallX + '" y2="215" stroke="#1d1d1f" stroke-width="5"/><circle data-role="sphere" cx="' + centerX + '" cy="' + centerY + '" r="' + radius + '" fill="#dbeafe" stroke="#1d1d1f"/><line data-role="cable" x1="' + attachmentX + '" y1="' + attachmentY + '" x2="' + wallX + '" y2="' + anchorY + '" stroke="#0071e3" stroke-width="4"/><text x="55" y="31">lina, α = ' + clean(p.cableAngleDeg) + '° över horisontalen</text><text x="255" y="218">m = ' + clean(p.massKg) + " kg</text>";
-      desc = "En sfärisk kropp ligger mot en friktionsfri lodrät vägg och hålls av en lina med utskriven vinkel över horisontalen.";
+      const anchorY = centerY - (wallX - centerX) * Math.tan(angle);
+      const wall = addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-wall", a: [wallX, 35], b: [wallX, 340], role: "wall", strokeWidth: 5 }));
+      const sphere = addShape(diagram, shapes, "geometry", diagramKit.circle({ id: id + "-sphere", center: [centerX, centerY], radius: radius, role: "circle", strokeWidth: 2.5 }));
+      const cable = addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-cable", a: [attachmentX, attachmentY], b: [wallX, anchorY], role: "rope", strokeWidth: 3 }));
+      addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-horizontal-reference", a: sphere.center, b: [wallX, centerY], role: "line", strokeWidth: 1.5 }));
+      const arc = addShape(diagram, shapes, "information", diagramKit.angleArc({ id: id + "-cable-angle", vertex: sphere.center, fromRay: [wallX, centerY], toRay: [wallX, anchorY], radius: 42, role: "angle", strokeWidth: 2 }));
+      label({ id: id + "-angle-label", at: [335, 125], text: "α = " + clean(p.cableAngleDeg) + "°", anchorId: arc.id, fontSize: 13 }, "angle", { x: 300, y: 105, width: 75, height: 38 });
+      label({ id: id + "-mass-label", at: [245, 332], text: "m = " + clean(p.massKg) + " kg", anchorId: sphere.id, textAnchor: "start" }, "given", { x: 235, y: 310, width: 150, height: 36 });
     }
-    return '<svg viewBox="0 0 520 250" role="img" aria-labelledby="' + id + "-svg-title " + id + '-svg-desc"><title id="' + id + '-svg-title">' + row.scenario + ": kraftsituation</title><desc id=\"" + id + '-svg-desc">' + desc + " Bilden är schematisk och inte skalenlig.</desc>" + drawing + '<text x="260" y="242" text-anchor="middle">Schematisk och inte skalenlig</text></svg>';
+    const result = diagram.finish();
+    return { html: result.html, manifest: result.manifest, labelZones: labelZones, description: desc };
+  }
+
+  function solutionFigure(id, family, row) {
+    const p = row.givens;
+    const diagram = makeDiagram(id + "-solution-diagram", row.scenario + ": fullständig kraftfigur", "Fullständig friläggning med alla krafter, angreppspunkter och riktningar som används i lösningens jämviktsekvationer.", "solution", 660, 420);
+    const shapes = [];
+    const labelZones = [];
+    function label(options, type, zone) {
+      const item = addLabel(diagram, shapes, options);
+      labelZones.push({ type: type, bounds: zone, labelIds: [item.id] });
+      return item;
+    }
+    if (family === "hanging-masses") {
+      const body = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-isolated-system", x: 235, y: 150, width: 190, height: 90, role: "body", strokeWidth: 2.5 }));
+      const upperX = 275; const lowerX = 385;
+      const tensionX = (p.upperMassKg * upperX + p.lowerMassKg * lowerX) / (p.upperMassKg + p.lowerMassKg);
+      const tension = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-tension", from: [tensionX, 195], to: [tensionX, 55], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      const upperWeight = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-upper-weight", from: [upperX, 195], to: [upperX, 355], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      const lowerWeight = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-lower-weight", from: [lowerX, 195], to: [lowerX, 355], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      label({ id: id + "-force-tension-label", at: [tensionX + 38, 58], text: "T", anchorId: tension.id }, "force", { x: tensionX + 20, y: 40, width: 38, height: 30 });
+      label({ id: id + "-force-upper-weight-label", at: [upperX - 42, 362], text: "m₁g", anchorId: upperWeight.id }, "force", { x: upperX - 65, y: 344, width: 46, height: 30 });
+      label({ id: id + "-force-lower-weight-label", at: [lowerX + 44, 362], text: "m₂g", anchorId: lowerWeight.id }, "force", { x: lowerX + 20, y: 344, width: 48, height: 30 });
+    } else if (family === "cables-at-angles") {
+      const body = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-isolated-body", x: 280, y: 190, width: 100, height: 60, role: "body", strokeWidth: 2.5 }));
+      const angle = radians(p.angleDeg);
+      const leftTo = [body.x - 120 * Math.cos(angle), body.y - 120 * Math.sin(angle)];
+      const rightTo = [body.x + body.width + 120 * Math.cos(angle), body.y - 120 * Math.sin(angle)];
+      const left = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-left-tension", from: [body.x, body.y], to: leftTo, role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      const right = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-right-tension", from: [body.x + body.width, body.y], to: rightTo, role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      const weight = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-weight", from: [330, 220], to: [330, 365], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      label({ id: id + "-force-left-tension-label", at: [leftTo[0] - 28, leftTo[1] - 4], text: "T", anchorId: left.id }, "force", { x: 110, y: 40, width: 105, height: 95 });
+      label({ id: id + "-force-right-tension-label", at: [rightTo[0] + 28, rightTo[1] - 4], text: "T", anchorId: right.id }, "force", { x: 445, y: 40, width: 105, height: 95 });
+      label({ id: id + "-force-weight-label", at: [375, 370], text: "mg", anchorId: weight.id }, "force", { x: 355, y: 350, width: 50, height: 32 });
+    } else if (family === "missing-fourth-force") {
+      const node = addShape(diagram, shapes, "geometry", diagramKit.circle({ id: id + "-isolated-node", center: [330, 205], radius: 10, role: "point", strokeWidth: 2.5 }));
+      const sum = p.forces.reduce(function (value, force) { return [value[0] + force.xN, value[1] + force.yN]; }, [0, 0]);
+      const complete = p.forces.concat([{ xN: -sum[0], yN: -sum[1] }]);
+      const arrows = complete.map(function (force, index) {
+        const magnitude = Math.hypot(force.xN, force.yN);
+        const end = [node.center[0] + 118 * force.xN / magnitude, node.center[1] - 118 * force.yN / magnitude];
+        return { force: force, end: end, arrow: addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-" + (index + 1), from: node.center, to: end, role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 })) };
+      });
+      arrows.forEach(function (item, index) {
+        const force = item.force; const end = item.end; const arrow = item.arrow;
+        const offsetX = force.xN >= 0 ? 25 : -25;
+        label({ id: id + "-force-" + (index + 1) + "-label", at: [end[0] + offsetX, end[1] + (force.yN >= 0 ? -8 : 18)], text: "F" + ["₁", "₂", "₃", "₄"][index], anchorId: arrow.id }, "force", { x: Math.max(20, end[0] + offsetX - 30), y: Math.max(20, end[1] - 28), width: 60, height: 60 });
+      });
+    } else if (family === "supported-beams") {
+      const baseline = { a: [100, 240], b: [560, 240] };
+      addShape(diagram, shapes, "geometry", diagramKit.bodyOnLine({ id: id + "-isolated-body", line: baseline, bottomCenter: [330, 240], width: 360, height: 60, outwardNormal: [0, -1], role: "body", strokeWidth: 2.5 }));
+      const leftX = 190; const rightX = 470;
+      const weight = p.massKg * G;
+      const rightForce = weight - p.knownSupportN;
+      const weightX = (p.knownSupportN * leftX + rightForce * rightX) / weight;
+      const left = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-support-left", from: [leftX, 240], to: [leftX, 65], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      const right = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-support-right", from: [rightX, 240], to: [rightX, 65], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      const gravity = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-weight", from: [weightX, 210], to: [weightX, 370], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      label({ id: id + "-force-support-left-label", at: [150, 67], text: "F₁", anchorId: left.id }, "force", { x: 125, y: 48, width: 50, height: 30 });
+      label({ id: id + "-force-support-right-label", at: [510, 67], text: "F₂", anchorId: right.id }, "force", { x: 485, y: 48, width: 50, height: 30 });
+      label({ id: id + "-force-weight-label", at: [weightX + 46, 374], text: "mg", anchorId: gravity.id }, "force", { x: weightX + 25, y: 354, width: 50, height: 32 });
+    } else {
+      const sphere = addShape(diagram, shapes, "geometry", diagramKit.circle({ id: id + "-isolated-sphere", center: [330, 210], radius: 62, role: "circle", strokeWidth: 2.5 }));
+      const angle = radians(p.cableAngleDeg);
+      const tensionTo = [sphere.center[0] + 145 * Math.cos(angle), sphere.center[1] - 145 * Math.sin(angle)];
+      const tension = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-tension", from: sphere.center, to: tensionTo, role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      const normal = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-normal", from: sphere.center, to: [155, 210], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      const gravity = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-weight", from: sphere.center, to: [330, 375], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      label({ id: id + "-force-tension-label", at: [tensionTo[0] + 28, tensionTo[1] - 5], text: "T", anchorId: tension.id }, "force", { x: 400, y: 45, width: 125, height: 85 });
+      label({ id: id + "-force-normal-label", at: [132, 215], text: "N", anchorId: normal.id }, "force", { x: 112, y: 195, width: 42, height: 32 });
+      label({ id: id + "-force-weight-label", at: [372, 380], text: "mg", anchorId: gravity.id }, "force", { x: 350, y: 360, width: 48, height: 32 });
+    }
+    const result = diagram.finish();
+    return { html: result.html, manifest: result.manifest, labelZones: labelZones };
   }
 
   function promptText(family, row) {
@@ -198,15 +338,17 @@
     const figures = 3;
     const exact = answer(family, row.givens);
     const expected = roundSignificant(exact, figures);
+    const promptFigure = situationFigure(id, family, row);
+    const answerFigure = solutionFigure(id, family, row);
     return {
       id: id,
       slot: 4,
       title: row.scenario,
       points: 2,
-      promptHtml: "<p>" + promptText(family, row) + " Använd g = 9,82 m/s².</p>" + situationSvg(id, family, row) + "<p><small>Figuren är schematisk och inte skalenlig; varken pillängd eller avstånd får mätas.</small></p><p>Rita en fullständig kraftfigur. Svara i N. Avrunda till " + figures + " värdesiffror.</p>",
+      promptHtml: "<p>" + promptText(family, row) + " Använd g = 9,82 m/s².</p>" + promptFigure.html + "<p><small>Figuren är schematisk och inte skalenlig; varken pillängd eller avstånd får mätas.</small></p><p>Rita en fullständig kraftfigur. Svara i N. Avrunda till " + figures + " värdesiffror.</p>",
       fields: [{ id: "answer", label: "Svar (N; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: "N", tolerance: tolerance(expected, figures), help: "Ange den efterfrågade kraftens storlek." }],
       workOnPaper: equilibriumWorkOnPaper(family),
-      solutionHtml: solution(family, row.givens, exact, expected, figures),
+      solutionHtml: solution(family, row.givens, exact, expected, figures) + answerFigure.html,
       rubric: [
         { points: 1, text: rubricDiagram(family) },
         { points: 1, text: "Newtons första lag används komponentvis och ger rätt kraftstorlek, enhet och avrundning." }
@@ -220,7 +362,11 @@
         significantFigures: figures,
         targetUnit: "N",
         requestedUnitLabel: "N",
-        scenario: row.scenario
+        scenario: row.scenario,
+        diagram: promptFigure.manifest,
+        solutionDiagram: answerFigure.manifest,
+        diagramLabelZones: promptFigure.labelZones,
+        solutionLabelZones: answerFigure.labelZones
       }
     };
   }
