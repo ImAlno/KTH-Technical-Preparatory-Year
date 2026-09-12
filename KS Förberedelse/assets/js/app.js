@@ -483,7 +483,7 @@
         const item = createElement(document, "li");
         item.append(createElement(document, "strong", "", `${field.label}: ${gradeLabel(result.status)}`));
         const interpreted = interpretedText(result.interpreted);
-        if (interpreted) item.append(createElement(document, "p", "interpreted-answer", `Tolkat svar: ${interpreted}`));
+        if (interpreted && field.kind !== "choice") item.append(createElement(document, "p", "interpreted-answer", `Tolkat svar: ${interpreted}`));
         if (result.message) item.append(createElement(document, "p", "grade-message", result.message));
         fieldList.append(item);
       });

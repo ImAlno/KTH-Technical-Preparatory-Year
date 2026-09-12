@@ -112,6 +112,18 @@ function fakeNode(tagName) {
       listeners[type].push(handler);
     },
     fire(type, event) {
+      if ((type === "change" || type === "click") && this.tagName === "INPUT" && this.type === "radio") {
+        this.checked = true;
+        let ancestor = this.parentElement;
+        while (ancestor) {
+          const group = descendants(ancestor).filter((node) => node.tagName === "INPUT" && node.type === "radio" && node.name === this.name);
+          if (group.length > 1) {
+            group.forEach((node) => { node.checked = node === this; });
+            break;
+          }
+          ancestor = ancestor.parentElement;
+        }
+      }
       (listeners[type] || []).forEach((handler) => handler(event || {}));
     },
     setAttribute(name, value) {
@@ -449,6 +461,69 @@ test("choice fields render a semantic radio group and persist only the stable op
   radios[1].fire("change");
   const saved = JSON.parse(harness.values.get("ks-practice:v1:recovery-test:active"));
   assert.deepEqual(saved.answers, { q1: { polarity: "no" } });
+});
+
+test("native radio selection stays exclusive and checked after navigation rerender", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+  harness.subjectData.subject.questionCount = 2;
+  harness.subjectData.subject.maxPoints = 2;
+  harness.subjectData.subject.passPoints = 2;
+  harness.subjectData.slots[1][0].fields = [{
+    id: "polarity", label: "Är molekylen en dipol?", kind: "choice", points: 1,
+    expected: "yes", options: [{ value: "yes", label: "Ja" }, { value: "no", label: "Nej" }]
+  }];
+  harness.subjectData.slots[2] = [{
+    id: "q2", slot: 2, title: "Andra frågan", points: 1,
+    promptHtml: "<p>Fråga två</p>", solutionHtml: "<p>Lösning två</p>",
+    fields: [{ id: "answer", label: "Svar", kind: "aliases", points: 1, expected: "ja" }],
+    workOnPaper: harness.subjectData.slots[1][0].workOnPaper, rubric: []
+  }];
+
+  app.mount(harness.root, harness.subjectData);
+  const original = harness.root.querySelector("input[type=radio]");
+  const radios = harness.root.querySelectorAll("input[type=radio]");
+  radios[1].fire("change");
+  assert.equal(radios[1].checked, true);
+  assert.equal(radios[0].checked, false);
+  assert.equal(harness.root.querySelector("input[type=radio]"), original, "answer change only refreshes navigation");
+  assert.deepEqual(JSON.parse(harness.values.get("ks-practice:v1:recovery-test:active")).answers, { q1: { polarity: "no" } });
+
+  const next = descendants(harness.root).find((node) => node.tagName === "BUTTON" && node.textContent === "Nästa");
+  next.fire("click");
+  const previous = descendants(harness.root).find((node) => node.tagName === "BUTTON" && node.textContent === "Föregående");
+  previous.fire("click");
+  const restored = harness.root.querySelectorAll("input[type=radio]");
+  assert.equal(restored[1].checked, true);
+  assert.equal(restored[0].checked, false);
+});
+
+test("graded choice answers show Swedish labels without raw yes/no or geometry values", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+  harness.subjectData.subject.maxPoints = 2;
+  harness.subjectData.subject.passPoints = 2;
+  harness.subjectData.slots[1][0].points = 2;
+  harness.subjectData.slots[1][0].fields = [
+    {
+      id: "polarity", label: "Är molekylen en dipol?", kind: "choice", points: 1,
+      expected: "yes", options: [{ value: "yes", label: "Ja" }, { value: "no", label: "Nej" }]
+    },
+    {
+      id: "geometry", label: "Geometri", kind: "choice", points: 1,
+      expected: "tetrahedral", options: [{ value: "tetrahedral", label: "Tetraedrisk" }, { value: "linear", label: "Linjär" }]
+    }
+  ];
+
+  app.mount(harness.root, harness.subjectData);
+  harness.root.querySelectorAll("input[type=radio]").filter((radio) => radio.value === "yes" || radio.value === "tetrahedral")
+    .forEach((radio) => radio.fire("change"));
+  harness.nodes["submit-confirm"].fire("click");
+
+  assert.match(harness.root.textContent, /Ja/);
+  assert.match(harness.root.textContent, /Tetraedrisk/);
+  assert.equal(harness.root.textContent.includes("yes"), false);
+  assert.equal(harness.root.textContent.includes("tetrahedral"), false);
 });
 
 test("work-on-paper guidance precedes answers and never renders an input", () => {
