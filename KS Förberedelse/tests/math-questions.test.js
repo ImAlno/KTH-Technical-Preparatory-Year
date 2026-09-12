@@ -109,6 +109,119 @@ function dotVectors(a, b) {
   return a[0] * b[0] + a[1] * b[1];
 }
 
+function normalizeVector(value) {
+  const magnitude = Math.hypot(value[0], value[1]);
+  assert.ok(magnitude > 0, `cannot normalize ${value}`);
+  return [value[0] / magnitude, value[1] / magnitude];
+}
+
+function unorderedVectorsMatch(actual, expected) {
+  return expected.every((wanted) => actual.some((candidate) => close(candidate[0], wanted[0]) && close(candidate[1], wanted[1])));
+}
+
+function parseTagAttributes(html, id) {
+  const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = html.match(new RegExp(`<(?:line|circle|rect|polygon|polyline|path|text)\\b[^>]*\\bid="${escapedId}"[^>]*>`, "u"));
+  assert.ok(match, `missing serialized tag ${id}`);
+  return Object.fromEntries(Array.from(match[0].matchAll(/([A-Za-z_:][-A-Za-z0-9_:.]*)="([^"]*)"/gu), (entry) => [entry[1], entry[2]]));
+}
+
+function strokedSegmentBox(a, b, strokeWidth) {
+  const half = strokeWidth / 2;
+  return {
+    x: Math.min(a[0], b[0]) - half,
+    y: Math.min(a[1], b[1]) - half,
+    width: Math.abs(a[0] - b[0]) + strokeWidth,
+    height: Math.abs(a[1] - b[1]) + strokeWidth
+  };
+}
+
+function arcBoxesFromSerializedPath(attributes, element) {
+  const tokens = attributes.d.match(/[A-Za-z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/giu) || [];
+  assert.deepEqual(tokens.filter((token) => /^[A-Za-z]$/u.test(token)), ["M", "A"], element.id);
+  const values = tokens.filter((token) => !/^[A-Za-z]$/u.test(token)).map(Number);
+  const start = values.slice(0, 2);
+  const radiusX = values[2]; const radiusY = values[3]; const rotation = values[4];
+  const largeArc = values[5]; const svgSweep = values[6]; const end = values.slice(7, 9);
+  assert.ok(close(radiusX, radiusY) && close(radiusX, element.radius), element.id);
+  assert.equal(rotation, 0, element.id);
+  assert.equal(largeArc, 0, element.id);
+  assert.equal(svgSweep, element.sweep === 1 ? 1 : 0, element.id);
+  const center = element.vertex;
+  const startAngle = Math.atan2(start[1] - center[1], start[0] - center[0]);
+  const endAngle = Math.atan2(end[1] - center[1], end[0] - center[0]);
+  const normalizeAngle = (angle) => ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  const delta = element.sweep === 1 ? normalizeAngle(endAngle - startAngle) : normalizeAngle(startAngle - endAngle);
+  const points = [start, end];
+  [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2].forEach((angle) => {
+    const travel = element.sweep === 1 ? normalizeAngle(angle - startAngle) : normalizeAngle(startAngle - angle);
+    if (travel <= delta + 1e-12) points.push([center[0] + radiusX * Math.cos(angle), center[1] + radiusY * Math.sin(angle)]);
+  });
+  const half = Number(attributes["stroke-width"]) / 2;
+  const xs = points.map((point) => point[0]); const ys = points.map((point) => point[1]);
+  return [{ x: Math.min(...xs) - half, y: Math.min(...ys) - half, width: Math.max(...xs) - Math.min(...xs) + 2 * half, height: Math.max(...ys) - Math.min(...ys) + 2 * half }];
+}
+
+function linearPathBoxes(attributes) {
+  const tokens = attributes.d.match(/[ML]|[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/giu) || [];
+  const strokeWidth = Number(attributes["stroke-width"]);
+  const boxes = []; let command; let current;
+  for (let index = 0; index < tokens.length;) {
+    if (/^[ML]$/u.test(tokens[index])) command = tokens[index++];
+    const next = [Number(tokens[index++]), Number(tokens[index++])];
+    if (command === "L") boxes.push(strokedSegmentBox(current, next, strokeWidth));
+    current = next;
+  }
+  return boxes;
+}
+
+function serializedCollisionBoxes(question, element) {
+  const attributes = parseTagAttributes(question.promptHtml, element.id);
+  const strokeWidth = Number(attributes["stroke-width"] || 0);
+  if (element.kind === "line") return [strokedSegmentBox([Number(attributes.x1), Number(attributes.y1)], [Number(attributes.x2), Number(attributes.y2)], strokeWidth)];
+  if (element.kind === "circle") {
+    const radius = Number(attributes.r); const half = strokeWidth / 2;
+    return [{ x: Number(attributes.cx) - radius - half, y: Number(attributes.cy) - radius - half, width: 2 * radius + strokeWidth, height: 2 * radius + strokeWidth }];
+  }
+  if (element.kind === "polygon" || element.kind === "polyline") {
+    const points = attributes.points.trim().split(/\s+/u).map((pair) => pair.split(",").map(Number));
+    const limit = element.kind === "polygon" ? points.length : points.length - 1;
+    return Array.from({ length: limit }, (_, index) => strokedSegmentBox(points[index], points[(index + 1) % points.length], strokeWidth));
+  }
+  if (element.kind === "dimension") return linearPathBoxes(attributes);
+  if (element.kind === "angleArc") return arcBoxesFromSerializedPath(attributes, element);
+  assert.fail(`unsupported serialized collision geometry ${element.kind} for ${element.id}`);
+}
+
+function serializedLabelBox(question, label) {
+  const background = question.sourceData.diagram.backgrounds.find((item) => item.labelId === label.id);
+  assert.ok(background, `${label.id}: missing opaque serialized background`);
+  const backgroundAttributes = parseTagAttributes(question.promptHtml, background.id);
+  const textAttributes = parseTagAttributes(question.promptHtml, label.id);
+  const fontSize = Number(textAttributes["font-size"]);
+  const textWidth = Math.max(1, label.text.length * fontSize * 0.58);
+  const textX = Number(textAttributes.x); const textY = Number(textAttributes.y); const textAnchor = textAttributes["text-anchor"];
+  const computedX = textAnchor === "middle" ? textX - textWidth / 2 : textAnchor === "end" ? textX - textWidth : textX;
+  const computed = { x: computedX - 2, y: textY - fontSize - 2, width: textWidth + 4, height: fontSize * 1.25 + 4 };
+  const serialized = { x: Number(backgroundAttributes.x), y: Number(backgroundAttributes.y), width: Number(backgroundAttributes.width), height: Number(backgroundAttributes.height) };
+  Object.keys(computed).forEach((key) => assert.ok(close(computed[key], serialized[key]), `${label.id}: serialized background ${key}`));
+  return serialized;
+}
+
+function boxesOverlap(left, right) {
+  return left.x < right.x + right.width && left.x + left.width > right.x && left.y < right.y + right.height && left.y + left.height > right.y;
+}
+
+function expandedBox(box, clearance) {
+  return { x: box.x - clearance, y: box.y - clearance, width: box.width + 2 * clearance, height: box.height + 2 * clearance };
+}
+
+function unionBoxes(boxes) {
+  const minX = Math.min(...boxes.map((box) => box.x)); const minY = Math.min(...boxes.map((box) => box.y));
+  const maxX = Math.max(...boxes.map((box) => box.x + box.width)); const maxY = Math.max(...boxes.map((box) => box.y + box.height));
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
 function diagramElement(question, suffix) {
   const id = `${question.id}-${suffix}`;
   const found = question.sourceData.diagram.elements.find((element) => element.id === id);
@@ -532,6 +645,33 @@ test("slot-five geometry metadata remains byte-for-byte preserved outside the re
   assert.equal(hash, "1a4b7fb1f0430843f4b7445c967876124379d8cdfc21cfac784fe7c5cdfd7cc6");
 });
 
+test("serialized slot-five label backgrounds clear labels, declared avoid geometry, and the viewBox", () => {
+  const failures = [];
+  loadSlots()[5].forEach((question) => {
+    const manifest = question.sourceData.diagram;
+    manifest.elements.filter((element) => !["label", "rect"].includes(element.kind)).forEach((element) => {
+      const computed = unionBoxes(serializedCollisionBoxes(question, element));
+      Object.keys(computed).forEach((key) => assert.ok(close(computed[key], element.bbox[key]), `${element.id}: independent serialized ${key} bbox`));
+    });
+    const labelledBoxes = manifest.labels.map((label) => ({ label, box: serializedLabelBox(question, label) }));
+    labelledBoxes.forEach(({ label, box }, index) => {
+      if (!(box.x >= 0 && box.y >= 0 && box.x + box.width <= manifest.width && box.y + box.height <= manifest.height)) failures.push(`${label.id}: background overflows viewBox`);
+      labelledBoxes.slice(index + 1).forEach(({ label: other, box: otherBox }) => {
+        if (boxesOverlap(box, otherBox)) failures.push(`${question.id}: ${label.id} overlaps ${other.id}`);
+      });
+      label.avoid.forEach((avoidId) => {
+        if (avoidId === label.anchorId) return;
+        const target = manifest.elements.find((element) => element.id === avoidId);
+        assert.ok(target, `${label.id}: missing avoid target ${avoidId}`);
+        serializedCollisionBoxes(question, target).forEach((targetBox, segmentIndex) => {
+          if (boxesOverlap(box, expandedBox(targetBox, label.minClearance))) failures.push(`${question.id}: ${label.id} violates ${label.minClearance}px clearance from ${avoidId} segment ${segmentIndex}`);
+        });
+      });
+    });
+  });
+  assert.deepEqual(failures, []);
+});
+
 test("all 25 slot-five diagrams expose independent semantic family invariants", () => {
   const questions = loadSlots()[5];
   const allDomIds = [];
@@ -560,11 +700,20 @@ test("all 25 slot-five diagrams expose independent semantic family invariants", 
       assert.ok(Math.abs(dotVectors(subtractPoints(angleVertex, rightVertex), subtractPoints(apex, rightVertex))) <= 1e-8, question.id);
       const marker = diagramElement(question, "right-marker");
       const firstOffset = subtractPoints(marker.points[0], rightVertex);
+      const middleOffset = subtractPoints(marker.points[1], rightVertex);
       const lastOffset = subtractPoints(marker.points[2], rightVertex);
-      assert.ok(Math.abs(crossVectors(firstOffset, subtractPoints(apex, rightVertex))) <= 1e-8, `${question.id}: marker first arm`);
-      assert.ok(Math.abs(crossVectors(lastOffset, subtractPoints(angleVertex, rightVertex))) <= 1e-8, `${question.id}: marker last arm`);
+      const rightRays = [normalizeVector(subtractPoints(apex, rightVertex)), normalizeVector(subtractPoints(angleVertex, rightVertex))];
+      assert.ok(unorderedVectorsMatch([normalizeVector(firstOffset), normalizeVector(lastOffset)], rightRays), `${question.id}: marker endpoints must lie on perpendicular rays`);
+      assert.ok(close(Math.hypot(...firstOffset), Math.hypot(...lastOffset)) && Math.hypot(...firstOffset) > 0, `${question.id}: square marker offsets`);
+      assertPointClose(middleOffset, [firstOffset[0] + lastOffset[0], firstOffset[1] + lastOffset[1]], `${question.id}: square marker corner`);
+      const markerEdgeOne = subtractPoints(marker.points[1], marker.points[0]);
+      const markerEdgeTwo = subtractPoints(marker.points[2], marker.points[1]);
+      assert.ok(close(dotVectors(markerEdgeOne, markerEdgeTwo), 0), `${question.id}: square marker edges perpendicular`);
+      assert.ok(close(Math.hypot(...markerEdgeOne), Math.hypot(...markerEdgeTwo)), `${question.id}: square marker edges equal`);
       const givenAngle = diagramElement(question, "given-angle");
       assertPointClose(givenAngle.vertex, angleVertex, `${question.id}: requested angle vertex`);
+      const expectedAngleRays = [normalizeVector(subtractPoints(rightVertex, angleVertex)), normalizeVector(subtractPoints(apex, angleVertex))];
+      assert.ok(unorderedVectorsMatch([givenAngle.fromRay, givenAngle.toRay], expectedAngleRays), `${question.id}: requested angle rays must match outline sides`);
       assert.ok(close(Math.acos(dotVectors(givenAngle.fromRay, givenAngle.toRay)) * 180 / Math.PI, p.angleDegrees), question.id);
       const adjacent = diagramElement(question, "adjacent-dimension");
       assertPointClose(adjacent.a, rightVertex, `${question.id}: adjacent dimension start`);
@@ -579,6 +728,8 @@ test("all 25 slot-five diagrams expose independent semantic family invariants", 
       assertPointClose(sideB.b, sideBEnd, `${question.id}: side b endpoint`);
       const angle = diagramElement(question, "included-angle");
       assertPointClose(angle.vertex, vertex, `${question.id}: included angle vertex`);
+      const expectedAngleRays = [normalizeVector(subtractPoints(sideA.b, vertex)), normalizeVector(subtractPoints(sideB.b, vertex))];
+      assert.ok(unorderedVectorsMatch([angle.fromRay, angle.toRay], expectedAngleRays), `${question.id}: included angle rays must match dimensioned sides`);
       assert.ok(close(Math.acos(dotVectors(angle.fromRay, angle.toRay)) * 180 / Math.PI, p.angleDegrees), question.id);
     } else if (question.sourceData.family === "parallel-transversal") {
       const [a, b, c] = outline.points;
@@ -610,9 +761,16 @@ test("all 25 slot-five diagrams expose independent semantic family invariants", 
       assert.ok(Math.abs(dotVectors(subtractPoints(height.to, height.from), subtractPoints(baseRight, baseLeft))) <= 1e-8, `${question.id}: height perpendicular to base`);
       const marker = diagramElement(question, "right-marker");
       const firstOffset = subtractPoints(marker.points[0], midpoint);
+      const middleOffset = subtractPoints(marker.points[1], midpoint);
       const lastOffset = subtractPoints(marker.points[2], midpoint);
-      assert.ok(Math.abs(crossVectors(firstOffset, subtractPoints(apex, midpoint))) <= 1e-8, `${question.id}: midpoint marker follows height`);
-      assert.ok(Math.abs(crossVectors(lastOffset, subtractPoints(baseRight, midpoint))) <= 1e-8, `${question.id}: midpoint marker follows base`);
+      const midpointRays = [normalizeVector(subtractPoints(apex, midpoint)), normalizeVector(subtractPoints(baseRight, midpoint))];
+      assert.ok(unorderedVectorsMatch([normalizeVector(firstOffset), normalizeVector(lastOffset)], midpointRays), `${question.id}: midpoint marker endpoints`);
+      assert.ok(close(Math.hypot(...firstOffset), Math.hypot(...lastOffset)) && Math.hypot(...firstOffset) > 0, `${question.id}: midpoint square offsets`);
+      assertPointClose(middleOffset, [firstOffset[0] + lastOffset[0], firstOffset[1] + lastOffset[1]], `${question.id}: midpoint square corner`);
+      const markerEdgeOne = subtractPoints(marker.points[1], marker.points[0]);
+      const markerEdgeTwo = subtractPoints(marker.points[2], marker.points[1]);
+      assert.ok(close(dotVectors(markerEdgeOne, markerEdgeTwo), 0), `${question.id}: midpoint marker edges perpendicular`);
+      assert.ok(close(Math.hypot(...markerEdgeOne), Math.hypot(...markerEdgeTwo)), `${question.id}: midpoint marker edges equal`);
     }
   });
   assert.equal(new Set(allDomIds).size, allDomIds.length, "all SVG, title, description, element and fragment IDs must be unique");

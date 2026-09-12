@@ -521,7 +521,7 @@
     if (s.kind === "line" || s.kind === "arrow") points = [s.from || s.a, s.to || s.b, ...(s.kind === "arrow" ? [s.left, s.right] : [])];
     else if (s.kind === "body") points = s.corners;
     else if (s.kind === "dimension") points = [s.a, s.b, s.start, s.end];
-    else if (s.kind === "angleArc") return arcBounds(s.vertex, s.radius, Math.atan2(s.start[1] - s.vertex[1], s.start[0] - s.vertex[0]), Math.atan2(s.end[1] - s.vertex[1], s.end[0] - s.vertex[0]), s.sweep, 1);
+    else if (s.kind === "angleArc") return arcBounds(s.vertex, s.radius, Math.atan2(s.start[1] - s.vertex[1], s.start[0] - s.vertex[0]), Math.atan2(s.end[1] - s.vertex[1], s.end[0] - s.vertex[0]), s.sweep, s.strokeWidth);
     else if (s.kind === "rope") {
       const lineOne = bboxOf({ kind: "line", a: s.from, b: s.fromTangent, strokeWidth: s.strokeWidth });
       const lineTwo = bboxOf({ kind: "line", a: s.toTangent, b: s.to, strokeWidth: s.strokeWidth });
