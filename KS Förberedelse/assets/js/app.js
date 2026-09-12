@@ -468,13 +468,20 @@
     function renderGrade(question, snapshot) {
       const grade = snapshot.grades[question.id];
       const section = createElement(document, "section", "grade");
-      const warning = grade.status === "self";
-      const heading = createElement(document, "h2", warning ? "warning-heading" : "", warning ? undefined : "Bedömning");
-      section.dataset.tone = warning ? "warning" : grade.status === "correct" ? "success" : "neutral";
-      if (warning) {
-        const icon = createElement(document, "span", "warning-icon", "⚠");
+      const presentation = {
+        correct: { tone: "success", headingClass: "success-heading", glyph: "✓", heading: "Bedömning: rätt" },
+        incorrect: { tone: "warning", headingClass: "warning-heading", glyph: "×", heading: "Bedömning: inte rätt" },
+        partial: { tone: "warning", headingClass: "warning-heading", glyph: "⚠", heading: "Bedömning: delvis rätt" },
+        self: { tone: "warning", headingClass: "warning-heading", glyph: "⚠", heading: "Bedömning: kontroll krävs" }
+      }[grade.status] || { tone: "neutral", headingClass: "", glyph: "", heading: "Bedömning" };
+      const heading = createElement(document, "h2", presentation.headingClass);
+      section.dataset.tone = presentation.tone;
+      if (presentation.glyph) {
+        const icon = createElement(document, "span", "grade-tone-icon", presentation.glyph);
         icon.setAttribute("aria-hidden", "true");
-        heading.append(icon, createElement(document, "span", "", "Bedömning: kontroll krävs"));
+        heading.append(icon, createElement(document, "span", "", presentation.heading));
+      } else {
+        heading.textContent = presentation.heading;
       }
       const summary = createElement(document, "div", "grade-summary");
       summary.append(

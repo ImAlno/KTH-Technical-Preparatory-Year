@@ -53,6 +53,25 @@ function contrastRatio(first, second) {
   return (luminances[0] + 0.05) / (luminances[1] + 0.05);
 }
 
+function cssDeclarations(css, selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, "s"));
+  assert.ok(match, `missing CSS rule: ${selector}`);
+  return Object.fromEntries(Array.from(match[1].matchAll(/([\w-]+):\s*([^;]+);/g), (declaration) => [
+    declaration[1], declaration[2].trim()
+  ]));
+}
+
+function cascadedDeclarations(css, selectors) {
+  return Object.assign({}, ...selectors.map((selector) => cssDeclarations(css, selector)));
+}
+
+function paletteValue(tokens, declaration) {
+  const match = /^var\(--([\w-]+)\)$/.exec(declaration);
+  assert.ok(match, `expected a palette token, received ${declaration}`);
+  return tokens[match[1]];
+}
+
 function pngDimensions(buffer) {
   assert.equal(buffer.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
   assert.equal(buffer.subarray(12, 16).toString("ascii"), "IHDR");
@@ -621,7 +640,7 @@ test("objective uncertainty directs the student to collapsed manual correction",
   assert.match(harness.root.textContent, /Rättningen behöver kontrolleras/);
   const correction = harness.root.querySelector(".override-grade");
   const warningGrade = descendants(harness.root).find((node) => node.className === "grade" && node.dataset.tone === "warning");
-  const warningIcon = descendants(harness.root).find((node) => node.className === "warning-icon");
+  const warningIcon = descendants(harness.root).find((node) => node.className === "grade-tone-icon");
   assert.ok(correction);
   assert.ok(warningGrade);
   assert.ok(warningIcon);
@@ -631,6 +650,53 @@ test("objective uncertainty directs the student to collapsed manual correction",
   assert.match(warningGrade.textContent, /Ändra poängen manuellt/);
   assert.equal(correction.open, false);
   assert.equal(harness.root.querySelector(".manual-grade"), null);
+});
+
+test("mounted grades distinguish correct, incorrect, partial and uncertain outcomes without color alone", () => {
+  const app = require("../assets/js/app.js");
+  const cases = [
+    { name: "correct", values: ["ja"], tone: "success", glyph: "✓", heading: "Bedömning: rätt" },
+    { name: "incorrect", values: ["nej"], tone: "warning", glyph: "×", heading: "Bedömning: inte rätt" },
+    { name: "partial", values: ["ja", "nej"], tone: "warning", glyph: "⚠", heading: "Bedömning: delvis rätt", partial: true },
+    { name: "uncertain", values: ["inte ett tal"], tone: "warning", glyph: "⚠", heading: "Bedömning: kontroll krävs", uncertain: true }
+  ];
+
+  cases.forEach((item) => {
+    const harness = recoveryHarness(null);
+    if (item.partial) {
+      harness.subjectData.slots[1][0].fields = [
+        { id: "a", label: "Svar A", kind: "aliases", points: 0.5, expected: "ja" },
+        { id: "b", label: "Svar B", kind: "aliases", points: 0.5, expected: "ja" }
+      ];
+    }
+    if (item.uncertain) {
+      harness.subjectData.slots[1][0].fields = [{
+        id: "a", label: "Svar", kind: "numeric", points: 1, expected: 2,
+        targetUnit: "1", tolerance: { absolute: 0 }
+      }];
+    }
+
+    app.mount(harness.root, harness.subjectData);
+    const inputs = harness.root.querySelectorAll("input");
+    item.values.forEach((value, index) => {
+      inputs[index].value = value;
+      inputs[index].fire("input");
+    });
+    harness.nodes["submit-confirm"].fire("click");
+
+    const grade = descendants(harness.root).find((node) => node.className === "grade");
+    const icon = descendants(grade).find((node) => node.className === "grade-tone-icon");
+    assert.equal(grade.dataset.tone, item.tone, item.name);
+    assert.ok(icon, item.name);
+    assert.equal(icon.textContent, item.glyph, item.name);
+    assert.equal(icon.attributes["aria-hidden"], "true", item.name);
+    assert.match(grade.textContent, new RegExp(item.heading), item.name);
+    if (item.uncertain) {
+      assert.match(grade.textContent, /Rättningen behöver kontrolleras/, item.name);
+      assert.match(grade.textContent, /Ändra poängen manuellt/, item.name);
+      assert.doesNotMatch(grade.textContent, /Bedömning: inte rätt/, item.name);
+    }
+  });
 });
 
 test("subject shells expose semantic landmarks, live feedback and native dialogs", () => {
@@ -701,14 +767,72 @@ test("work, comparison, warnings and manual correction have distinct structural 
   assert.match(css, /dialog\s*\{[^}]*border-radius:\s*6px/s);
 });
 
+test("the current flagged question retains both semantics and uses a compliant compound palette state", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+  app.mount(harness.root, harness.subjectData);
+  descendants(harness.root).find((node) => node.className === "neutral-button flag-button").fire("click");
+
+  const currentFlagged = harness.nodes["question-list"].querySelector("button");
+  assert.equal(currentFlagged.attributes["aria-current"], "step");
+  assert.equal(currentFlagged.dataset.flagged, "true");
+  assert.match(currentFlagged.attributes["aria-label"], /markerad/);
+
+  const css = read("assets/app.css");
+  const tokens = cssTokens(css);
+  const states = [
+    {
+      name: "current",
+      selectors: [".question-nav button", '.question-nav button[aria-current="step"]'],
+      background: "--ink", foreground: "--paper", border: "--ink"
+    },
+    {
+      name: "flagged",
+      selectors: [".question-nav button", '.question-nav button[data-flagged="true"]'],
+      background: "transparent", foreground: "--muted", border: "--attention",
+      glyphSelectors: ['.question-nav button[data-flagged="true"] .question-marker::after'], glyph: "--attention"
+    },
+    {
+      name: "current flagged",
+      selectors: [
+        ".question-nav button",
+        '.question-nav button[aria-current="step"]',
+        '.question-nav button[data-flagged="true"]',
+        '.question-nav button[aria-current="step"][data-flagged="true"]'
+      ],
+      background: "--attention", foreground: "--paper", border: "--attention",
+      glyphSelectors: [
+        '.question-nav button[data-flagged="true"] .question-marker::after',
+        '.question-nav button[aria-current="step"][data-flagged="true"] .question-marker::after'
+      ],
+      glyph: "--paper"
+    }
+  ];
+
+  states.forEach((state) => {
+    const declarations = cascadedDeclarations(css, state.selectors);
+    assert.equal(declarations.background, state.background === "transparent" ? "transparent" : `var(${state.background})`, `${state.name} background`);
+    assert.equal(declarations.color, `var(${state.foreground})`, `${state.name} text`);
+    assert.equal(declarations["border-color"], `var(${state.border})`, `${state.name} border`);
+    const background = state.background === "transparent" ? tokens.paper : paletteValue(tokens, declarations.background);
+    assert.ok(contrastRatio(paletteValue(tokens, declarations.color), background) >= 4.5, `${state.name} text contrast`);
+    assert.ok(contrastRatio(paletteValue(tokens, declarations["border-color"]), tokens.paper) >= 3, `${state.name} boundary contrast`);
+    if (state.glyphSelectors) {
+      const glyph = cascadedDeclarations(css, state.glyphSelectors).color;
+      assert.equal(glyph, `var(${state.glyph})`, `${state.name} flag glyph`);
+      assert.ok(contrastRatio(paletteValue(tokens, glyph), background) >= 4.5, `${state.name} flag glyph contrast`);
+    }
+  });
+});
+
 test("every declared active control boundary has at least 3 to 1 non-text contrast", () => {
   const css = read("assets/app.css");
   const tokens = cssTokens(css);
   const boundaries = [
     ["neutral button", /\.timer button,\s*\.neutral-button\s*\{[^}]*border:\s*1px\s+solid\s+var\(--muted\)/s, "muted", "paper"],
-    ["neutral button hover", /\.timer button:hover,\s*\.neutral-button:hover\s*\{[^}]*border-color:\s*var\(--muted\)/s, "muted", "paper"],
+    ["neutral button hover", /\.timer button:hover:not\(\[disabled\]\),\s*\.neutral-button:hover:not\(\[disabled\]\)\s*\{[^}]*border-color:\s*var\(--muted\)/s, "muted", "paper"],
     ["answer input", /\.answer-field input\s*\{[^}]*border:\s*1px\s+solid\s+var\(--muted\)/s, "muted", "paper"],
-    ["answer input interaction", /\.answer-field input:hover,\s*\.answer-field input:focus\s*\{[^}]*border-color:\s*var\(--work\)/s, "work", "paper"],
+    ["answer input interaction", /\.answer-field input:hover:not\(\[disabled\]\),\s*\.answer-field input:focus\s*\{[^}]*border-color:\s*var\(--work\)/s, "work", "paper"],
     ["choice hover", /\.choice-option:hover\s*\{[^}]*border-color:\s*var\(--muted\)/s, "muted", "paper"],
     ["radio", /\.choice-option input\s*\{[^}]*outline:\s*1px\s+solid\s+var\(--muted\)/s, "muted", "paper"],
     ["radio focus", /\.choice-option input:focus-visible\s*\{[^}]*outline:\s*3px\s+solid\s+var\(--work\)/s, "work", "paper"],
@@ -717,7 +841,7 @@ test("every declared active control boundary has at least 3 to 1 non-text contra
     ["pressed flag", /\.flag-button\[aria-pressed="true"\]\s*\{[^}]*border-color:\s*var\(--attention\)/s, "attention", "paper"],
     ["pressed score", /\.point-choices button\[aria-pressed="true"\]\s*\{[^}]*border-color:\s*var\(--ink\)/s, "ink", "paper"],
     ["primary button", /\.primary-button\s*\{[^}]*border:\s*1px\s+solid\s+var\(--ink\)/s, "ink", "paper"],
-    ["primary button hover", /\.primary-button:hover\s*\{[^}]*border-color:\s*var\(--work\)/s, "work", "paper"],
+    ["primary button hover", /\.primary-button:hover:not\(\[disabled\]\)\s*\{[^}]*border-color:\s*var\(--work\)/s, "work", "paper"],
     ["keyboard focus", /:focus-visible[\s\S]{0,260}outline:\s*3px\s+solid\s+var\(--work\)/s, "work", "paper"]
   ];
 
@@ -730,6 +854,25 @@ test("every declared active control boundary has at least 3 to 1 non-text contra
   });
   assert.match(css, /button\[disabled\][\s\S]{0,260}border-color:\s*var\(--rule\)/s);
   assert.match(css, /button\[disabled\][\s\S]{0,260}opacity:\s*1/s);
+});
+
+test("disabled primary buttons cannot enter the active hover cascade and stay intentionally distinct", () => {
+  const css = read("assets/app.css");
+  const tokens = cssTokens(css);
+  const base = cssDeclarations(css, ".primary-button");
+  const hover = cssDeclarations(css, ".primary-button:hover:not([disabled])");
+  const disabled = cssDeclarations(css, ".primary-button[disabled]");
+
+  assert.doesNotMatch(css, /\.primary-button:hover\s*\{/);
+  assert.ok(css.indexOf(".primary-button[disabled]") > css.indexOf(".primary-button:hover:not([disabled])"), "disabled rule follows active states");
+  assert.equal(disabled.background, "var(--ground)");
+  assert.equal(disabled.color, "var(--muted)");
+  assert.equal(disabled["border-color"], "var(--rule)");
+  assert.equal(disabled.cursor, "default");
+  assert.equal(disabled.opacity, "1");
+  assert.notEqual(disabled.background, base.background);
+  assert.notEqual(disabled.background, hover.background);
+  assert.ok(contrastRatio(tokens.muted, tokens.ground) >= 3, "disabled label remains intentionally legible");
 });
 
 test("status announcements transition between neutral, success and warning tones", () => {
@@ -753,13 +896,16 @@ test("status announcements transition between neutral, success and warning tones
   assert.match(warningHarness.nodes["status-region"].textContent, /Formelbladet kunde inte öppnas/);
 });
 
-test("only warning status and grade states receive rust plus visible warning text and icon", () => {
+test("semantic status and grade tones have visible structural treatments", () => {
   const css = read("assets/app.css");
 
   assert.match(css, /\.status-region\s*\{[^}]*border:\s*1px\s+solid\s+var\(--muted\)/s);
   assert.match(css, /\.status-region\[data-tone="success"\]\s*\{[^}]*border-color:\s*var\(--work\)/s);
   assert.match(css, /\.status-region\[data-tone="warning"\]\s*\{[^}]*border-color:\s*var\(--attention\)/s);
+  assert.match(css, /\.grade\[data-tone="success"\]\s*\{[^}]*border-left:\s*3px\s+solid\s+var\(--work\)/s);
   assert.match(css, /\.grade\[data-tone="warning"\]\s*\{[^}]*border-left:\s*3px\s+solid\s+var\(--attention\)/s);
+  assert.match(css, /\.success-heading\s*\{[^}]*color:\s*var\(--work\)/s);
+  assert.match(css, /\.warning-heading\s*\{[^}]*color:\s*var\(--attention\)/s);
   SUBJECT_PAGES.forEach((page) => {
     assert.match(read(page), /id="status-region"[^>]*role="status"[^>]*aria-live="polite"/, page);
   });

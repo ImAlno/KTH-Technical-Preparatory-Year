@@ -130,7 +130,7 @@ summary:focus-visible,
 }
 
 .back-link:hover,
-.text-button:hover {
+.text-button:hover:not([disabled]) {
   text-decoration-color: currentColor;
 }
 
@@ -181,22 +181,14 @@ summary:focus-visible,
   cursor: pointer;
 }
 
-.timer button:hover,
-.neutral-button:hover {
+.timer button:hover:not([disabled]),
+.neutral-button:hover:not([disabled]) {
   background: rgb(52 32 42 / 5%);
   border-color: var(--muted);
 }
 
 .timer button[disabled],
 .neutral-button[disabled] {
-  color: var(--muted);
-  background: var(--ground);
-  border-color: var(--rule);
-  cursor: default;
-  opacity: 1;
-}
-
-.primary-button[disabled] {
   color: var(--muted);
   background: var(--ground);
   border-color: var(--rule);
@@ -249,7 +241,7 @@ summary:focus-visible,
   text-align: left;
 }
 
-.question-nav button:hover {
+.question-nav button:hover:not([disabled]) {
   color: var(--ink);
   border-color: var(--muted);
 }
@@ -278,6 +270,16 @@ summary:focus-visible,
 .question-nav button[data-flagged="true"] .question-marker::after {
   content: " ⚑ ";
   color: var(--attention);
+}
+
+.question-nav button[aria-current="step"][data-flagged="true"] {
+  color: var(--paper);
+  background: var(--attention);
+  border-color: var(--attention);
+}
+
+.question-nav button[aria-current="step"][data-flagged="true"] .question-marker::after {
+  color: var(--paper);
 }
 
 #exam-app {
@@ -377,7 +379,7 @@ summary:focus-visible,
   padding: 11px 13px;
 }
 
-.answer-field input:hover,
+.answer-field input:hover:not([disabled]),
 .answer-field input:focus {
   border-color: var(--work);
 }
@@ -544,16 +546,25 @@ summary:focus-visible,
   margin: 7px 0 0;
 }
 
+.grade[data-tone="success"] {
+  padding-left: 14px;
+  border-left: 3px solid var(--work);
+}
+
 .grade[data-tone="warning"] {
   padding-left: 14px;
   border-left: 3px solid var(--attention);
+}
+
+.success-heading {
+  color: var(--work);
 }
 
 .warning-heading {
   color: var(--attention);
 }
 
-.warning-icon {
+.grade-tone-icon {
   display: inline-block;
   margin-right: 0.5rem;
   font-family: "Helvetica Neue", Arial, sans-serif;
@@ -658,9 +669,17 @@ summary:focus-visible,
   cursor: pointer;
 }
 
-.primary-button:hover {
+.primary-button:hover:not([disabled]) {
   background: var(--work);
   border-color: var(--work);
+}
+
+.primary-button[disabled] {
+  color: var(--muted);
+  background: var(--ground);
+  border-color: var(--rule);
+  cursor: default;
+  opacity: 1;
 }
 
 .status-region {
