@@ -105,9 +105,9 @@
     { value: "dipole-dipole", label: "Dipol–dipolbindning" },
     { value: "dispersion", label: "Dispersionskraft" }
   ];
-  const REACTION_OPTIONS = [
+  const REACTION_OPTIONS = PHASE_OPTIONS.concat([
     { value: "covalent-intramolecular", label: "Kovalent intramolekylär bindning" }
-  ];
+  ]);
 
   function item(tuple, process) {
     return { text: tuple[0], answer: tuple[1], bondType: tuple[2], process: process };

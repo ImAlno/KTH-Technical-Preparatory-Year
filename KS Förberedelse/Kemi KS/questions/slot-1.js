@@ -105,7 +105,7 @@
       ? "c) Rita en neutral " + row.symbol + "-atom enligt Bohrs modell i räknehäftet. Ange endast elektronfördelningen från innersta till yttersta skal som digitalt slutsvar. d) Ange den vanligaste enkla jon som atomen bildar."
       : (definesOutermostShell
         ? "c) Ange antalet elektroner i det yttersta besatta skalet hos en neutral " + row.symbol + "-atom; här avses skalet med högst huvudkvanttal. "
-        : "c) Ange antalet valenselektroner hos en neutral " + row.symbol + "-atom. ") + "d) En lösning har koncentrationen " + clean(row.concentration) + " mol/dm³ och volymen " + clean(row.volumeDm3) + " dm³. Beräkna n = cV i mol och avrunda till 3 värdesiffror.";
+        : "c) Ange antalet valenselektroner hos en neutral " + row.symbol + "-atom. ") + "d) En lösning har koncentrationen " + clean(row.concentration) + " mol/dm³ och volymen " + clean(row.volumeDm3) + " dm³. Beräkna n = cV i räknehäftet och ange endast slutsvaret i mol med 3 värdesiffror digitalt.";
     const isotopeSolution = row.isotopeTask === "neutrons"
       ? "Antalet neutroner är A − Z = " + row.massNumber + " − " + row.atomicNumber + " = " + isotopeExpected + "."
       : "Skillnaden i masstal är |" + row.massNumber + " − " + row.comparisonMass + "| = " + isotopeExpected + ". Isotoperna har samma protonantal men olika neutronantal.";

@@ -350,10 +350,88 @@ test("slot structures and curriculum topic rotations are explicit and complete",
 test("terminology aliases are not used to grade chemistry notation or explanations", () => {
   allQuestions().forEach((question) => {
     question.fields.forEach((field) => {
-      if (field.kind === "aliases" && field.purpose === "terminology") assert.equal(field.purpose, "terminology", `${question.id}/${field.id}`);
+      if (field.kind === "aliases") {
+        assert.ok(["terminology", "bohr-shell-distribution"].includes(field.purpose), `${question.id}/${field.id}: alias purpose`);
+        if (field.id === "term") assert.equal(field.purpose, "terminology", `${question.id}/${field.id}`);
+        if (field.id === "shells") assert.equal(field.purpose, "bohr-shell-distribution", `${question.id}/${field.id}`);
+      }
       if (/formula|equation|jonbeteckning/u.test(field.purpose || "")) {
         assert.ok(["chemical-formula", "chemical-equation"].includes(field.kind), `${question.id}/${field.id}`);
       }
+    });
+  });
+});
+
+test("slot 1 Bohr distributions and aliases match the independent ten-case truth table", () => {
+  const expected = {
+    N: ["2,5", ["2-5", "2–5", "2, 5", "2 , 5", "2 - 5", "2 – 5"]],
+    O: ["2,6", ["2-6", "2–6", "2, 6", "2 , 6", "2 - 6", "2 – 6"]],
+    Mg: ["2,8,2", ["2-8-2", "2–8–2", "2, 8, 2", "2 , 8 , 2", "2 - 8 - 2", "2 – 8 – 2"]],
+    Cl: ["2,8,7", ["2-8-7", "2–8–7", "2, 8, 7", "2 , 8 , 7", "2 - 8 - 7", "2 – 8 – 7"]],
+    Na: ["2,8,1", ["2-8-1", "2–8–1", "2, 8, 1", "2 , 8 , 1", "2 - 8 - 1", "2 – 8 – 1"]],
+    Al: ["2,8,3", ["2-8-3", "2–8–3", "2, 8, 3", "2 , 8 , 3", "2 - 8 - 3", "2 – 8 – 3"]],
+    P: ["2,8,5", ["2-8-5", "2–8–5", "2, 8, 5", "2 , 8 , 5", "2 - 8 - 5", "2 – 8 – 5"]],
+    F: ["2,7", ["2-7", "2–7", "2, 7", "2 , 7", "2 - 7", "2 – 7"]],
+    S: ["2,8,6", ["2-8-6", "2–8–6", "2, 8, 6", "2 , 8 , 6", "2 - 8 - 6", "2 – 8 – 6"]],
+    K: ["2,8,8,1", ["2-8-8-1", "2–8–8–1", "2, 8, 8, 1", "2 , 8 , 8 , 1", "2 - 8 - 8 - 1", "2 – 8 – 8 – 1"]]
+  };
+  const questions = loadSlots()[1].slice(0, 10);
+  questions.forEach((question) => {
+    const truth = expected[question.sourceData.symbol];
+    const field = question.fields.find((candidate) => candidate.id === "shells");
+    assert.ok(truth, question.id);
+    assert.equal(field.expected, truth[0], question.id);
+    assert.deepEqual(field.aliases, truth[1], question.id);
+  });
+});
+
+test("slot 3 geometry and polarity match independent molecular truth tables", () => {
+  const expected = {
+    NH3: ["trigonal-pyramidal", "yes"], H2O: ["bent", "yes"], H2S: ["bent", "yes"], SO2: ["bent", "yes"],
+    CO2: ["linear", "no"], CH3Cl: ["tetrahedral", "yes"], CH2Cl2: ["tetrahedral", "yes"], BF3: ["trigonal-planar", "no"],
+    CH4: ["tetrahedral", "no"], CCl4: ["tetrahedral", "no"], PCl3: ["trigonal-pyramidal", "yes"], BeCl2: ["linear", "no"],
+    HCl: ["linear", "yes"], Cl2: ["linear", "no"], N2: ["linear", "no"], O2: ["linear", "no"],
+    HF: ["linear", "yes"], CS2: ["linear", "no"], SiCl4: ["tetrahedral", "no"], H2: ["linear", "no"]
+  };
+  loadSlots()[3].forEach((question) => {
+    const truth = expected[question.sourceData.molecule];
+    assert.ok(truth, question.id);
+    assert.equal(question.fields[0].expected, truth[0], question.id);
+    assert.equal(question.fields[1].expected, truth[1], question.id);
+    question.fields.forEach((field) => assert.ok(field.options.some((option) => option.value === field.expected), `${question.id}/${field.id}`));
+  });
+});
+
+test("slot 4 classifications match independent interaction and bond truth tables", () => {
+  const expected = [
+    ["metallic", "hydrogen", "hydrogen", "covalent-intramolecular"],
+    ["ionic", "dipole-dipole", "dipole-dipole", "covalent-intramolecular"],
+    ["metallic", "dispersion", "dispersion", "covalent-intramolecular"],
+    ["ionic", "hydrogen", "hydrogen", "covalent-intramolecular"],
+    ["metallic", "dipole-dipole", "dipole-dipole", "covalent-intramolecular"],
+    ["ionic", "dispersion", "dispersion", "covalent-intramolecular"],
+    ["metallic", "hydrogen", "hydrogen", "covalent-intramolecular"],
+    ["ionic", "dipole-dipole", "dipole-dipole", "covalent-intramolecular"],
+    ["metallic", "dispersion", "dispersion", "covalent-intramolecular"],
+    ["ionic", "hydrogen", "hydrogen", "covalent-intramolecular"],
+    ["metallic", "dipole-dipole", "dipole-dipole", "covalent-intramolecular"],
+    ["ionic", "dispersion", "dispersion", "covalent-intramolecular"],
+    ["metallic", "hydrogen", "hydrogen", "covalent-intramolecular"],
+    ["ionic", "dipole-dipole", "dipole-dipole", "covalent-intramolecular"],
+    ["metallic", "dispersion", "dispersion", "covalent-intramolecular"],
+    ["ionic", "hydrogen", "hydrogen", "covalent-intramolecular"],
+    ["metallic", "dipole-dipole", "dipole-dipole", "covalent-intramolecular"],
+    ["ionic", "dispersion", "dispersion", "covalent-intramolecular"],
+    ["metallic", "hydrogen", "hydrogen", "covalent-intramolecular"],
+    ["ionic", "dispersion", "dipole-dipole", "covalent-intramolecular"]
+  ];
+  loadSlots()[4].forEach((question, index) => {
+    question.fields.forEach((field, fieldIndex) => {
+      assert.equal(field.expected, expected[index][fieldIndex], `${question.id}/${field.id}`);
+      assert.ok(field.options.some((option) => option.value === field.expected), `${question.id}/${field.id}: expected option`);
+      const wrong = field.options.find((option) => option.value !== field.expected);
+      assert.ok(wrong, `${question.id}/${field.id}: declared wrong option`);
+      assert.equal(grading.gradeChoice(field, wrong.value).earned, 0, `${question.id}/${field.id}: wrong option`);
     });
   });
 });
@@ -393,6 +471,13 @@ test("chemistry delivers objective final answers with notebook-only method work"
       ["part-a", "choice", 0.5], ["part-b", "choice", 0.5], ["part-c", "choice", 0.5], ["part-d", "choice", 0.5]
     ], question.id);
     question.fields.forEach((field) => assert.ok(field.options.some((option) => option.value === field.expected), `${question.id}/${field.id}`));
+  });
+});
+
+test("non-Bohr slot-1 concentration calculations explicitly separate notebook work and digital final answers", () => {
+  loadSlots()[1].slice(10).forEach((question) => {
+    assert.match(question.promptHtml, /Beräkna n = cV i räknehäftet/iu, question.id);
+    assert.match(question.promptHtml, /ange endast .*slutsvaret .*digitalt/iu, question.id);
   });
 });
 

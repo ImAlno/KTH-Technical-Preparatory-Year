@@ -324,6 +324,19 @@ test("answers lock after submit and solutions remain gated until then", () => {
   assert.deepEqual(session.snapshot().answers, { "q-1": { value: "4 m" } });
 });
 
+test("an uncertain objective grade remains valid through snapshot validation and restore", () => {
+  const { session, slots, subject } = makeSession();
+  session.setAnswer("q-1", "value", "ungefär tio");
+  session.setAnswer("q-2", "name", "ja");
+  session.submit();
+
+  const snapshot = session.snapshot();
+  assert.equal(snapshot.grades["q-1"].status, "self");
+  assert.equal(snapshot.grades["q-1"].requiresSelfAssessment, true);
+  assert.deepEqual(exam.inspectSnapshot(snapshot, slots, subject), { ok: true, reason: null });
+  assert.deepEqual(exam.restoreSession(snapshot, slots, undefined, subject).snapshot(), snapshot);
+});
+
 test("submit dispatches every automatic field kind and aggregates field points", () => {
   const fields = [
     Object.assign(field("n", "numeric", 1, 10), { targetUnit: "m" }),

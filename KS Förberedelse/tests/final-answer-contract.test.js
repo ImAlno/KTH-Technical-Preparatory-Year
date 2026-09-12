@@ -113,6 +113,11 @@ test("every canonical final answer grades for full credit and a type-specific wr
     assert.equal(correct.earned, field.points, `${question.id}/${field.id}`);
     const wrong = grading[`grade${field.kind === "numeric" ? "Numeric" : field.kind === "aliases" ? "Aliases" : field.kind === "choice" ? "Choice" : field.kind === "solution-set" ? "SolutionSet" : field.kind === "simplified-expression" ? "SimplifiedExpression" : field.kind === "chemical-formula" ? "ChemicalFormula" : field.kind === "chemical-equation" ? "ChemicalEquation" : "Expression"}`](field, wrongAnswer(field));
     assert.ok(wrong.earned < field.points, `${question.id}/${field.id}: wrong input received full credit`);
+    if (field.kind === "choice") {
+      const declaredWrong = field.options.find((option) => option.value !== field.expected);
+      assert.ok(declaredWrong, `${question.id}/${field.id}: no declared wrong choice`);
+      assert.equal(grading.gradeChoice(field, declaredWrong.value).earned, 0, `${question.id}/${field.id}: declared wrong choice`);
+    }
   }));
 });
 
