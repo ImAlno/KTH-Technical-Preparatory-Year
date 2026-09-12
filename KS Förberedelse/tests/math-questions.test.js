@@ -119,6 +119,15 @@ function unorderedVectorsMatch(actual, expected) {
   return expected.every((wanted) => actual.some((candidate) => close(candidate[0], wanted[0]) && close(candidate[1], wanted[1])));
 }
 
+function pointInPolygon(point, polygon) {
+  let inside = false;
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index, index += 1) {
+    const a = polygon[index]; const b = polygon[previous];
+    if ((a[1] > point[1]) !== (b[1] > point[1]) && point[0] < (b[0] - a[0]) * (point[1] - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+  }
+  return inside;
+}
+
 function parseTagAttributes(html, id) {
   const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = html.match(new RegExp(`<(?:line|circle|rect|polygon|polyline|path|text)\\b[^>]*\\bid="${escapedId}"[^>]*>`, "u"));
@@ -758,12 +767,14 @@ test("serialized slot-five labels clear every non-owner painted shape and remain
         const firstWeight = crossVectors(centerRay, toRay) / determinant;
         const secondWeight = crossVectors(fromRay, centerRay) / determinant;
         assert.ok(firstWeight > 0 && secondWeight > 0, `${label.id}: background center must stay inside the requested angle sector`);
-        assert.ok(pointDistance(center, anchor.vertex) >= 24 && pointDistance(center, anchor.vertex) <= 110, `${label.id}: angle radius must stay controlled`);
+        const outline = manifest.geometry.find((element) => element.id.endsWith("-outline"));
+        assert.ok(pointInPolygon(center, outline.points), `${label.id}: background center must stay inside the finite triangle`);
+        assert.ok(pointDistance(center, anchor.vertex) >= anchor.radius + 8 && pointDistance(center, anchor.vertex) <= anchor.radius + 36, `${label.id}: angle label must stay close to the painted arc`);
       } else if (label.id.includes("-vertex-")) {
         assert.equal(anchor.kind, "circle", label.id);
         assert.ok(pointDistance(center, anchor.center) <= 32 + 1e-8, `${label.id}: vertex label detached from vertex`);
       } else if (anchor.kind === "dimension") {
-        assert.ok(pointDistance(center, [(anchor.anchors[0][0] + anchor.anchors[1][0]) / 2, (anchor.anchors[0][1] + anchor.anchors[1][1]) / 2]) <= 30, `${label.id}: dimension label detached from measured segment`);
+        assert.ok(pointDistance(center, [(anchor.anchors[0][0] + anchor.anchors[1][0]) / 2, (anchor.anchors[0][1] + anchor.anchors[1][1]) / 2]) <= 50, `${label.id}: dimension label detached from measured segment`);
       } else if (label.id.endsWith("height-label") && anchor.kind === "line") {
         assert.ok(pointDistance(center, [(anchor.from[0] + anchor.to[0]) / 2, (anchor.from[1] + anchor.to[1]) / 2]) <= 30, `${label.id}: height label detached from height`);
       } else if (label.id.endsWith("height-label") && anchor.kind === "polygon") {

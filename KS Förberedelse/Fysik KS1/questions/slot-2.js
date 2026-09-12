@@ -236,13 +236,18 @@
     }
     dimensions.forEach(function (entry) {
       const midpoint = [(entry.dimension.start[0] + entry.dimension.end[0]) / 2, (entry.dimension.start[1] + entry.dimension.end[1]) / 2];
-      addLabel(diagram, shapes, { id: entry.dimension.id + "-label", at: [midpoint[0], midpoint[1] + 5], text: entry.text, anchorId: entry.dimension.id, fontSize: 13, textAnchor: "middle" });
+      const normal = entry.dimension.normal;
+      const direction = entry.dimension.offset < 0 ? [-normal[0], -normal[1]] : normal;
+      const textWidth = entry.text.length * 14 * 0.58 + 4;
+      const textHeight = 14 * 1.25 + 4;
+      const outwardDistance = Math.abs(direction[0]) * textWidth / 2 + Math.abs(direction[1]) * textHeight / 2 + 1;
+      addLabel(diagram, shapes, { id: entry.dimension.id + "-label", at: [midpoint[0] + outwardDistance * direction[0], midpoint[1] + outwardDistance * direction[1] + 5.25], text: entry.text, anchorId: entry.dimension.id, fontSize: 14, textAnchor: "middle" });
     });
     if (family === "prism" && row.baseShape === "regular-hexagon") {
-      addLabel(diagram, shapes, { id: id + "-circumradius-label", at: [250, 175], text: "r = ?", anchorId: id + "-circumradius", fontSize: 13, textAnchor: "middle" });
+      addLabel(diagram, shapes, { id: id + "-circumradius-label", at: [245, 156], text: "r = ?", anchorId: id + "-circumradius", fontSize: 14, textAnchor: "middle" });
     }
-    if (row.givens.massKg !== undefined) addLabel(diagram, shapes, { id: id + "-mass-label", at: [590, 105], text: "m = " + displayed(row.givens.massKg, row.displayUnits.mass), anchorId: solid.id, textAnchor: "end", fontSize: 13 });
-    if (row.givens.densityKgM3 !== undefined) addLabel(diagram, shapes, { id: id + "-density-label", at: [590, 142], text: "ρ = " + displayed(row.givens.densityKgM3, row.displayUnits.density), anchorId: solid.id, textAnchor: "end", fontSize: 13 });
+    if (row.givens.massKg !== undefined) addLabel(diagram, shapes, { id: id + "-mass-label", at: [590, 105], text: "m = " + displayed(row.givens.massKg, row.displayUnits.mass), anchorId: solid.id, textAnchor: "end", fontSize: 14 });
+    if (row.givens.densityKgM3 !== undefined) addLabel(diagram, shapes, { id: id + "-density-label", at: [590, 142], text: "ρ = " + displayed(row.givens.densityKgM3, row.displayUnits.density), anchorId: solid.id, textAnchor: "end", fontSize: 14 });
     const result = diagram.finish();
     return { html: result.html, manifest: result.manifest };
   }

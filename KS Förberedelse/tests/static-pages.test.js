@@ -165,6 +165,7 @@ function fakeNode(tagName) {
     },
     setAttribute(name, value) {
       this.attributes[name] = String(value);
+      if (name === "id") this.id = String(value);
       if (name === "open") this.open = true;
       if (name === "type") this.type = String(value);
       if (name === "name") this.name = String(value);
@@ -172,8 +173,13 @@ function fakeNode(tagName) {
     },
     removeAttribute(name) {
       delete this.attributes[name];
+      if (name === "id") delete this.id;
       if (name === "open") this.open = false;
       if (name === "data-print-mode") delete this.dataset.printMode;
+    },
+    getAttribute(name) {
+      if (name === "id" && this.id !== undefined) return this.id;
+      return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
     },
     scrollTo(left, top) {
       this.scrollLeft = left;
@@ -196,6 +202,8 @@ function fakeNode(tagName) {
 }
 
 function matchesSelector(node, selector) {
+  if (selector === "svg") return node.tagName === "SVG";
+  if (selector === "[id]") return typeof node.id === "string";
   if (selector === "[data-focus-key]") return typeof node.dataset.focusKey === "string";
   if (selector === "input") return node.tagName === "INPUT";
   if (selector === "textarea") return node.tagName === "TEXTAREA";
@@ -207,6 +215,37 @@ function matchesSelector(node, selector) {
   if (selector === "input[type=radio]") return node.tagName === "INPUT" && node.type === "radio";
   if (selector.startsWith(".")) return node.className === selector.slice(1);
   return false;
+}
+
+function fakeTemplate() {
+  const template = fakeNode("template");
+  template.content = fakeNode("fragment");
+  Object.defineProperty(template, "innerHTML", {
+    set(html) {
+      const fragment = fakeNode("fragment");
+      const stack = [fragment];
+      const tokens = String(html).match(/<\/?[A-Za-z][^>]*>|[^<]+/gu) || [];
+      tokens.forEach((token) => {
+        if (/^<\//u.test(token)) {
+          if (stack.length > 1) stack.pop();
+          return;
+        }
+        if (/^</u.test(token)) {
+          const tagMatch = token.match(/^<([A-Za-z][\w:-]*)/u);
+          if (!tagMatch) return;
+          const node = fakeNode(tagMatch[1]);
+          const attributes = token.matchAll(/([A-Za-z_:][\w:.-]*)\s*=\s*(["'])(.*?)\2/gu);
+          for (const attribute of attributes) node.setAttribute(attribute[1], attribute[3]);
+          stack[stack.length - 1].append(node);
+          if (!/\/>$/u.test(token)) stack.push(node);
+          return;
+        }
+        if (token.trim()) stack[stack.length - 1].append({ textContent: token });
+      });
+      this.content = fragment;
+    }
+  });
+  return template;
 }
 
 function descendants(node) {
@@ -242,7 +281,7 @@ function recoveryHarness(savedSnapshot, options) {
   const windowListeners = {};
   const document = {
     body: fakeNode("body"),
-    createElement: fakeNode,
+    createElement(tagName) { return String(tagName).toLowerCase() === "template" ? fakeTemplate() : fakeNode(tagName); },
     getElementById(id) { return nodes[id] || null; },
     querySelectorAll() { return []; }
   };
@@ -924,6 +963,14 @@ test("mobile journal layout contains scrolling to the rail and keeps 44px target
   assert.match(css, /img,\s*svg\s*\{[^}]*max-width:\s*100%/s);
 });
 
+test("screen diagrams keep intrinsic legible sizing inside their own horizontal scroller", () => {
+  const css = read("assets/app.css");
+  assert.match(css, /\.prompt,\s*\n\.solution\s*\{[^}]*overflow-x:\s*auto;/u);
+  assert.match(css, /\.prompt\s*>\s*svg,\s*\n\.solution\s*>\s*svg\s*\{[^}]*max-width:\s*none;/u);
+  assert.match(css, /@media print\s*\{[\s\S]*?\.prompt,\s*\n\s*\.solution\s*\{[^}]*overflow-x:\s*visible;/u);
+  assert.match(css, /@media print\s*\{[\s\S]*?\.prompt\s*>\s*svg,\s*\n\s*\.solution\s*>\s*svg\s*\{[^}]*max-width:\s*100%;/u);
+});
+
 test("programmatic main focus receives a visible keyboard focus replacement", () => {
   const css = read("assets/app.css");
   const focusMatch = css.match(/#exam-app:focus-visible\s*\{[^}]+\}/);
@@ -1418,16 +1465,28 @@ test("diagram preflight fails before creating a session and preserves active and
 test("diagram preflight validates every prompt manifest before creating a new exam", () => {
   const app = require("../assets/js/app.js");
   const harness = recoveryHarness(null);
-  const manifests = [{ id: "diagram-a" }, { id: "diagram-b" }];
+  function fixture(id, title) {
+    const manifest = {
+      id, title, description: "Beskrivning", titleId: id + "-title", descriptionId: id + "-desc",
+      ariaLabelledby: id + "-title " + id + "-desc", fragmentIds: [],
+      elements: [{ id: id + "-line" }], domIds: [id, id + "-title", id + "-desc", id + "-line"]
+    };
+    return {
+      manifest,
+      html: `<svg id="${id}" role="img" aria-labelledby="${manifest.ariaLabelledby}"><title id="${manifest.titleId}">${title}</title><desc id="${manifest.descriptionId}">Beskrivning</desc><line id="${id}-line"></line></svg>`
+    };
+  }
+  const figures = [fixture("diagram-a", "Första"), fixture("diagram-b", "Andra")];
+  const manifests = figures.map((figure) => figure.manifest);
   const validated = [];
 
   harness.subjectData.subject.questionCount = 2;
   harness.subjectData.subject.maxPoints = 2;
-  harness.subjectData.slots[1][0].promptHtml = "<svg id=\"diagram-a\"></svg>";
+  harness.subjectData.slots[1][0].promptHtml = figures[0].html;
   harness.subjectData.slots[1][0].sourceData = { diagram: manifests[0] };
   harness.subjectData.slots[2] = [{
     id: "q2", slot: 2, title: "Andra", points: 1,
-    promptHtml: "<svg id=\"diagram-b\"></svg>", solutionHtml: "<p>Lösning</p>",
+    promptHtml: figures[1].html, solutionHtml: "<p>Lösning</p>",
     fields: [{ id: "b", label: "Svar", kind: "aliases", points: 1, expected: "ja" }],
     sourceData: { diagram: manifests[1] }, rubric: []
   }];
@@ -1436,6 +1495,64 @@ test("diagram preflight validates every prompt manifest before creating a new ex
   assert.deepEqual(app.mount(harness.root, harness.subjectData), { ok: true });
   assert.deepEqual(validated, ["diagram-a", "diagram-b"]);
   assert.equal(harness.nodes["session-state"].textContent, "Pågående prov");
+});
+
+test("diagram preflight rejects empty, unrelated, malformed and multi-root SVG markup before mutations", () => {
+  const app = require("../assets/js/app.js");
+  const id = "strict-preflight-diagram";
+  const manifest = {
+    id, title: "Korrekt titel", description: "Korrekt beskrivning", titleId: id + "-title", descriptionId: id + "-desc",
+    ariaLabelledby: id + "-title " + id + "-desc", fragmentIds: [id + "-marker"],
+    elements: [{ id: id + "-line" }],
+    domIds: [id, id + "-title", id + "-desc", id + "-marker", id + "-marker-path", id + "-line"]
+  };
+  const valid = `<svg id="${id}" role="img" aria-labelledby="${manifest.ariaLabelledby}"><title id="${manifest.titleId}">${manifest.title}</title><desc id="${manifest.descriptionId}">${manifest.description}</desc><defs><marker id="${id}-marker"><path id="${id}-marker-path"></path></marker></defs><line id="${id}-line"></line></svg>`;
+  const invalidMarkup = [
+    ["empty SVG", `<svg id="${id}"></svg>`],
+    ["unrelated SVG", `<svg id="${id}" role="img" aria-labelledby="${manifest.ariaLabelledby}"><title id="${manifest.titleId}">${manifest.title}</title><desc id="${manifest.descriptionId}">${manifest.description}</desc><circle id="unrelated"></circle></svg>`],
+    ["multiple roots", valid + `<svg id="extra-root"></svg>`],
+    ["wrong role", valid.replace('role="img"', 'role="presentation"')],
+    ["wrong aria-labelledby", valid.replace(manifest.ariaLabelledby, manifest.titleId)],
+    ["wrong title ID", valid.replace(`id="${manifest.titleId}"`, `id="wrong-title"`)],
+    ["wrong description ID", valid.replace(`id="${manifest.descriptionId}"`, `id="wrong-desc"`)],
+    ["missing element ID", valid.replace(`<line id="${id}-line"></line>`, "")],
+    ["missing fragment ID", valid.replace(` id="${id}-marker"`, "")],
+    ["extra DOM ID", valid.replace("</svg>", '<circle id="unexpected"></circle></svg>')]
+  ];
+
+  invalidMarkup.forEach(([name, html]) => {
+    const harness = recoveryHarness(null);
+    const activeKey = "ks-practice:v1:recovery-test:active";
+    const historyKey = "ks-practice:v1:recovery-test:history";
+    const activeBytes = '{"sentinel":"active"}';
+    const historyBytes = '[{"sentinel":"history"}]';
+    let createCalls = 0;
+    let restoreCalls = 0;
+    let randomCalls = 0;
+    harness.values.set(activeKey, activeBytes);
+    harness.values.set(historyKey, historyBytes);
+    harness.subjectData.slots[1][0].promptHtml = html;
+    harness.subjectData.slots[1][0].sourceData = { diagram: manifest };
+    harness.window.KS.diagram = { validateManifest() {} };
+    harness.window.KS.exam = Object.assign({}, harness.window.KS.exam, {
+      createSession() { createCalls += 1; throw new Error("must not create"); },
+      restoreSession() { restoreCalls += 1; throw new Error("must not restore"); }
+    });
+    const originalRandom = Math.random;
+    Math.random = function () { randomCalls += 1; throw new Error("must not randomize"); };
+    let result;
+    try {
+      result = app.mount(harness.root, harness.subjectData);
+    } finally {
+      Math.random = originalRandom;
+    }
+    assert.deepEqual(result, { ok: false, reason: "diagram-preflight-failed" }, name);
+    assert.equal(createCalls, 0, name);
+    assert.equal(restoreCalls, 0, name);
+    assert.equal(randomCalls, 0, name);
+    assert.equal(harness.values.get(activeKey), activeBytes, name);
+    assert.equal(harness.values.get(historyKey), historyBytes, name);
+  });
 });
 
 test("app exports the same public helpers in CommonJS and the browser namespace", () => {

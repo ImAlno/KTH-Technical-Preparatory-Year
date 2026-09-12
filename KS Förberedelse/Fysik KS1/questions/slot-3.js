@@ -152,10 +152,10 @@
     if (p.initialHeightM > 0) height = addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-height-measure", a: [350, ground.a[1]], b: [350, bodyBottomY], role: "measure", strokeWidth: 1.5 }));
 
     addLabel(diagram, shapes, { id: id + "-positive-label", at: [82, 102], text: "+y", anchorId: positive.id, fontSize: 15 });
-    addLabel(diagram, shapes, { id: id + "-origin-label", at: [190, 304], text: p.initialHeightM === 0 ? "y₀ = 0 (marknivå)" : "y = 0 (marknivå)", anchorId: origin.id, fontSize: 13 });
+    addLabel(diagram, shapes, { id: id + "-origin-label", at: [190, 304], text: p.initialHeightM === 0 ? "y₀ = 0 (marknivå)" : "y = 0 (marknivå)", anchorId: origin.id, fontSize: 14 });
     if (p.initialSpeedMps !== undefined) addLabel(diagram, shapes, { id: id + "-velocity-v0-label", at: [390, 78], text: "v₀ = " + clean(p.initialSpeedMps) + " m/s", anchorId: motion.id, textAnchor: "start", fontSize: 14 });
-    if (p.laterVelocityMps !== undefined) addLabel(diagram, shapes, { id: id + "-velocity-later-label", at: [390, 112], text: "v = " + clean(p.laterVelocityMps) + " m/s efter " + clean(p.elapsedS) + " s", anchorId: motion.id, textAnchor: "start", fontSize: 13 });
-    if (p.flightTimeS !== undefined) addLabel(diagram, shapes, { id: id + "-velocity-time-label", at: [390, 148], text: "t = " + clean(p.flightTimeS) + " s till marken", anchorId: motion.id, textAnchor: "start", fontSize: 13 });
+    if (p.laterVelocityMps !== undefined) addLabel(diagram, shapes, { id: id + "-velocity-later-label", at: [390, 112], text: "v = " + clean(p.laterVelocityMps) + " m/s efter " + clean(p.elapsedS) + " s", anchorId: motion.id, textAnchor: "start", fontSize: 14 });
+    if (p.flightTimeS !== undefined) addLabel(diagram, shapes, { id: id + "-velocity-time-label", at: [390, 148], text: "t = " + clean(p.flightTimeS) + " s till marken", anchorId: motion.id, textAnchor: "start", fontSize: 14 });
     if (height) addLabel(diagram, shapes, { id: id + "-height-label", at: [402, 233], text: "y₀ = " + clean(p.initialHeightM) + " m", anchorId: height.id, textAnchor: "start", fontSize: 14 });
     const result = diagram.finish();
     return {

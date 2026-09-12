@@ -148,6 +148,15 @@
     return point[0] >= box.x && point[0] <= box.x + box.width && point[1] >= box.y && point[1] <= box.y + box.height;
   }
 
+  function pointInsidePolygon(point, polygon) {
+    let inside = false;
+    for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index, index += 1) {
+      const a = polygon[index]; const b = polygon[previous];
+      if ((a[1] > point[1]) !== (b[1] > point[1]) && point[0] < (b[0] - a[0]) * (point[1] - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+    }
+    return inside;
+  }
+
   function segmentIntersectsBox(from, to, box) {
     if (pointInsideBox(from, box) || pointInsideBox(to, box)) return true;
     const delta = subtract(to, from);
@@ -218,7 +227,7 @@
     const firstWeight = (ray[0] * placement.toRay[1] - ray[1] * placement.toRay[0]) / determinant;
     const secondWeight = (placement.fromRay[0] * ray[1] - placement.fromRay[1] * ray[0]) / determinant;
     const radius = Math.hypot(ray[0], ray[1]);
-    return firstWeight > 0 && secondWeight > 0 && radius >= placement.minDistance && radius <= placement.maxDistance;
+    return firstWeight > 0 && secondWeight > 0 && radius >= placement.minDistance && radius <= placement.maxDistance && pointInsidePolygon(center, placement.polygon);
   }
 
   function localCandidateCenters(placement) {
@@ -246,6 +255,7 @@
     const anchor = "middle"; const fontSize = placement.fontSize || 14; const clearance = placement.clearance || 6;
     const state = PLACEMENT_STATE.get(diagram);
     const avoid = Array.from(state.geometry.keys()).filter(function (geometryId) { return geometryId !== anchorId; });
+    const placementTargets = Array.from(state.geometry.keys());
     if (!state.geometry.has(anchorId)) throw new Error("Missing label anchor geometry: " + anchorId);
     const placedAt = localCandidateCenters(placement).map(function (center) { return [center[0], center[1] + fontSize * 0.375]; }).find(function (candidate) {
       const box = labelBox(candidate, text, anchor, fontSize); const center = boxCenter(box);
@@ -253,10 +263,10 @@
       if (Math.hypot(center[0] - placement.anchorPoint[0], center[1] - placement.anchorPoint[1]) > placement.maxDistance + 1e-9) return false;
       if (placement.kind === "angle" && !angleCenterAllowed(center, placement)) return false;
       if (state.labels.some(function (other) { return boxesOverlap(expandedBox(box, clearance), other); })) return false;
-      return avoid.every(function (avoidId) {
-        const target = state.geometry.get(avoidId);
-        if (!target) throw new Error("Missing label avoid geometry: " + avoidId);
-        return primitiveClearsBox(target, box, clearance);
+      return placementTargets.every(function (targetId) {
+        const target = state.geometry.get(targetId);
+        if (!target) throw new Error("Missing label avoid geometry: " + targetId);
+        return primitiveClearsBox(target, box, targetId === anchorId ? 0 : clearance);
       });
     });
     if (!placedAt) throw new Error("No collision-free label placement for " + id + "-" + suffix);
@@ -286,41 +296,47 @@
   }
 
   function dimensionPlacement(dimension, preferredOffset) {
-    return localPlacement("dimension", midpoint(dimension.start, dimension.end), preferredOffset || [0, 0], 30);
+    const placement = localPlacement("dimension", midpoint(dimension.start, dimension.end), preferredOffset || [0, 0], 50);
+    placement.fontSize = 14;
+    return placement;
   }
 
-  function anglePlacement(angle) {
+  function anglePlacement(angle, polygon) {
     const direction = unit(add(angle.fromRay, angle.toRay));
+    const minDistance = angle.radius + 8;
+    const maxDistance = angle.radius + 36;
     return {
       kind: "angle",
       anchorPoint: angle.vertex,
-      preferredCenter: add(angle.vertex, scale(direction, 80)),
+      preferredCenter: add(angle.vertex, scale(direction, (minDistance + maxDistance) / 2)),
       fromRay: angle.fromRay,
       toRay: angle.toRay,
-      minDistance: 24,
-      maxDistance: 110,
+      minDistance: minDistance,
+      maxDistance: maxDistance,
+      polygon: polygon,
       fontSize: 14
     };
   }
 
   function rightTriangleFigure(id, p) {
-    const diagram = makeDiagram(id, "Rätvinklig triangel med markerad vinkel", "En schematisk rätvinklig triangel där den närliggande kateten och en spetsig vinkel är kända.");
+    const diagram = makeDiagram(id, "Rätvinklig triangel med markerad vinkel", "En schematisk rätvinklig triangel där den närliggande kateten och en spetsig vinkel är kända.", 360, 300);
     const radians = p.angleDegrees * Math.PI / 180;
-    const adjacentPixels = Math.min(235, 140 / Math.tan(radians));
-    const rightVertex = [55, 185];
-    const angleVertex = [55 + adjacentPixels, 185];
-    const apex = [55, 185 - adjacentPixels * Math.tan(radians)];
+    const adjacentPixels = Math.min(235, 180 / Math.tan(radians));
+    const rightVertex = [55, 240];
+    const angleVertex = [55 + adjacentPixels, 240];
+    const apex = [55, 240 - adjacentPixels * Math.tan(radians)];
     const outlineId = id + "-outline";
     const dimensionId = id + "-adjacent-dimension";
     const markerId = id + "-right-marker";
     const angleId = id + "-given-angle";
     addShape(diagram, "geometry", diagramKit.polygon({ id: outlineId, points: [rightVertex, angleVertex, apex], role: "shape", strokeWidth: 3 }));
     addShape(diagram, "information", diagramKit.polyline({ id: markerId, points: [add(rightVertex, [0, -18]), add(rightVertex, [18, -18]), add(rightVertex, [18, 0])], role: "marker", strokeWidth: 2 }));
-    const angle = diagramKit.angleArc({ id: angleId, vertex: angleVertex, fromRay: rightVertex, toRay: apex, radius: 25, role: "angle", strokeWidth: 2 });
+    const angleRadius = Math.max(25, 22 / Math.sin(radians / 2) - 22);
+    const angle = diagramKit.angleArc({ id: angleId, vertex: angleVertex, fromRay: rightVertex, toRay: apex, radius: angleRadius, role: "angle", strokeWidth: 2 });
     addShape(diagram, "information", angle);
     const adjacentDimension = diagramKit.dimension({ id: dimensionId, a: rightVertex, b: angleVertex, offset: 22, role: "dimension" });
     addShape(diagram, "information", adjacentDimension);
-    label(diagram, id, "angle-label", clean(p.angleDegrees) + "°", angleId, anglePlacement(angle));
+    label(diagram, id, "angle-label", clean(p.angleDegrees) + "°", angleId, anglePlacement(angle, [rightVertex, angleVertex, apex]));
     label(diagram, id, "adjacent-label", clean(p.adjacent) + " " + p.unit, dimensionId, dimensionPlacement(adjacentDimension));
     label(diagram, id, "height-label", "h", outlineId, localPlacement("side", midpoint(rightVertex, apex), [-20, 0], 30));
     return diagram.finish();
@@ -329,7 +345,7 @@
   function areaTriangleFigure(id, p) {
     const diagram = makeDiagram(id, "Triangel med två sidor och mellanliggande vinkel", "En schematisk triangel där två sidlängder och vinkeln mellan dem är markerade.", 500, 340);
     const radians = p.angleDegrees * Math.PI / 180;
-    const pixelsPerUnit = 190 / Math.max(p.sideA, p.sideB);
+    const pixelsPerUnit = 220 / Math.max(p.sideA, p.sideB);
     const vertex = [220, 275];
     const sideAEnd = add(vertex, [p.sideA * pixelsPerUnit, 0]);
     const sideBEnd = add(vertex, [p.sideB * pixelsPerUnit * Math.cos(radians), -p.sideB * pixelsPerUnit * Math.sin(radians)]);
@@ -342,16 +358,17 @@
     const sideB = diagramKit.dimension({ id: sideBId, a: vertex, b: sideBEnd, offset: -22, role: "dimension" });
     addShape(diagram, "information", sideA);
     addShape(diagram, "information", sideB);
-    const angle = diagramKit.angleArc({ id: angleId, vertex: vertex, fromRay: sideAEnd, toRay: sideBEnd, radius: 27, role: "angle", strokeWidth: 2 });
+    const angleRadius = Math.max(27, 22 / Math.sin(Math.min(radians, Math.PI - radians) / 2) - 22);
+    const angle = diagramKit.angleArc({ id: angleId, vertex: vertex, fromRay: sideAEnd, toRay: sideBEnd, radius: angleRadius, role: "angle", strokeWidth: 2 });
     addShape(diagram, "information", angle);
-    label(diagram, id, "angle-label", clean(p.angleDegrees) + "°", angleId, anglePlacement(angle));
+    label(diagram, id, "angle-label", clean(p.angleDegrees) + "°", angleId, anglePlacement(angle, [vertex, sideAEnd, sideBEnd]));
     label(diagram, id, "side-a-label", clean(p.sideA) + " " + p.unit.replace("²", ""), sideAId, dimensionPlacement(sideA));
     label(diagram, id, "side-b-label", clean(p.sideB) + " " + p.unit.replace("²", ""), sideBId, dimensionPlacement(sideB));
     return diagram.finish();
   }
 
   function parallelFigure(id, p) {
-    const diagram = makeDiagram(id, "Triangel med ett parallellt tvärsegment", "I triangeln ligger D på AB och E på AC. Segmentet DE är parallellt med BC.", 680, 430);
+    const diagram = makeDiagram(id, "Triangel med ett parallellt tvärsegment", "I triangeln ligger D på AB och E på AC. Segmentet DE är parallellt med BC.", 640, 430);
     const a = [340, 80]; const b = [80, 350]; const c = [600, 350];
     const ratio = p.ad / (p.ad + p.db);
     const d = interpolate(a, b, ratio); const e = interpolate(a, c, ratio);

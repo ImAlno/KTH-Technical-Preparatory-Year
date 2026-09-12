@@ -1413,7 +1413,7 @@ test("graph points, breakpoints, axes, ticks and labels follow independently che
     const layout = data.diagramLayout;
     assert.deepEqual(layout, {
       plot: { x: 82, y: 34, width: 438, height: 232 },
-      xTickZone: { x: 74, y: 274, width: 456, height: 26 },
+      xTickZone: { x: 74, y: 274, width: 460, height: 26 },
       yTickZone: { x: 18, y: 24, width: 52, height: 250 },
       xTitleZone: { x: 436, y: 316, width: 92, height: 26 },
       yTitleZone: { x: 224, y: 4, width: 92, height: 22 }
@@ -1671,7 +1671,8 @@ test("all 190 physics figures keep exact opaque labels clear, local and attached
         assert.equal(question.sourceData.family, "graph-interpretation", label.id);
       } else if (owner.kind === "dimension") {
         const dimensionCenter = [(owner.anchors[0][0] + owner.anchors[1][0]) / 2, (owner.anchors[0][1] + owner.anchors[1][1]) / 2];
-        assert.ok(Math.hypot(center[0] - dimensionCenter[0], center[1] - dimensionCenter[1]) <= 32, `${label.id}: constrained dimension zone`);
+        const attachedLimit = Math.hypot(box.width / 2, box.height / 2) + 2;
+        assert.ok(Math.hypot(center[0] - dimensionCenter[0], center[1] - dimensionCenter[1]) <= attachedLimit, `${label.id}: constrained dimension zone`);
       } else if (owner.kind === "arrow") {
         const distances = [owner.from, owner.to].map((point) => Math.hypot(center[0] - point[0], center[1] - point[1]));
         assert.ok(Math.min(...distances) <= 95, `${label.id}: constrained force zone`);

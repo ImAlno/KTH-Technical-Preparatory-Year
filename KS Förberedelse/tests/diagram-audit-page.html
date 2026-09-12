@@ -68,25 +68,28 @@
       return purpose === "solution" ? question.solutionHtml : question.promptHtml;
     }
 
-    function diagramMarkup(question, purpose) {
+    function parsedDiagram(html, manifest) {
       const template = document.createElement("template");
-      const manifest = manifestFor(question, purpose);
-      template.innerHTML = htmlFor(question, purpose);
-      const svg = Array.from(template.content.querySelectorAll("svg")).find(function (candidate) {
-        return candidate.id === manifest.id;
-      });
-      if (!svg) throw new Error("diagram markup is missing for " + question.id + " (" + purpose + ")");
+      template.innerHTML = html;
+      const roots = Array.from(template.content.querySelectorAll("svg"));
+      if (roots.length !== 1) throw new Error("diagram markup must contain exactly one SVG root");
+      const svg = roots[0];
+      if (svg.id !== manifest.id) throw new Error("diagram root ID does not match its manifest");
       return svg.outerHTML;
+    }
+
+    function diagramMarkup(question, purpose) {
+      try {
+        return parsedDiagram(htmlFor(question, purpose), manifestFor(question, purpose));
+      } catch (error) {
+        throw new Error(question.id + " (" + purpose + "): " + error.message);
+      }
     }
 
     function sourceInvariants() {
       const allGroups = groups();
       const promptGroups = allGroups.filter(function (group) { return group.purpose === "prompt"; });
       const solutionGroups = allGroups.filter(function (group) { return group.purpose === "solution"; });
-      const prompt = promptGroups.flatMap(function (group) { return group.questions; });
-      const solution = solutionGroups.flatMap(function (group) { return group.questions; });
-      const mathPrompt = promptGroups.filter(function (group) { return group.subject === "math"; }).flatMap(function (group) { return group.questions; });
-      const physicsPrompt = promptGroups.filter(function (group) { return group.subject === "physics"; }).flatMap(function (group) { return group.questions; });
       const sourceEntries = promptGroups.concat(solutionGroups).flatMap(function (group) {
         return group.questions.map(function (question) {
           return { group: group, question: question, manifest: manifestFor(question, group.purpose) };
@@ -95,6 +98,7 @@
       const ids = new Map();
       const pairs = new Set();
       const failures = [];
+      const parsedCounts = { mathPrompt: 0, physicsPrompt: 0, physicsSolution: 0 };
 
       sourceEntries.forEach(function (entry) {
         try {
@@ -109,15 +113,35 @@
           if (ids.has(id)) failures.push(entry.question.id + ": duplicate fragment ID " + id + " (also " + ids.get(id) + ")");
           else ids.set(id, entry.question.id);
         });
+        try {
+          parsedDiagram(htmlFor(entry.question, entry.group.purpose), entry.manifest);
+          if (entry.group.purpose === "solution") parsedCounts.physicsSolution += 1;
+          else if (entry.group.subject === "math") parsedCounts.mathPrompt += 1;
+          else parsedCounts.physicsPrompt += 1;
+        } catch (error) {
+          failures.push(entry.question.id + ": parsed root invariant: " + error.message);
+        }
+
+        if (entry.group.subject === "math" && entry.group.purpose === "prompt" && ["right-triangle", "non-right-triangle-area"].includes(entry.question.sourceData.family)) {
+          const angle = entry.manifest.information.find(function (element) { return element.role === "angle"; });
+          const outline = entry.manifest.geometry.find(function (element) { return element.id.endsWith("-outline"); });
+          const angleLabel = entry.manifest.labels.find(function (element) { return element.id.endsWith("-angle-label"); });
+          const background = entry.manifest.backgrounds.find(function (element) { return element.labelId === angleLabel.id; });
+          const center = [background.x + background.width / 2, background.y + background.height / 2];
+          const distance = Math.hypot(center[0] - angle.vertex[0], center[1] - angle.vertex[1]);
+          if (!pointInPolygon(center, outline.points) || distance < angle.radius + 8 || distance > angle.radius + 36) {
+            failures.push(entry.question.id + ": finite triangle angle label invariant failed");
+          }
+        }
       });
 
-      if (mathPrompt.length !== 25) failures.push("prompt root count must contain exactly 25 math SVGs");
-      if (physicsPrompt.length !== 125) failures.push("prompt root count must contain exactly 125 physics SVGs");
-      if (solution.length !== 65) failures.push("solution root count must contain exactly 65 physics force SVGs");
+      if (parsedCounts.mathPrompt !== 25) failures.push("prompt root count must contain exactly 25 math SVGs");
+      if (parsedCounts.physicsPrompt !== 125) failures.push("prompt root count must contain exactly 125 physics SVGs");
+      if (parsedCounts.physicsSolution !== 65) failures.push("solution root count must contain exactly 65 physics force SVGs");
       if (sourceEntries.length !== 215 || pairs.size !== 215) failures.push("expected 215 globally unique title/description pairs");
       return {
         failures: failures,
-        counts: { mathPrompt: mathPrompt.length, physicsPrompt: physicsPrompt.length, physicsSolution: solution.length, accessiblePairs: pairs.size }
+        counts: { mathPrompt: parsedCounts.mathPrompt, physicsPrompt: parsedCounts.physicsPrompt, physicsSolution: parsedCounts.physicsSolution, accessiblePairs: pairs.size }
       };
     }
 
@@ -202,9 +226,16 @@
 
     function segmentDistance(a, b, c, d) {
       function orientation(p, q, r) { return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]); }
+      function onSegment(p, q, r) {
+        return q[0] >= Math.min(p[0], r[0]) - 1e-9 && q[0] <= Math.max(p[0], r[0]) + 1e-9 && q[1] >= Math.min(p[1], r[1]) - 1e-9 && q[1] <= Math.max(p[1], r[1]) + 1e-9;
+      }
       const oa = orientation(a, b, c); const ob = orientation(a, b, d);
       const oc = orientation(c, d, a); const od = orientation(c, d, b);
-      if (oa * ob <= 0 && oc * od <= 0) return 0;
+      if ((oa > 1e-9 && ob < -1e-9 || oa < -1e-9 && ob > 1e-9) && (oc > 1e-9 && od < -1e-9 || oc < -1e-9 && od > 1e-9)) return 0;
+      if (Math.abs(oa) <= 1e-9 && onSegment(a, c, b)) return 0;
+      if (Math.abs(ob) <= 1e-9 && onSegment(a, d, b)) return 0;
+      if (Math.abs(oc) <= 1e-9 && onSegment(c, a, d)) return 0;
+      if (Math.abs(od) <= 1e-9 && onSegment(c, b, d)) return 0;
       return Math.min(pointSegmentDistance(a, c, d), pointSegmentDistance(b, c, d), pointSegmentDistance(c, a, b), pointSegmentDistance(d, a, b));
     }
 
@@ -217,76 +248,39 @@
       return distance;
     }
 
+    function maximumMatrixScale(matrix) {
+      const sum = matrix.a * matrix.a + matrix.b * matrix.b + matrix.c * matrix.c + matrix.d * matrix.d;
+      const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+      const discriminant = Math.max(0, sum * sum - 4 * determinant * determinant);
+      return Math.sqrt((sum + Math.sqrt(discriminant)) / 2);
+    }
+
     function screenScale(node) {
       const matrix = node.getScreenCTM();
-      return Math.max(1e-9, Math.max(Math.hypot(matrix.a, matrix.b), Math.hypot(matrix.c, matrix.d)));
+      return Math.max(1e-9, maximumMatrixScale(matrix));
+    }
+
+    function fontScreenScale(node) {
+      const matrix = node.getScreenCTM();
+      return Math.max(1e-9, Math.hypot(matrix.c, matrix.d));
     }
 
     function pointsAttribute(node) {
       return Array.from(node.points || []).map(function (value) { return point(node.getScreenCTM(), value.x, value.y); });
     }
 
-    function geometryDistance(node, polygon) {
-      const tag = node.tagName.toLowerCase();
-      const style = getComputedStyle(node);
-      const stroke = style.stroke === "none" ? 0 : (parseFloat(style.strokeWidth) || 0) * screenScale(node) / 2;
+    function geometrySamples(node) {
+      if (typeof node.getTotalLength !== "function" || typeof node.getPointAtLength !== "function") return [];
       const matrix = node.getScreenCTM();
-      if (tag === "line") {
-        return Math.max(0, polygonSegmentDistance(polygon, point(matrix, node.x1.baseVal.value, node.y1.baseVal.value), point(matrix, node.x2.baseVal.value, node.y2.baseVal.value)) - stroke);
-      }
-      if (tag === "polyline" || tag === "polygon") {
-        const points = pointsAttribute(node);
-        let distance = Infinity;
-        for (let index = 0; index + 1 < points.length; index += 1) distance = Math.min(distance, polygonSegmentDistance(polygon, points[index], points[index + 1]));
-        if (tag === "polygon" && points.length) distance = Math.min(distance, polygonSegmentDistance(polygon, points[points.length - 1], points[0]));
-        if (style.fill !== "none" && points.some(function (value) { return pointInPolygon(value, polygon); })) distance = 0;
-        return Math.max(0, distance - stroke);
-      }
-      if (tag === "circle" || tag === "ellipse") {
-        const center = point(matrix, node.cx.baseVal.value, node.cy.baseVal.value);
-        const rx = tag === "circle" ? node.r.baseVal.value : node.rx.baseVal.value;
-        const ry = tag === "circle" ? node.r.baseVal.value : node.ry.baseVal.value;
-        const radii = [rx * Math.hypot(matrix.a, matrix.b), ry * Math.hypot(matrix.c, matrix.d)];
-        let distance = Infinity;
-        polygon.forEach(function (value) {
-          const normalized = Math.hypot((value[0] - center[0]) / radii[0], (value[1] - center[1]) / radii[1]);
-          distance = Math.min(distance, Math.abs(normalized - 1) * Math.min.apply(Math, radii));
-          if (style.fill !== "none" && normalized < 1) distance = 0;
-        });
-        return Math.max(0, distance - stroke);
-      }
-      if (tag === "rect") {
-        const rect = bboxPolygonOnScreen(node);
-        if (style.fill !== "none" && satPenetration(polygon, rect) > 0) return 0;
-        let distance = Infinity;
-        rect.forEach(function (value, index) { distance = Math.min(distance, polygonSegmentDistance(polygon, value, rect[(index + 1) % rect.length])); });
-        return Math.max(0, distance - stroke);
-      }
-      if (typeof node.getTotalLength === "function") {
-        const length = node.getTotalLength();
-        const step = Math.max(1e-6, 1 / screenScale(node));
-        const samples = Math.max(1, Math.ceil(length / step));
-        let distance = Infinity;
-        let previous = null;
-        for (let index = 0; index <= samples; index += 1) {
-          const local = node.getPointAtLength(length * index / samples);
-          const current = point(matrix, local.x, local.y);
-          if (pointInPolygon(current, polygon)) return 0;
-          if (previous) distance = Math.min(distance, polygonSegmentDistance(polygon, previous, current));
-          previous = current;
-        }
-        const inverse = matrix.inverse();
-        for (const vertex of polygon) {
-          const local = new DOMPoint(vertex[0], vertex[1]).matrixTransform(inverse);
-          if ((style.fill !== "none" && node.isPointInFill(local)) || (style.stroke !== "none" && node.isPointInStroke(local))) return 0;
-        }
-        return Math.max(0, distance - stroke);
-      }
-      return Infinity;
+      const length = node.getTotalLength();
+      const samples = Math.max(1, Math.ceil(length * screenScale(node)));
+      return Array.from({ length: samples + 1 }, function (_, index) {
+        const local = node.getPointAtLength(length * index / samples);
+        return point(matrix, local.x, local.y);
+      });
     }
 
-    function polygonDistance(first, second) {
-      if (satPenetration(first, second) > 0) return 0;
+    function polygonBoundaryDistance(first, second) {
       let distance = Infinity;
       first.forEach(function (a, index) {
         const b = first[(index + 1) % first.length];
@@ -297,11 +291,91 @@
       return distance;
     }
 
+    function localScreenPoint(node, value) {
+      const local = new DOMPoint(value[0], value[1]).matrixTransform(node.getScreenCTM().inverse());
+      return new DOMPoint(local.x, local.y);
+    }
+
+    function geometryDistance(node, polygon) {
+      const style = getComputedStyle(node);
+      const stroke = style.stroke === "none" ? 0 : (parseFloat(style.strokeWidth) || 0) * screenScale(node) / 2;
+      const matrix = node.getScreenCTM();
+      const tag = node.tagName.toLowerCase();
+      if (tag === "line") {
+        return Math.max(0, polygonSegmentDistance(polygon, point(matrix, node.x1.baseVal.value, node.y1.baseVal.value), point(matrix, node.x2.baseVal.value, node.y2.baseVal.value)) - stroke);
+      }
+      if (tag === "polyline" || tag === "polygon") {
+        const points = pointsAttribute(node);
+        let distance = tag === "polygon" && points.length ? polygonBoundaryDistance(polygon, points) : Infinity;
+        for (let index = 0; index + 1 < points.length; index += 1) distance = Math.min(distance, polygonSegmentDistance(polygon, points[index], points[index + 1]));
+        if (style.fill !== "none" && (points.some(function (value) { return pointInPolygon(value, polygon); }) || polygon.some(function (value) { return pointInPolygon(value, points); }))) distance = 0;
+        return Math.max(0, distance - stroke);
+      }
+      if (typeof node.getTotalLength === "function" && typeof node.getPointAtLength === "function") {
+        const sampled = geometrySamples(node);
+        let distance = Infinity; let previous = null;
+        for (const current of sampled) {
+          if (pointInPolygon(current, polygon)) return 0;
+          if (previous && Math.hypot(current[0] - previous[0], current[1] - previous[1]) <= 1.5) {
+            distance = Math.min(distance, polygonSegmentDistance(polygon, previous, current));
+          }
+          previous = current;
+        }
+        for (const vertex of polygon) {
+          const local = localScreenPoint(node, vertex);
+          if ((style.fill !== "none" && node.isPointInFill(local)) || (style.stroke !== "none" && node.isPointInStroke(local))) return 0;
+        }
+        return Math.max(0, distance - stroke);
+      }
+      return Infinity;
+    }
+
+    function polygonDistance(first, second) {
+      if (first.some(function (value) { return pointInPolygon(value, second); }) || second.some(function (value) { return pointInPolygon(value, first); })) return 0;
+      return polygonBoundaryDistance(first, second);
+    }
+
     function arrowheadDistance(rootSvg, element, polygon) {
       if (!element.arrowhead || !Array.isArray(element.arrowhead.points)) return Infinity;
       const matrix = rootSvg.getScreenCTM();
       const head = element.arrowhead.points.map(function (value) { return point(matrix, value[0], value[1]); });
       return polygonDistance(polygon, head);
+    }
+
+    function pointToPolygonBoundary(candidate, polygon) {
+      let distance = Infinity;
+      polygon.forEach(function (value, index) {
+        distance = Math.min(distance, pointSegmentDistance(candidate, value, polygon[(index + 1) % polygon.length]));
+      });
+      return distance;
+    }
+
+    function polygonInsidePolygon(inner, outer, margin) {
+      return inner.every(function (candidate) {
+        const boundaryDistance = pointToPolygonBoundary(candidate, outer);
+        return (pointInPolygon(candidate, outer) || boundaryDistance <= 0.01) && boundaryDistance + 0.01 >= margin;
+      });
+    }
+
+    function viewBoxPolygonOnScreen(rootSvg) {
+      const viewBox = rootSvg.viewBox.baseVal;
+      const matrix = rootSvg.getScreenCTM();
+      return [
+        point(matrix, viewBox.x, viewBox.y), point(matrix, viewBox.x + viewBox.width, viewBox.y),
+        point(matrix, viewBox.x + viewBox.width, viewBox.y + viewBox.height), point(matrix, viewBox.x, viewBox.y + viewBox.height)
+      ];
+    }
+
+    function geometryPaintInside(rootSvg, node) {
+      const rootPolygon = viewBoxPolygonOnScreen(rootSvg);
+      const style = getComputedStyle(node);
+      const margin = style.stroke === "none" ? 0 : (parseFloat(style.strokeWidth) || 0) * screenScale(node) / 2;
+      const samples = geometrySamples(node);
+      if (!samples.length) return polygonInsidePolygon(bboxPolygonOnScreen(node), rootPolygon, margin);
+      return samples.every(function (candidate) {
+        const boundaryDistance = pointToPolygonBoundary(candidate, rootPolygon);
+        return (pointInPolygon(candidate, rootPolygon) || boundaryDistance <= 0.01) && boundaryDistance + 0.01 >= margin;
+      });
     }
 
     function auditSvg(rootSvg, manifest, mode) {
@@ -341,10 +415,11 @@
         if (bounds.left < rootRect.left - 0.5 || bounds.top < rootRect.top - 0.5 || bounds.right > rootRect.right + 0.5 || bounds.bottom > rootRect.bottom + 0.5) {
           failures.push(label.id + ": clipped text");
         }
-        const declaredSize = parseFloat(getComputedStyle(label).fontSize) || 0;
-        const renderedSize = Math.max(declaredSize, declaredSize * screenScale(label));
-        const minimum = mode === "print" ? 10 * 96 / 72 : 12;
-        if (renderedSize + 0.01 < minimum) failures.push(label.id + ": text smaller than required minimum");
+        const userUnitFontSize = parseFloat(getComputedStyle(label).fontSize) || 0;
+        const renderedSize = userUnitFontSize * fontScreenScale(label);
+        const measuredSize = mode === "print" ? renderedSize * 72 / 96 : renderedSize;
+        const minimum = mode === "print" ? 10 : 12;
+        if (measuredSize + 0.01 < minimum) failures.push(label.id + ": text smaller than required minimum");
         const anchorId = label.getAttribute("data-label-anchor");
         const manifestLabel = byId.get(label.id);
         if (!manifestLabel || manifestLabel.anchorId !== anchorId || !byId.has(anchorId)) failures.push(label.id + ": unverified label anchor");
@@ -357,8 +432,8 @@
           const markerDistance = element ? arrowheadDistance(rootSvg, element, screenPolygon) : Infinity;
           const exactDistance = Math.min(distance, markerDistance);
           if (exactDistance <= 0.1) failures.push(label.id + ": intersects non-anchor " + geometryId);
-          else if (roleById.get(geometryId) && geometry.closest('[data-layer="information"]') && exactDistance < 6 - 0.1) {
-            failures.push(label.id + ": less than 6 CSS px from non-anchor information " + geometryId);
+          else if (roleById.get(geometryId) && exactDistance < 6 - 0.1) {
+            failures.push(label.id + ": less than 6 CSS px from non-anchor geometry " + geometryId);
           }
         });
 
@@ -368,12 +443,13 @@
           if (!backgroundNode) failures.push(label.id + ": opaque background is missing");
           else {
             const backgroundPolygon = bboxPolygonOnScreen(backgroundNode);
+            const rootPolygon = viewBoxPolygonOnScreen(rootSvg);
+            if (!polygonInsidePolygon(backgroundPolygon, rootPolygon, 0)) failures.push(label.id + ": opaque background outside viewBox");
             visible.forEach(function (geometry) {
               const geometryId = geometry.getAttribute("data-geometry-id");
-              if (geometryId === anchorId) return;
               const element = byId.get(geometryId);
               const distance = Math.min(geometryDistance(geometry, backgroundPolygon), element ? arrowheadDistance(rootSvg, element, backgroundPolygon) : Infinity);
-              if (distance <= 0.1) failures.push(label.id + ": opaque background covers non-anchor " + geometryId);
+              if (distance <= 0.1) failures.push(label.id + ": opaque background covers geometry " + geometryId);
             });
           }
         }
@@ -387,11 +463,12 @@
 
       visible.forEach(function (node) {
         const id = node.getAttribute("data-geometry-id");
-        const localPolygon = bboxPolygonInRoot(rootSvg, node);
         const element = byId.get(id);
-        const halfStroke = element ? (element.strokeWidth || 0) / 2 : 0;
-        if (localPolygon.some(function (value) { return value[0] < -halfStroke - 0.01 || value[1] < -halfStroke - 0.01 || value[0] > manifest.width + halfStroke + 0.01 || value[1] > manifest.height + halfStroke + 0.01; })) {
-          failures.push(id + ": geometry outside viewBox");
+        if (!geometryPaintInside(rootSvg, node)) failures.push(id + ": painted geometry outside viewBox");
+        if (element && element.arrowhead && !polygonInsidePolygon(element.arrowhead.points.map(function (value) {
+          return point(rootSvg.getScreenCTM(), value[0], value[1]);
+        }), viewBoxPolygonOnScreen(rootSvg), 0)) {
+          failures.push(id + ": painted arrowhead outside viewBox");
         }
       });
 
@@ -402,7 +479,7 @@
           labelCount: labels.length,
           minimumFontCssPx: labels.length ? Number(Math.min.apply(Math, labels.map(function (label) {
             const declared = parseFloat(getComputedStyle(label).fontSize) || 0;
-            return Math.max(declared, declared * screenScale(label));
+            return declared * fontScreenScale(label);
           })).toFixed(3)) : null
         }
       };
@@ -424,6 +501,16 @@
       navigation.innerHTML = "<ol></ol>";
       const app = document.createElement("main");
       app.id = "exam-app";
+      const renderedArticles = [];
+      function renderQuestion(article, content, question) {
+        try {
+          content.innerHTML = diagramMarkup(question, descriptor.purpose);
+        } catch (error) {
+          article.dataset.auditMarkupError = error.message;
+        }
+        article.append(content);
+        renderedArticles.push({ question: question, article: article });
+      }
       if (descriptor.mode === "print") {
         const print = document.createElement("section");
         print.className = "print-exam";
@@ -435,8 +522,8 @@
           heading.textContent = (index + 1) + ". " + question.id;
           const content = document.createElement("div");
           content.className = "prompt";
-          content.innerHTML = diagramMarkup(question, descriptor.purpose);
-          article.append(heading, content);
+          article.append(heading);
+          renderQuestion(article, content, question);
           print.append(article);
         });
         app.append(print);
@@ -448,20 +535,27 @@
           heading.textContent = (index + 1) + ". " + question.id + (descriptor.purpose === "solution" ? " - lösning" : "");
           const content = document.createElement("div");
           content.className = descriptor.purpose === "solution" ? "solution" : "prompt";
-          content.innerHTML = diagramMarkup(question, descriptor.purpose);
-          article.append(heading, content);
+          article.append(heading);
+          renderQuestion(article, content, question);
           app.append(article);
         });
       }
       layout.append(navigation, app);
       auditRoot.replaceChildren(layout);
       await waitForLayout();
-      const records = group.questions.map(function (question) {
+      const pageOverflow = document.documentElement.scrollWidth > window.innerWidth + 1;
+      const records = renderedArticles.map(function (entry) {
+        const question = entry.question;
         const manifest = manifestFor(question, descriptor.purpose);
-        const svg = document.getElementById(manifest.id);
+        const roots = Array.from(entry.article.querySelectorAll("svg"));
         try {
-          if (!svg) throw new Error("rendered SVG root is missing");
+          if (entry.article.dataset.auditMarkupError) throw new Error(entry.article.dataset.auditMarkupError);
+          if (roots.length !== 1) throw new Error("rendered article must contain exactly one SVG root");
+          const svg = roots[0];
+          if (svg.id !== manifest.id) throw new Error("rendered SVG root ID does not match its manifest");
           const result = auditSvg(svg, manifest, descriptor.mode);
+          if (pageOverflow) result.failures.push("diagram layout causes page-level horizontal overflow");
+          result.metrics.renderedRootCount = roots.length;
           return {
             key: [descriptor.subject, "slot-" + descriptor.slot, question.id, descriptor.purpose, descriptor.mode].join("/"),
             subject: descriptor.subject, slot: descriptor.slot, questionId: question.id,
@@ -510,9 +604,83 @@
       const secondPolygon = rounded(bboxPolygonInRoot(second, document.getElementById("nested-rect-b")));
       const expected = [[16, 28], [26, 28], [26, 40], [16, 40]];
       const widths = [first.getBoundingClientRect().width, second.getBoundingClientRect().width];
+
+      function regressionFigure(id, blocker, labelAt, fontSize) {
+        const diagram = window.KS.diagram.create({ id: id, title: "Regression", description: "Kontrollerad felgeometri", width: 200, height: 120, purpose: "prompt" });
+        const owner = window.KS.diagram.line({ id: id + "-owner", a: [15, 108], b: [45, 108], role: "line", strokeWidth: 2 });
+        diagram.add("geometry", owner);
+        if (blocker) diagram.add("information", blocker);
+        diagram.add("labels", window.KS.diagram.label({
+          id: id + "-label", at: labelAt || [110, 65], text: "Testetikett", anchorId: owner.id,
+          avoid: blocker ? [blocker.id] : [], minClearance: 6, fontSize: fontSize || 12, textAnchor: "middle", background: true
+        }));
+        return diagram.finish();
+      }
+
+      function mountRegression(figure) {
+        const holder = document.createElement("div");
+        holder.innerHTML = figure.html;
+        root.append(holder);
+        const svg = holder.querySelector("svg");
+        svg.style.width = "200px";
+        return svg;
+      }
+
+      function rejected(svg, manifest, pattern) {
+        const result = auditSvg(svg, manifest, "desktop");
+        return result.failures.some(function (failure) { return pattern.test(failure); });
+      }
+
+      const nestedFigure = regressionFigure("bad-nested-overlap", window.KS.diagram.line({ id: "bad-nested-overlap-blocker", a: [20, 20], b: [60, 20], role: "line", strokeWidth: 2 }));
+      const nestedSvg = mountRegression(nestedFigure);
+      const nestedBlocker = nestedSvg.querySelector("#bad-nested-overlap-blocker");
+      const outerTransform = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      const innerTransform = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      outerTransform.setAttribute("transform", "translate(80 40)");
+      innerTransform.setAttribute("transform", "scale(1)");
+      nestedBlocker.parentNode.insertBefore(outerTransform, nestedBlocker);
+      outerTransform.append(innerTransform); innerTransform.append(nestedBlocker);
+
+      const clippingFigure = regressionFigure("bad-clipping", null, [110, 65]);
+      const clippingSvg = mountRegression(clippingFigure);
+      clippingSvg.querySelector("#bad-clipping-label").setAttribute("transform", "translate(150 0)");
+
+      const fontFigure = regressionFigure("bad-font", null, [110, 65], 12);
+      const fontSvg = mountRegression(fontFigure); fontSvg.style.width = "100px";
+
+      const ellipseFigure = regressionFigure("bad-ellipse", window.KS.diagram.circle({ id: "bad-ellipse-blocker", center: [40, 30], radius: 18, role: "shape", strokeWidth: 2 }), [132, 65]);
+      const ellipseSvg = mountRegression(ellipseFigure);
+      ellipseSvg.querySelector("#bad-ellipse-blocker").setAttribute("transform", "matrix(1 .5 .8 1 68 15)");
+
+      const polygonFigure = regressionFigure("bad-polygon", window.KS.diagram.polygon({ id: "bad-polygon-blocker", points: [[70, 30], [170, 30], [170, 95], [70, 95]], role: "shape", strokeWidth: 1 }), [120, 65]);
+      const polygonSvg = mountRegression(polygonFigure);
+      polygonSvg.querySelector("#bad-polygon-blocker").setAttribute("fill", "currentColor");
+
+      const ownerFigure = regressionFigure("bad-owner-background", null, [50, 112]);
+      const ownerSvg = mountRegression(ownerFigure);
+
+      const overflowFigure = regressionFigure("bad-paint-overflow", window.KS.diagram.line({ id: "bad-paint-overflow-blocker", a: [20, 20], b: [80, 20], role: "line", strokeWidth: 4 }), [130, 70]);
+      const overflowSvg = mountRegression(overflowFigure);
+      overflowSvg.querySelector("#bad-paint-overflow-blocker").setAttribute("transform", "translate(0 -20)");
+
+      let rejectsExtraRoot = false;
+      try {
+        parsedDiagram('<svg id="first"></svg><svg id="second"></svg>', { id: "first" });
+      } catch (error) {
+        rejectsExtraRoot = /exactly one SVG root/u.test(error.message);
+      }
+
       return {
         nestedTransform: JSON.stringify(firstPolygon) === JSON.stringify(expected) && JSON.stringify(secondPolygon) === JSON.stringify(expected) ? "pass" : "fail",
-        cssWidth: Math.abs(widths[0] * 2 - widths[1]) < 0.01 && Math.abs(screenScale(document.getElementById("nested-rect-a")) * 2 - screenScale(document.getElementById("nested-rect-b"))) < 0.01 ? "pass" : "fail"
+        cssWidth: Math.abs(widths[0] * 2 - widths[1]) < 0.01 && Math.abs(screenScale(document.getElementById("nested-rect-a")) * 2 - screenScale(document.getElementById("nested-rect-b"))) < 0.01 ? "pass" : "fail",
+        rejectsNestedOverlap: rejected(nestedSvg, nestedFigure.manifest, /intersects non-anchor|opaque background covers geometry/u) ? "pass" : "fail",
+        rejectsClipping: rejected(clippingSvg, clippingFigure.manifest, /clipped text|label outside viewBox/u) ? "pass" : "fail",
+        rejectsScaledFont: rejected(fontSvg, fontFigure.manifest, /text smaller than required minimum/u) ? "pass" : "fail",
+        rejectsExtraRoot: rejectsExtraRoot ? "pass" : "fail",
+        rejectsTransformedEllipse: rejected(ellipseSvg, ellipseFigure.manifest, /intersects non-anchor|opaque background covers geometry/u) ? "pass" : "fail",
+        rejectsPolygonContainment: rejected(polygonSvg, polygonFigure.manifest, /intersects non-anchor|opaque background covers geometry/u) ? "pass" : "fail",
+        rejectsOpaqueOwnerCover: rejected(ownerSvg, ownerFigure.manifest, /opaque background covers geometry bad-owner-background-owner/u) ? "pass" : "fail",
+        rejectsPaintOverflow: rejected(overflowSvg, overflowFigure.manifest, /painted geometry outside viewBox/u) ? "pass" : "fail"
       };
     }
 
@@ -540,10 +708,11 @@
       const originalActive = localStorage.getItem(activeKey); const originalHistory = localStorage.getItem(historyKey);
       const question = window.KS_SUBJECT_DATA.slots[1][0];
       const originalManifest = question.sourceData.diagram;
+      const originalPromptHtml = question.promptHtml;
       const originalRandom = Math.random;
       let randomCalls = 0;
       localStorage.setItem(activeKey, activeBytes); localStorage.setItem(historyKey, historyBytes);
-      question.sourceData.diagram = { id: "invalid-preflight-manifest" };
+      question.promptHtml = '<svg id="' + originalManifest.id + '"></svg>';
       Math.random = function () { randomCalls += 1; throw new Error("RNG must not run before diagram preflight"); };
       let result;
       try {
@@ -551,6 +720,7 @@
       } finally {
         Math.random = originalRandom;
         question.sourceData.diagram = originalManifest;
+        question.promptHtml = originalPromptHtml;
       }
       const disabled = ["timer-start", "timer-pause", "timer-reset", "history-open", "history-confirm", "submit-confirm", "recovery-continue", "recovery-new", "print-exam"].every(function (id) {
         return document.getElementById(id).disabled;

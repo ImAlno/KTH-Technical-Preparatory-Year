@@ -284,7 +284,7 @@
       const gravity = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-weight", from: [weightX, 210], to: [weightX, 370], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
       label({ id: id + "-force-support-left-label", at: [150, 67], text: "F₁", anchorId: left.id }, "force", { x: 125, y: 48, width: 50, height: 30 });
       label({ id: id + "-force-support-right-label", at: [510, 67], text: "F₂", anchorId: right.id }, "force", { x: 485, y: 48, width: 50, height: 30 });
-      label({ id: id + "-force-weight-label", at: [weightX + 46, 374], text: "mg", anchorId: gravity.id }, "force", { x: weightX + 25, y: 354, width: 50, height: 32 });
+      label({ id: id + "-force-weight-label", at: [weightX + 58, 374], text: "mg", anchorId: gravity.id }, "force", { x: weightX + 30, y: 354, width: 58, height: 32 });
     } else {
       const sphere = addShape(diagram, shapes, "geometry", diagramKit.circle({ id: id + "-isolated-sphere", center: [330, 210], radius: 62, role: "circle", strokeWidth: 2.5 }));
       const angle = radians(p.cableAngleDeg);

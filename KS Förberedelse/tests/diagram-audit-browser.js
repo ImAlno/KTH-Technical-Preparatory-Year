@@ -20,17 +20,30 @@ const VIEWPORT_BY_MODE = {
 };
 const SOURCE_FILES = {
   appCss: "KS Förberedelse/assets/app.css",
+  subjectConfig: "KS Förberedelse/assets/js/subject-config.js",
+  units: "KS Förberedelse/assets/js/units.js",
+  expressionParser: "KS Förberedelse/assets/js/expression-parser.js",
+  grading: "KS Förberedelse/assets/js/grading.js",
+  storage: "KS Förberedelse/assets/js/storage.js",
+  timer: "KS Förberedelse/assets/js/timer.js",
+  examEngine: "KS Förberedelse/assets/js/exam-engine.js",
   diagramKit: "KS Förberedelse/assets/js/diagram-kit.js",
+  app: "KS Förberedelse/assets/js/app.js",
   mathSlot5: "KS Förberedelse/Matematik KS2/questions/slot-5.js",
   physicsSlot1: "KS Förberedelse/Fysik KS1/questions/slot-1.js",
   physicsSlot2: "KS Förberedelse/Fysik KS1/questions/slot-2.js",
   physicsSlot3: "KS Förberedelse/Fysik KS1/questions/slot-3.js",
   physicsSlot4: "KS Förberedelse/Fysik KS1/questions/slot-4.js",
   physicsSlot5: "KS Förberedelse/Fysik KS1/questions/slot-5.js",
+  physicsQuestions: "KS Förberedelse/Fysik KS1/questions.js",
   auditPage: "KS Förberedelse/tests/diagram-audit-page.html",
   auditRunner: "KS Förberedelse/tests/diagram-audit-browser.js",
   auditVerifier: "KS Förberedelse/tests/diagram-audit-verify.js",
-  auditTest: "KS Förberedelse/tests/diagram-audit.test.js"
+  auditTest: "KS Förberedelse/tests/diagram-audit.test.js",
+  staticPagesTest: "KS Förberedelse/tests/static-pages.test.js",
+  diagramKitTest: "KS Förberedelse/tests/diagram-kit.test.js",
+  mathQuestionsTest: "KS Förberedelse/tests/math-questions.test.js",
+  physicsQuestionsTest: "KS Förberedelse/tests/physics-questions.test.js"
 };
 
 class CdpConnection {
@@ -179,27 +192,53 @@ function rasterHash(pdfPath, scratchDirectory) {
   return { hash: hash.digest("hex"), pageCount: pages.length, dpi: FIXED_PDF_DPI };
 }
 
-async function launchChrome() {
-  if (!fs.existsSync(CHROME)) throw new Error("required Chrome binary is missing: " + CHROME);
-  const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "ks-diagram-chrome-profile-"));
-  const browser = childProcess.spawn(CHROME, [
-    "--headless=new", "--disable-gpu", "--allow-file-access-from-files", "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0",
-    "--user-data-dir=" + profileDirectory, "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
-    "--disable-component-update", "--disable-default-apps", "--disable-domain-reliability", "--disable-features=Translate,OptimizationHints,MediaRouter",
-    "--disable-sync", "--metrics-recording-only", "--safebrowsing-disable-auto-update", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost",
-    "about:blank"
-  ], { stdio: ["ignore", "ignore", "pipe"] });
-  const websocketUrl = await new Promise((resolve, reject) => {
-    let stderr = "";
-    const timer = setTimeout(() => reject(new Error("Chrome did not publish a debugging endpoint")), 15_000);
-    browser.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-      const match = stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/u);
-      if (match) { clearTimeout(timer); resolve(match[1]); }
+async function launchChrome(options) {
+  const settings = Object.assign({
+    binaryPath: CHROME,
+    temporaryRoot: os.tmpdir(),
+    startupTimeoutMs: 15_000,
+    spawnImpl: childProcess.spawn
+  }, options || {});
+  let profileDirectory = null;
+  let browser = null;
+  try {
+    if (!fs.existsSync(settings.binaryPath)) throw new Error("required Chrome binary is missing: " + settings.binaryPath);
+    profileDirectory = fs.mkdtempSync(path.join(settings.temporaryRoot, "ks-diagram-chrome-profile-"));
+    browser = settings.spawnImpl(settings.binaryPath, [
+      "--headless=new", "--disable-gpu", "--allow-file-access-from-files", "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0",
+      "--user-data-dir=" + profileDirectory, "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
+      "--disable-component-update", "--disable-default-apps", "--disable-domain-reliability", "--disable-features=Translate,OptimizationHints,MediaRouter",
+      "--disable-sync", "--metrics-recording-only", "--safebrowsing-disable-auto-update", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost",
+      "about:blank"
+    ], { stdio: ["ignore", "ignore", "pipe"] });
+    const websocketUrl = await new Promise((resolve, reject) => {
+      let stderr = "";
+      let settled = false;
+      let timer;
+      const onData = (chunk) => {
+        stderr += chunk.toString();
+        const match = stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/u);
+        if (match) finish(resolve, match[1]);
+      };
+      const onExit = (code) => finish(reject, new Error("Chrome exited before audit: " + code + "\n" + stderr));
+      function finish(callback, value) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        browser.stderr.removeListener("data", onData);
+        browser.removeListener("exit", onExit);
+        callback(value);
+      }
+      timer = setTimeout(() => finish(reject, new Error("Chrome did not publish a debugging endpoint")), settings.startupTimeoutMs);
+      browser.stderr.on("data", onData);
+      browser.once("exit", onExit);
     });
-    browser.once("exit", (code) => { clearTimeout(timer); reject(new Error("Chrome exited before audit: " + code + "\n" + stderr)); });
-  });
-  return { browser, profileDirectory, connection: new CdpConnection(websocketUrl) };
+    return { browser, profileDirectory, connection: new CdpConnection(websocketUrl) };
+  } catch (error) {
+    if (browser && !browser.killed) browser.kill("SIGTERM");
+    if (profileDirectory) fs.rmSync(profileDirectory, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 async function evaluate(connection, sessionId, expression) {
@@ -216,11 +255,13 @@ async function runAudit(options) {
   const printDirectory = path.join(outputDirectory, "prints");
   if (settings.screenshots) fs.mkdirSync(contactDirectory, { recursive: true });
   if (settings.pdfs) fs.mkdirSync(printDirectory, { recursive: true });
-  const scratchDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "ks-diagram-raster-"));
-  const chrome = await launchChrome();
   const networkRequests = [];
   let sessionId;
+  let scratchDirectory = null;
+  let chrome = null;
   try {
+    scratchDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "ks-diagram-raster-"));
+    chrome = await launchChrome();
     const connection = chrome.connection;
     const version = await connection.send("Browser.getVersion");
     const target = await connection.send("Target.createTarget", { url: "about:blank" });
@@ -314,10 +355,12 @@ async function runAudit(options) {
     fs.writeFileSync(path.join(outputDirectory, "manifest.json"), JSON.stringify(audit, null, 2) + "\n");
     return audit;
   } finally {
-    chrome.connection.close();
-    chrome.browser.kill("SIGTERM");
-    fs.rmSync(chrome.profileDirectory, { recursive: true, force: true });
-    fs.rmSync(scratchDirectory, { recursive: true, force: true });
+    if (chrome) {
+      chrome.connection.close();
+      if (!chrome.browser.killed) chrome.browser.kill("SIGTERM");
+      fs.rmSync(chrome.profileDirectory, { recursive: true, force: true });
+    }
+    if (scratchDirectory) fs.rmSync(scratchDirectory, { recursive: true, force: true });
   }
 }
 
@@ -336,4 +379,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { runAudit, decodedPixelHash, rasterHash, sourceHashes, VIEWPORT_BY_MODE, SOURCE_FILES };
+module.exports = { runAudit, launchChrome, decodedPixelHash, rasterHash, sourceHashes, VIEWPORT_BY_MODE, SOURCE_FILES };

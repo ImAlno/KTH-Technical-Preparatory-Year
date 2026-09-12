@@ -332,9 +332,15 @@ summary:focus-visible,
 
 .prompt,
 .solution {
+  overflow-x: auto;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 1.07rem;
   line-height: 1.7;
+}
+
+.prompt > svg,
+.solution > svg {
+  max-width: none;
 }
 
 .prompt {
@@ -1073,6 +1079,16 @@ dialog p {
   body {
     background: #fff;
     color: #000;
+  }
+
+  .prompt,
+  .solution {
+    overflow-x: visible;
+  }
+
+  .prompt > svg,
+  .solution > svg {
+    max-width: 100%;
   }
 
   .formula-dialog::backdrop {

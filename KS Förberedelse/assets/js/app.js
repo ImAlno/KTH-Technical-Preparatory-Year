@@ -193,7 +193,49 @@
     return { ok: false, reason: "diagram-preflight-failed" };
   }
 
-  function validatePromptDiagrams(slots, diagramApi) {
+  function exactIdSet(actualIds, expectedIds, name) {
+    if (!Array.isArray(expectedIds)) throw new Error(name + " is missing");
+    const expected = new Set(expectedIds);
+    if (expected.size !== expectedIds.length || actualIds.length !== expectedIds.length || actualIds.some(function (id) { return !expected.has(id); })) {
+      throw new Error(name + " does not match rendered markup");
+    }
+  }
+
+  function validatePromptMarkup(document, html, manifest) {
+    if (typeof html !== "string") throw new Error("prompt diagram markup is missing");
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    if (!template.content || typeof template.content.querySelectorAll !== "function") throw new Error("prompt diagram parser is unavailable");
+    const roots = Array.from(template.content.querySelectorAll("svg"));
+    if (roots.length !== 1) throw new Error("prompt diagram must contain exactly one SVG root");
+    const svg = roots[0];
+    if (svg.id !== manifest.id) throw new Error("prompt diagram root ID does not match its manifest");
+    if (svg.getAttribute("role") !== "img") throw new Error("prompt diagram root must have role img");
+    if (svg.getAttribute("aria-labelledby") !== manifest.ariaLabelledby) throw new Error("prompt diagram accessible name does not match its manifest");
+
+    const directTitles = Array.from(svg.children || []).filter(function (child) { return child.tagName && child.tagName.toLowerCase() === "title"; });
+    const directDescriptions = Array.from(svg.children || []).filter(function (child) { return child.tagName && child.tagName.toLowerCase() === "desc"; });
+    if (directTitles.length !== 1 || directTitles[0].id !== manifest.titleId) throw new Error("prompt diagram title does not match its manifest");
+    if (directDescriptions.length !== 1 || directDescriptions[0].id !== manifest.descriptionId) throw new Error("prompt diagram description does not match its manifest");
+    if (typeof manifest.title === "string" && directTitles[0].textContent !== manifest.title) throw new Error("prompt diagram title text does not match its manifest");
+    if (typeof manifest.description === "string" && directDescriptions[0].textContent !== manifest.description) throw new Error("prompt diagram description text does not match its manifest");
+
+    const idNodes = [svg].concat(Array.from(svg.querySelectorAll("[id]")));
+    const actualIds = idNodes.map(function (node) { return node.id; });
+    if (actualIds.some(function (id) { return typeof id !== "string" || !id; }) || new Set(actualIds).size !== actualIds.length) {
+      throw new Error("prompt diagram contains missing or duplicate DOM IDs");
+    }
+    exactIdSet(actualIds, manifest.domIds, "prompt diagram DOM IDs");
+    const actualIdSet = new Set(actualIds);
+    const requiredIds = [manifest.id, manifest.titleId, manifest.descriptionId]
+      .concat(Array.isArray(manifest.fragmentIds) ? manifest.fragmentIds : [])
+      .concat(Array.isArray(manifest.elements) ? manifest.elements.map(function (element) { return element.id; }) : []);
+    if (requiredIds.some(function (id) { return typeof id !== "string" || !actualIdSet.has(id); })) {
+      throw new Error("prompt diagram required IDs do not match its manifest");
+    }
+  }
+
+  function validatePromptDiagrams(slots, diagramApi, document) {
     const diagrams = [];
     Object.keys(slots).forEach(function (slot) {
       slots[slot].forEach(function (question) {
@@ -206,10 +248,7 @@
     if (!diagramApi || typeof diagramApi.validateManifest !== "function") throw new Error("diagram-kit validator is unavailable");
     diagrams.forEach(function (entry) {
       diagramApi.validateManifest(entry.manifest);
-      const escapedId = String(entry.manifest.id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      if (typeof entry.html !== "string" || !(new RegExp("<svg\\b[^>]*\\bid=[\"']" + escapedId + "[\"']", "u")).test(entry.html)) {
-        throw new Error("prompt diagram did not render");
-      }
+      validatePromptMarkup(document, entry.html, entry.manifest);
     });
   }
 
@@ -225,7 +264,7 @@
     if (!KS || !KS.exam || !KS.storage || !KS.timer || !KS.grading) return renderMissingBank(rootElement);
 
     try {
-      validatePromptDiagrams(slots, KS.diagram);
+      validatePromptDiagrams(slots, KS.diagram, document);
     } catch (error) {
       return renderDiagramFailure(rootElement);
     }

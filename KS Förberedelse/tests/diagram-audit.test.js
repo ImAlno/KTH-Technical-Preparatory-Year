@@ -3,8 +3,29 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { EventEmitter } = require("node:events");
 
-const { runAudit } = require("./diagram-audit-browser.js");
+const { runAudit, launchChrome } = require("./diagram-audit-browser.js");
+
+test("a Chrome startup timeout kills the child and removes its isolated profile", async () => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ks-diagram-startup-test-"));
+  const child = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.killed = false;
+  child.kill = function () { this.killed = true; return true; };
+  try {
+    await assert.rejects(launchChrome({
+      binaryPath: process.execPath,
+      temporaryRoot,
+      startupTimeoutMs: 5,
+      spawnImpl() { return child; }
+    }), /did not publish a debugging endpoint/u);
+    assert.equal(child.killed, true);
+    assert.deepEqual(fs.readdirSync(temporaryRoot), []);
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
 
 test("audits every prompt in four modes and every solution figure in three screen modes", { timeout: 180_000 }, async () => {
   const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "ks-diagram-audit-"));
@@ -25,10 +46,26 @@ test("audits every prompt in four modes and every solution figure in three scree
       physicsSolution: 65,
       accessiblePairs: 215
     });
-    assert.equal(audit.regressions.nestedTransform, "pass");
-    assert.equal(audit.regressions.cssWidth, "pass");
+    assert.deepEqual(audit.regressions, {
+      nestedTransform: "pass",
+      cssWidth: "pass",
+      rejectsNestedOverlap: "pass",
+      rejectsClipping: "pass",
+      rejectsScaledFont: "pass",
+      rejectsExtraRoot: "pass",
+      rejectsTransformedEllipse: "pass",
+      rejectsPolygonContainment: "pass",
+      rejectsOpaqueOwnerCover: "pass",
+      rejectsPaintOverflow: "pass"
+    });
     assert.equal(audit.preflight.outcome, "pass");
     assert.deepEqual(audit.networkRequests, []);
+    [
+      "appCss", "subjectConfig", "units", "expressionParser", "grading", "storage", "timer", "examEngine",
+      "diagramKit", "app", "mathSlot5", "physicsSlot1", "physicsSlot2", "physicsSlot3", "physicsSlot4",
+      "physicsSlot5", "physicsQuestions", "auditPage", "auditRunner", "auditVerifier", "auditTest",
+      "staticPagesTest", "diagramKitTest", "mathQuestionsTest", "physicsQuestionsTest"
+    ].forEach((name) => assert.match(audit.sourceHashes[name] || "", /^[a-f0-9]{64}$/u, name));
   } finally {
     fs.rmSync(outputDirectory, { recursive: true });
   }

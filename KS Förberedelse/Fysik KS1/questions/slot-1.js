@@ -130,7 +130,7 @@
     const height = 350;
     const layout = {
       plot: { x: 82, y: 34, width: 438, height: 232 },
-      xTickZone: { x: 74, y: 274, width: 456, height: 26 },
+      xTickZone: { x: 74, y: 274, width: 460, height: 26 },
       yTickZone: { x: 18, y: 24, width: 52, height: 250 },
       xTitleZone: { x: 436, y: 316, width: 92, height: 26 },
       yTitleZone: { x: 224, y: 4, width: 92, height: 22 }
@@ -160,13 +160,13 @@
       addShape(diagram, shapes, "information", diagramKit.circle({ id: id + "-point-" + index, center: point, radius: 4, role: "point", strokeWidth: 2 }));
     });
     for (let value = 0; value <= row.axis.xMax; value += row.axis.xStep) {
-      addLabel(diagram, shapes, labels, { id: id + "-x-tick-label-" + value, at: [transform.xToScreen(value), 294], text: String(value), anchorId: xAxis.id, fontSize: 12 });
+      addLabel(diagram, shapes, labels, { id: id + "-x-tick-label-" + value, at: [transform.xToScreen(value), 294], text: String(value), anchorId: xAxis.id, fontSize: 14 });
     }
     for (let value = 0; value <= row.axis.yMax; value += row.axis.yStep) {
-      addLabel(diagram, shapes, labels, { id: id + "-y-tick-label-" + value, at: [66, Math.min(transform.yToScreen(value) + 5, 269)], text: String(value), anchorId: yAxis.id, textAnchor: "end", fontSize: 12 });
+      addLabel(diagram, shapes, labels, { id: id + "-y-tick-label-" + value, at: [66, Math.max(40, Math.min(transform.yToScreen(value) + 5, 266))], text: String(value), anchorId: yAxis.id, textAnchor: "end", fontSize: 14 });
     }
-    addLabel(diagram, shapes, labels, { id: id + "-x-title", at: [520, 336], text: "t (s)", anchorId: xAxis.id, textAnchor: "end", fontSize: 13 });
-    addLabel(diagram, shapes, labels, { id: id + "-y-title", at: [226, 19], text: row.graphType === "s-t" ? "s (m)" : "v (m/s)", anchorId: yAxis.id, textAnchor: "start", fontSize: 13 });
+    addLabel(diagram, shapes, labels, { id: id + "-x-title", at: [520, 336], text: "t (s)", anchorId: xAxis.id, textAnchor: "end", fontSize: 14 });
+    addLabel(diagram, shapes, labels, { id: id + "-y-title", at: [226, 20], text: row.graphType === "s-t" ? "s (m)" : "v (m/s)", anchorId: yAxis.id, textAnchor: "start", fontSize: 14 });
     const result = diagram.finish();
     return { html: result.html.replace("<svg ", '<svg data-scale="exact" data-x-max="' + row.axis.xMax + '" data-y-max="' + row.axis.yMax + '" '), manifest: result.manifest, layout: layout };
   }

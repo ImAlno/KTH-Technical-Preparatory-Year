@@ -153,6 +153,7 @@ test("serializes ordered semantic layers, labels, collision metadata, and access
   diagram.add("information", kit.arrow({ id: "force", from: [60, 40], to: [60, 20], role: "force" }));
   diagram.add("labels", kit.label({ id: "label", at: [60, 70], text: "F < 2", anchorId: "pulley", textAnchor: "middle", avoid: ["pulley"], minClearance: 6, background: true }));
   const result = diagram.finish();
+  assert.match(result.html, /<svg\b[^>]*\bwidth="120"[^>]*\bheight="80"/u);
   assert.match(result.html, /<svg[^>]+role="img"/);
   assert.match(result.html, /aria-labelledby="kit-order-title kit-order-desc"/);
   assert.match(result.html, /&lt;Titel&gt;/);
