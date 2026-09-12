@@ -333,6 +333,63 @@ function serializedBackgroundBox(html, id) {
   return { x: Number(attributes.x), y: Number(attributes.y), width: Number(attributes.width), height: Number(attributes.height) };
 }
 
+function serializedLine(html, id) {
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const tag = html.match(new RegExp(`<line\\b(?=[^>]*\\bid="${escaped}")[^>]*>`, "u"));
+  assert.ok(tag, `missing serialized line ${id}`);
+  const attributes = Object.fromEntries(Array.from(tag[0].matchAll(/([\w-]+)="([^"]*)"/gu), (entry) => [entry[1], entry[2]]));
+  return {
+    from: [Number(attributes.x1), Number(attributes.y1)],
+    to: [Number(attributes.x2), Number(attributes.y2)]
+  };
+}
+
+function pointOnSegment(point, start, end, tolerance = 1e-8) {
+  if (pointLineDistance(point, start, end) > tolerance) return false;
+  return point[0] >= Math.min(start[0], end[0]) - tolerance && point[0] <= Math.max(start[0], end[0]) + tolerance &&
+    point[1] >= Math.min(start[1], end[1]) - tolerance && point[1] <= Math.max(start[1], end[1]) + tolerance;
+}
+
+function primitiveSegments(element) {
+  if (element.kind === "line") return [[element.from, element.to]];
+  if (element.kind === "rect") {
+    const points = [[element.x, element.y], [element.x + element.width, element.y], [element.x + element.width, element.y + element.height], [element.x, element.y + element.height]];
+    return points.map((point, index) => [point, points[(index + 1) % points.length]]);
+  }
+  if (["body", "polygon", "polyline"].includes(element.kind)) {
+    const limit = element.kind === "polyline" ? element.points.length - 1 : element.points.length;
+    return Array.from({ length: limit }, (_, index) => [element.points[index], element.points[(index + 1) % element.points.length]]);
+  }
+  return [];
+}
+
+function convexHull(points) {
+  const sorted = points.map((point) => point.slice()).sort((left, right) => left[0] - right[0] || left[1] - right[1]);
+  const cross = (origin, left, right) => (left[0] - origin[0]) * (right[1] - origin[1]) - (left[1] - origin[1]) * (right[0] - origin[0]);
+  const half = (input) => {
+    const result = [];
+    input.forEach((point) => {
+      while (result.length >= 2 && cross(result[result.length - 2], result[result.length - 1], point) <= 0) result.pop();
+      result.push(point);
+    });
+    return result;
+  };
+  return half(sorted).slice(0, -1).concat(half(sorted.slice().reverse()).slice(0, -1));
+}
+
+function outsideConvexHullBy(point, hull, clearance) {
+  return hull.some((start, index) => {
+    const end = hull[(index + 1) % hull.length];
+    const signedDistance = ((end[0] - start[0]) * (point[1] - start[1]) - (end[1] - start[1]) * (point[0] - start[0])) / Math.hypot(end[0] - start[0], end[1] - start[1]);
+    return signedDistance < -clearance;
+  });
+}
+
+function sameUndirectedSegment(left, right) {
+  const same = (a, b) => close(a[0], b[0]) && close(a[1], b[1]);
+  return (same(left[0], right[0]) && same(left[1], right[1])) || (same(left[0], right[1]) && same(left[1], right[0]));
+}
+
 function visiblePromptText(html) {
   const entities = {
     nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
@@ -765,6 +822,7 @@ test("contact prompts preserve exact floor/support contact and reserve full forc
     const data = question.sourceData;
     const prompt = data.diagram;
     const solution = data.solutionDiagram;
+    assert.equal(Object.prototype.hasOwnProperty.call(data, "diagramGeometry"), false, `${question.id}: no copied contact geometry oracle`);
     const body = manifestElement(prompt, `${question.id}-body`);
     const promptForces = prompt.elements.filter((element) => element.role === "force");
     const solutionForces = solution.elements.filter((element) => element.role === "force");
@@ -774,11 +832,15 @@ test("contact prompts preserve exact floor/support contact and reserve full forc
     assert.ok(!question.promptHtml.includes("force-weight") && !question.promptHtml.includes("force-normal") && !question.promptHtml.includes("force-support-right"), question.id);
 
     if (data.contactType === "two-support") {
-      const [leftSupport, rightSupport] = data.diagramGeometry.supportPoints;
-      assert.ok(body.points.some((point) => close(point[1], leftSupport[1])) && body.points.some((point) => close(point[1], rightSupport[1])), question.id);
-      assert.ok(leftSupport[0] > Math.min(...body.points.map((point) => point[0])) && rightSupport[0] < Math.max(...body.points.map((point) => point[0])), question.id);
-      assertPoint(manifestElement(prompt, `${question.id}-left-support`).points[0], leftSupport, `${question.id}: left support contact`);
-      assertPoint(manifestElement(prompt, `${question.id}-right-support`).points[0], rightSupport, `${question.id}: right support contact`);
+      const underside = body.points.filter((point) => close(point[1], Math.max(...body.points.map((candidate) => candidate[1])))).sort((left, right) => left[0] - right[0]);
+      assert.equal(underside.length, 2, `${question.id}: beam underside comes from body polygon`);
+      ["left", "right"].forEach((side) => {
+        const support = manifestElement(prompt, `${question.id}-${side}-support`);
+        const contacts = support.points.filter((point) => pointOnSegment(point, underside[0], underside[1]));
+        assert.equal(contacts.length, 1, `${question.id}: ${side} support has one manifest-derived contact`);
+        assert.ok(contacts[0][0] > underside[0][0] && contacts[0][0] < underside[1][0], `${question.id}: ${side} contact is inside beam span`);
+        support.points.filter((point) => point !== contacts[0]).forEach((point) => assert.ok(point[1] > underside[0][1], `${question.id}: support remains below beam`));
+      });
     } else {
       const ground = manifestElement(prompt, `${question.id}-ground`);
       body.points.slice(0, 2).forEach((point) => {
@@ -804,18 +866,102 @@ test("contact prompts preserve exact floor/support contact and reserve full forc
   });
 });
 
-test("body dimensions are outside their solids and use exact source anchors", () => {
+test("all 15 serialized solution force diagrams balance force and signed moment without overlapping lines", () => {
+  loadSlots()[1].filter((question) => question.sourceData.family === "contact-equilibrium").forEach((question) => {
+    const data = question.sourceData;
+    const prompt = data.diagram;
+    const solution = data.solutionDiagram;
+    const isolated = manifestElement(solution, `${question.id}-isolated-body`);
+    const center = [isolated.points.reduce((sum, point) => sum + point[0], 0) / isolated.points.length, isolated.points.reduce((sum, point) => sum + point[1], 0) / isolated.points.length];
+    const weight = data.massKg * data.g;
+    let forces;
+    if (data.contactType === "floor-pull") {
+      forces = [
+        { id: `${question.id}-force-weight`, vector: [0, weight] },
+        { id: `${question.id}-force-normal`, vector: [0, -(weight - data.appliedForceN)] },
+        { id: `${question.id}-force-applied`, vector: [0, -data.appliedForceN] }
+      ];
+    } else if (data.contactType === "floor-push") {
+      forces = [
+        { id: `${question.id}-force-weight`, vector: [0, weight] },
+        { id: `${question.id}-force-normal`, vector: [0, -(weight + data.appliedForceN)] },
+        { id: `${question.id}-force-applied`, vector: [0, data.appliedForceN] }
+      ];
+    } else {
+      forces = [
+        { id: `${question.id}-force-weight`, vector: [0, weight] },
+        { id: `${question.id}-force-support-left`, vector: [0, -data.knownSupportN] },
+        { id: `${question.id}-force-support-right`, vector: [0, -(weight - data.knownSupportN)] }
+      ];
+    }
+    const actual = forces.map((force) => Object.assign({}, force, { line: serializedLine(question.solutionHtml, force.id) }));
+    actual.forEach((force) => {
+      assert.ok(close(force.line.from[0], force.line.to[0]), `${force.id}: force line is vertical`);
+      assert.ok(force.line.from[0] >= isolated.bbox.x + 10 && force.line.from[0] <= isolated.bbox.x + isolated.bbox.width - 10, `${force.id}: application stays inside body span`);
+    });
+    actual.forEach((force, index) => actual.slice(index + 1).forEach((other) => {
+      assert.ok(Math.abs(force.line.from[0] - other.line.from[0]) >= 8, `${question.id}: ${force.id} and ${other.id} must not overlap or layer`);
+    }));
+    const resultant = actual.reduce((sum, force) => [sum[0] + force.vector[0], sum[1] + force.vector[1]], [0, 0]);
+    const moment = actual.reduce((sum, force) => {
+      const radius = subtractPoints(force.line.from, center);
+      return sum + radius[0] * force.vector[1] - radius[1] * force.vector[0];
+    }, 0);
+    assert.ok(Math.hypot(...resultant) <= weight * 1e-10, `${question.id}: ΣF = 0, got ${resultant}`);
+    assert.ok(Math.abs(moment) <= weight * isolated.bbox.width * 1e-10, `${question.id}: ΣM(center) = 0, got ${moment}`);
+
+    const byId = Object.fromEntries(actual.map((force) => [force.id, force.line.from[0]]));
+    if (data.contactType === "two-support") {
+      const promptBody = manifestElement(prompt, `${question.id}-body`);
+      const underside = promptBody.points.filter((point) => close(point[1], Math.max(...promptBody.points.map((candidate) => candidate[1])))).sort((left, right) => left[0] - right[0]);
+      const contactX = ["left", "right"].map((side) => {
+        const support = manifestElement(prompt, `${question.id}-${side}-support`);
+        return support.points.find((point) => pointOnSegment(point, underside[0], underside[1]))[0];
+      });
+      assert.ok(close(byId[`${question.id}-force-support-left`], contactX[0]), `${question.id}: left solution reaction stays at actual support`);
+      assert.ok(close(byId[`${question.id}-force-support-right`], contactX[1]), `${question.id}: right solution reaction stays at actual support`);
+      const expectedWeightX = (data.knownSupportN * contactX[0] + (weight - data.knownSupportN) * contactX[1]) / weight;
+      assert.ok(close(byId[`${question.id}-force-weight`], expectedWeightX), `${question.id}: weight line uses exact reaction-weighted lever point`);
+    } else if (data.contactType === "floor-pull") {
+      const xWeight = byId[`${question.id}-force-weight`];
+      const xNormal = byId[`${question.id}-force-normal`];
+      const xApplied = byId[`${question.id}-force-applied`];
+      assert.ok(close(xWeight, center[0]) && (xNormal - center[0]) * (xApplied - center[0]) < 0, `${question.id}: pull forces straddle centered weight`);
+      assert.ok(close((weight - data.appliedForceN) * Math.abs(xNormal - center[0]), data.appliedForceN * Math.abs(xApplied - center[0])), `${question.id}: pull lever products balance`);
+    } else {
+      const xWeight = byId[`${question.id}-force-weight`];
+      const xNormal = byId[`${question.id}-force-normal`];
+      const xApplied = byId[`${question.id}-force-applied`];
+      assert.ok(close(xNormal, center[0]) && (xWeight - center[0]) * (xApplied - center[0]) < 0, `${question.id}: downward push forces straddle centered normal`);
+      assert.ok(close(weight * Math.abs(xWeight - center[0]), data.appliedForceN * Math.abs(xApplied - center[0])), `${question.id}: push lever products balance`);
+    }
+  });
+});
+
+test("body dimensions derive from manifest geometry and lie outward from each solid", () => {
   loadSlots()[2].forEach((question) => {
     const data = question.sourceData;
     const manifest = data.diagram;
-    assert.ok(data.diagramGeometry.dimensions.length >= 1, question.id);
-    data.diagramGeometry.dimensions.forEach((specification) => {
-      const dimension = manifestElement(manifest, specification.id);
-      assertPoint(dimension.a, specification.a, `${specification.id}: source start`);
-      assertPoint(dimension.b, specification.b, `${specification.id}: source end`);
-      assert.ok(Math.abs(dimension.offset) >= 18, `${specification.id}: dimension must be outside solid`);
-      assert.ok(data.diagramGeometry.sourcePoints.some((point) => close(point[0], dimension.a[0]) && close(point[1], dimension.a[1])), `${specification.id}: start belongs to source geometry`);
-      assert.ok(data.diagramGeometry.sourcePoints.some((point) => close(point[0], dimension.b[0]) && close(point[1], dimension.b[1])), `${specification.id}: end belongs to source geometry`);
+    assert.equal(Object.prototype.hasOwnProperty.call(data, "diagramGeometry"), false, `${question.id}: no copied diagram geometry oracle`);
+    const dimensions = manifest.elements.filter((element) => element.kind === "dimension");
+    const sourceElements = manifest.elements.filter((element) => ["body", "connection", "measure"].includes(element.role));
+    const segments = sourceElements.flatMap(primitiveSegments);
+    assert.ok(dimensions.length >= 1, question.id);
+    dimensions.forEach((dimension) => {
+      [dimension.a, dimension.b].forEach((point) => {
+        assert.ok(segments.some((segment) => pointOnSegment(point, segment[0], segment[1])), `${dimension.id}: endpoint belongs to a manifest body edge or measure`);
+      });
+      const midpoint = [(dimension.anchors[0][0] + dimension.anchors[1][0]) / 2, (dimension.anchors[0][1] + dimension.anchors[1][1]) / 2];
+      const circle = sourceElements.find((element) => element.kind === "circle" && element.role === "body");
+      if (circle) {
+        assert.ok(Math.hypot(midpoint[0] - circle.center[0], midpoint[1] - circle.center[1]) >= circle.radius + 6, `${dimension.id}: dimension line lies outside expanded circle`);
+      } else {
+        const solidPoints = sourceElements.filter((element) => element.role === "body").flatMap((element) => {
+          if (element.kind === "rect") return [[element.x, element.y], [element.x + element.width, element.y], [element.x + element.width, element.y + element.height], [element.x, element.y + element.height]];
+          return element.points || [];
+        });
+        assert.ok(outsideConvexHullBy(midpoint, convexHull(solidPoints), 6), `${dimension.id}: dimension line lies outward from expanded solid hull`);
+      }
     });
     if (data.family === "sphere") {
       const sphere = manifestElement(manifest, `${question.id}-sphere-body`);
@@ -829,6 +975,18 @@ test("body dimensions are outside their solids and use exact source anchors", ()
       const center = [face.points.reduce((sum, point) => sum + point[0], 0) / 6, face.points.reduce((sum, point) => sum + point[1], 0) / 6];
       assertPoint(radius.from, center, `${question.id}: circumradius center`);
       assert.ok(face.points.some((point) => close(point[0], radius.to[0]) && close(point[1], radius.to[1])), `${question.id}: circumradius ends at vertex`);
+    }
+    if (data.family === "prism" && data.baseShape === "rectangle") {
+      assert.equal(dimensions.length, 3, `${question.id}: rectangular prism has length, height and depth dimensions`);
+      const front = manifestElement(manifest, `${question.id}-prism-front`);
+      const back = manifestElement(manifest, `${question.id}-prism-back`);
+      const prismEdges = primitiveSegments(front).concat(primitiveSegments(back), sourceElements.filter((element) => element.role === "connection").flatMap(primitiveSegments));
+      const named = ["length", "height", "width"].map((name) => manifestElement(manifest, `${question.id}-${name}-dimension`));
+      named.forEach((dimension) => assert.ok(prismEdges.some((edge) => sameUndirectedSegment([dimension.a, dimension.b], edge)), `${dimension.id}: endpoints are an actual prism edge`));
+      const vectors = named.map((dimension) => subtractPoints(dimension.b, dimension.a));
+      vectors.forEach((vector, index) => vectors.slice(index + 1).forEach((other) => {
+        assert.ok(Math.abs(vector[0] * other[1] - vector[1] * other[0]) > 1e-8, `${question.id}: all three edge direction classes are nonparallel`);
+      }));
     }
   });
 });

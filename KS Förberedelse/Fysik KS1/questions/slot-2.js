@@ -180,13 +180,8 @@
       height: 390
     });
     const shapes = [];
-    const dimensionSpecs = [];
-    const sourcePoints = [];
-    function remember(points) { points.forEach(function (point) { sourcePoints.push(point.slice()); }); }
     function addDimension(name, a, b, offset, text) {
       const dimension = addShape(diagram, shapes, "information", diagramKit.dimension({ id: id + "-" + name, a: a, b: b, offset: offset, role: "dimension", strokeWidth: 1.5 }));
-      dimensionSpecs.push({ id: dimension.id, a: a.slice(), b: b.slice() });
-      remember([a, b]);
       return { dimension: dimension, text: text };
     }
     let solid;
@@ -196,7 +191,6 @@
       const radius = 82;
       solid = addShape(diagram, shapes, "geometry", diagramKit.circle({ id: id + "-sphere-body", center: center, radius: radius, role: "body", strokeWidth: 2.5 }));
       const diameter = addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-diameter", a: [center[0] - radius, center[1]], b: [center[0] + radius, center[1]], role: "measure", strokeWidth: 2 }));
-      remember([diameter.a, diameter.b, center]);
       if (row.unknown === "diameter") {
         dimensions.push(addDimension("diameter-dimension", diameter.a, diameter.b, -108, "d = ?"));
       } else {
@@ -206,7 +200,6 @@
     } else if (family === "cone") {
       const apex = [285, 48]; const left = [205, 250]; const right = [365, 250]; const baseCenter = [285, 250];
       solid = addShape(diagram, shapes, "geometry", diagramKit.polygon({ id: id + "-solid", points: [apex, left, right], role: "body", strokeWidth: 2.5 }));
-      remember([apex, left, right, baseCenter]);
       dimensions.push(addDimension("height-dimension", apex, baseCenter, 112, dimensionText(row, "heightM", "h")));
       dimensions.push(addDimension("radius-dimension", baseCenter, right, 34, dimensionText(row, "radiusM", "r")));
     } else if (family === "prism" && row.baseShape === "regular-hexagon") {
@@ -221,20 +214,23 @@
       [0, 1, 5].forEach(function (index) {
         addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-hex-edge-" + index, a: face[index], b: backFace[index], role: "connection", strokeWidth: 2 }));
       });
-      remember(face.concat(backFace, [center]));
       addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-circumradius", a: center, b: face[0], role: "measure", strokeWidth: 2 }));
       dimensions.push(addDimension("height-dimension", face[1], backFace[1], 80, dimensionText(row, "heightM", "h")));
     } else if (family === "prism") {
-      const topLeft = [190, 80]; const topRight = [380, 80]; const bottomRight = [380, 250]; const bottomLeft = [190, 250];
-      solid = addShape(diagram, shapes, "geometry", diagramKit.polygon({ id: id + "-solid", points: [topLeft, topRight, bottomRight, bottomLeft], role: "body", strokeWidth: 2.5 }));
-      remember([topLeft, topRight, bottomRight, bottomLeft]);
-      dimensions.push(addDimension("length-dimension", bottomLeft, bottomRight, 38, dimensionText(row, "lengthM", "l")));
-      dimensions.push(addDimension("height-dimension", topLeft, bottomLeft, 48, dimensionText(row, "heightM", "h")));
-      dimensions.push(addDimension("width-dimension", topLeft, topRight, -38, dimensionText(row, "widthM", "b")));
+      const front = [[190, 100], [370, 100], [370, 260], [190, 260]];
+      const depth = [65, -45];
+      const back = front.map(function (point) { return [point[0] + depth[0], point[1] + depth[1]]; });
+      solid = addShape(diagram, shapes, "geometry", diagramKit.polygon({ id: id + "-prism-front", points: front, role: "body", strokeWidth: 2.5 }));
+      addShape(diagram, shapes, "geometry", diagramKit.polygon({ id: id + "-prism-back", points: back, role: "body", strokeWidth: 2 }));
+      front.forEach(function (point, index) {
+        addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-prism-depth-edge-" + index, a: point, b: back[index], role: "connection", strokeWidth: 2 }));
+      });
+      dimensions.push(addDimension("length-dimension", front[3], front[2], 38, dimensionText(row, "lengthM", "l")));
+      dimensions.push(addDimension("height-dimension", front[0], front[3], 48, dimensionText(row, "heightM", "h")));
+      dimensions.push(addDimension("width-dimension", front[0], back[0], -48, dimensionText(row, "widthM", "b")));
     } else {
       const topLeft = [210, 72]; const topRight = [360, 72]; const bottomRight = [360, 250]; const bottomLeft = [210, 250]; const topCenter = [285, 72];
       solid = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-solid", x: topLeft[0], y: topLeft[1], width: topRight[0] - topLeft[0], height: bottomLeft[1] - topLeft[1], role: "body", strokeWidth: 2.5, rx: family === "liquid-column" ? 3 : 0 }));
-      remember([topLeft, topRight, bottomRight, bottomLeft, topCenter]);
       dimensions.push(addDimension("height-dimension", topLeft, bottomLeft, 54, dimensionText(row, "heightM", "h")));
       dimensions.push(addDimension("radius-dimension", topCenter, topRight, -38, dimensionText(row, "radiusM", "r")));
     }
@@ -248,7 +244,7 @@
     if (row.givens.massKg !== undefined) addLabel(diagram, shapes, { id: id + "-mass-label", at: [590, 105], text: "m = " + displayed(row.givens.massKg, row.displayUnits.mass), anchorId: solid.id, textAnchor: "end", fontSize: 13 });
     if (row.givens.densityKgM3 !== undefined) addLabel(diagram, shapes, { id: id + "-density-label", at: [590, 142], text: "ρ = " + displayed(row.givens.densityKgM3, row.displayUnits.density), anchorId: solid.id, textAnchor: "end", fontSize: 13 });
     const result = diagram.finish();
-    return { html: result.html, manifest: result.manifest, geometry: { dimensions: dimensionSpecs, sourcePoints: sourcePoints } };
+    return { html: result.html, manifest: result.manifest };
   }
 
   function solutionText(family, row, exactSI, expected, figures) {
@@ -332,8 +328,7 @@
         targetUnit: row.targetUnit,
         requestedUnitLabel: requestedUnitLabel,
         scenario: row.scenario,
-        diagram: figure.manifest,
-        diagramGeometry: figure.geometry
+        diagram: figure.manifest
       }
     };
   }

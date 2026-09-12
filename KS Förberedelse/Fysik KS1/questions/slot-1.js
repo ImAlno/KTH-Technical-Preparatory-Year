@@ -248,8 +248,7 @@
     const shapes = [];
     const labels = [];
     const baseline = { a: [80, 190], b: [520, 190] };
-    const body = addShape(diagram, shapes, "geometry", diagramKit.bodyOnLine({ id: id + "-body", line: baseline, bottomCenter: [300, 190], width: isBeam ? 360 : 120, height: isBeam ? 50 : 70, outwardNormal: [0, -1], role: "body", strokeWidth: 2 }));
-    let geometry;
+    addShape(diagram, shapes, "geometry", diagramKit.bodyOnLine({ id: id + "-body", line: baseline, bottomCenter: [300, 190], width: isBeam ? 360 : 120, height: isBeam ? 50 : 70, outwardNormal: [0, -1], role: "body", strokeWidth: 2 }));
     if (isBeam) {
       const leftContact = [180, 190];
       const rightContact = [420, 190];
@@ -257,20 +256,38 @@
       addShape(diagram, shapes, "connections", diagramKit.polygon({ id: id + "-right-support", points: [rightContact, [394, 230], [446, 230]], role: "support", strokeWidth: 2 }));
       const force = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-given-force", from: leftContact, to: [180, 70], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
       addLabel(diagram, shapes, labels, { id: id + "-given-force-label", at: [245, 67], text: "F₁ = " + clean(applied) + " N", anchorId: force.id, fontSize: 14 });
-      geometry = { supportPoints: [leftContact, rightContact] };
     } else {
-      const ground = addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-ground", a: baseline.a, b: baseline.b, role: "ground", strokeWidth: 3 }));
+      addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-ground", a: baseline.a, b: baseline.b, role: "ground", strokeWidth: 3 }));
       const upward = row.contactType === "floor-pull";
       const force = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-given-force", from: [300, upward ? 120 : 82], to: [300, upward ? 45 : 120], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
       addLabel(diagram, shapes, labels, { id: id + "-given-force-label", at: [385, 58], text: "F = " + clean(applied) + " N", anchorId: force.id, fontSize: 14 });
-      geometry = { ground: [ground.from, ground.to], bodyBottom: body.bottomCorners };
     }
     const result = diagram.finish();
-    return { html: result.html, manifest: result.manifest, geometry: geometry };
+    return { html: result.html, manifest: result.manifest };
   }
 
   function contactSolutionFigure(id, row) {
     const isBeam = row.contactType === "two-support";
+    const centerX = 300;
+    const weightMagnitude = row.massKg * G;
+    let weightX = centerX;
+    let normalX;
+    let appliedX;
+    const leftSupportX = 180;
+    const rightSupportX = 420;
+    if (isBeam) {
+      weightX = (row.knownSupportN * leftSupportX + (weightMagnitude - row.knownSupportN) * rightSupportX) / weightMagnitude;
+    } else if (row.contactType === "floor-pull") {
+      const normalMagnitude = weightMagnitude - row.appliedForceN;
+      const scale = Math.max(normalMagnitude, row.appliedForceN);
+      normalX = centerX - 40 * row.appliedForceN / scale;
+      appliedX = centerX + 40 * normalMagnitude / scale;
+    } else {
+      const scale = Math.max(weightMagnitude, row.appliedForceN);
+      weightX = centerX - 40 * row.appliedForceN / scale;
+      normalX = centerX;
+      appliedX = centerX + 40 * weightMagnitude / scale;
+    }
     const diagram = makeDiagram(
       id + "-solution-diagram",
       row.scenario + ": fullständig kraftfigur",
@@ -283,17 +300,17 @@
     const labels = [];
     const baseline = { a: [100, 190], b: [500, 190] };
     const body = addShape(diagram, shapes, "geometry", diagramKit.bodyOnLine({ id: id + "-isolated-body", line: baseline, bottomCenter: [300, 190], width: isBeam ? 300 : 130, height: 60, outwardNormal: [0, -1], role: "body", strokeWidth: 2 }));
-    const weight = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-weight", from: [300, 160], to: [300, 286], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+    const weight = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-weight", from: [weightX, 160], to: [weightX, 286], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
     const forces = [weight];
     if (isBeam) {
-      forces.push(addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-support-left", from: [190, 160], to: [190, 55], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 })));
-      forces.push(addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-support-right", from: [410, 160], to: [410, 55], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 })));
+      forces.push(addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-support-left", from: [leftSupportX, 160], to: [leftSupportX, 55], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 })));
+      forces.push(addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-support-right", from: [rightSupportX, 160], to: [rightSupportX, 55], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 })));
     } else {
-      forces.push(addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-normal", from: [270, 160], to: [270, 50], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 })));
+      forces.push(addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-normal", from: [normalX, 160], to: [normalX, 50], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 })));
       const upward = row.contactType === "floor-pull";
-      forces.push(addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-applied", from: [330, 160], to: [330, upward ? 65 : 270], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 })));
+      forces.push(addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-applied", from: [appliedX, 160], to: [appliedX, upward ? 65 : 270], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 })));
     }
-    addLabel(diagram, shapes, labels, { id: id + "-force-weight-label", at: [365, 286], text: "mg", anchorId: weight.id, fontSize: 15 });
+    addLabel(diagram, shapes, labels, { id: id + "-force-weight-label", at: [isBeam ? weightX + 65 : weightX - 55, 286], text: "mg", anchorId: weight.id, fontSize: 15 });
     if (isBeam) {
       addLabel(diagram, shapes, labels, { id: id + "-force-support-left-label", at: [145, 48], text: "F₁", anchorId: forces[1].id, fontSize: 15 });
       addLabel(diagram, shapes, labels, { id: id + "-force-support-right-label", at: [455, 48], text: "F₂", anchorId: forces[2].id, fontSize: 15 });
@@ -347,7 +364,7 @@
         { points: 1, text: "Kraftfiguren visar tyngdkraft och samtliga kontakt-/yttre krafter på rätt kropp med rätt riktning." },
         { points: 1, text: "Newtons första lag i vertikalled är korrekt och ger rätt storlek, riktning, enhet och avrundning." }
       ],
-      sourceData: Object.assign({}, row, { skill: SKILL, family: "contact-equilibrium", caseNumber: index + 1, g: G, significantFigures: figures, targetUnit: "N", requestedUnitLabel: "N", diagram: promptFigure.manifest, solutionDiagram: solutionFigure.manifest, diagramGeometry: promptFigure.geometry })
+      sourceData: Object.assign({}, row, { skill: SKILL, family: "contact-equilibrium", caseNumber: index + 1, g: G, significantFigures: figures, targetUnit: "N", requestedUnitLabel: "N", diagram: promptFigure.manifest, solutionDiagram: solutionFigure.manifest })
     };
   }
 
