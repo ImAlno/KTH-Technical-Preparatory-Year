@@ -19,7 +19,8 @@ const SHARED_DEPENDENCIES = [
   "../assets/js/grading.js",
   "../assets/js/storage.js",
   "../assets/js/timer.js",
-  "../assets/js/exam-engine.js"
+  "../assets/js/exam-engine.js",
+  "../assets/js/diagram-kit.js"
 ];
 const FIVE_SLOT_QUESTION_SCRIPTS = [
   "questions/slot-1.js",
