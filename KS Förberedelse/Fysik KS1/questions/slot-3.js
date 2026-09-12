@@ -142,14 +142,17 @@
     const ground = addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-ground", a: [65, 270], b: [555, 270], role: "ground", strokeWidth: 3 }));
     const trajectory = addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-trajectory", a: [300, 52], b: [300, 270], role: "motion", strokeWidth: 2 }));
     const origin = addShape(diagram, shapes, "information", diagramKit.circle({ id: id + "-origin", center: [300, 270], radius: 4, role: "point", strokeWidth: 2 }));
-    const body = addShape(diagram, shapes, "geometry", diagramKit.circle({ id: id + "-body", center: [300, 188], radius: 17, role: "body", strokeWidth: 2.5 }));
-    const motion = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-motion-arrow", from: body.center, to: [300, 92], role: "motion", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+    const heightScale = 8;
+    const bodyRadius = 17;
+    const bodyBottomY = p.initialHeightM !== undefined ? ground.a[1] - p.initialHeightM * heightScale : 205;
+    const body = addShape(diagram, shapes, "geometry", diagramKit.circle({ id: id + "-body", center: [300, bodyBottomY - bodyRadius], radius: bodyRadius, role: "body", strokeWidth: 2.5 }));
+    const motion = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-motion-arrow", from: body.center, to: [300, Math.max(trajectory.a[1], body.center[1] - 96)], role: "motion", strokeWidth: 3, headLength: 12, headWidth: 10 }));
     const positive = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-positive-arrow", from: [112, 232], to: [112, 105], role: "axis", strokeWidth: 2.5, headLength: 11, headWidth: 9 }));
     let height;
-    if (p.initialHeightM !== undefined) height = addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-height-measure", a: [350, 270], b: [350, 188], role: "measure", strokeWidth: 1.5 }));
+    if (p.initialHeightM > 0) height = addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-height-measure", a: [350, ground.a[1]], b: [350, bodyBottomY], role: "measure", strokeWidth: 1.5 }));
 
     addLabel(diagram, shapes, { id: id + "-positive-label", at: [82, 102], text: "+y", anchorId: positive.id, fontSize: 15 });
-    addLabel(diagram, shapes, { id: id + "-origin-label", at: [190, 304], text: "y = 0 (marknivå)", anchorId: origin.id, fontSize: 13 });
+    addLabel(diagram, shapes, { id: id + "-origin-label", at: [190, 304], text: p.initialHeightM === 0 ? "y₀ = 0 (marknivå)" : "y = 0 (marknivå)", anchorId: origin.id, fontSize: 13 });
     if (p.initialSpeedMps !== undefined) addLabel(diagram, shapes, { id: id + "-velocity-v0-label", at: [390, 78], text: "v₀ = " + clean(p.initialSpeedMps) + " m/s", anchorId: motion.id, textAnchor: "start", fontSize: 14 });
     if (p.laterVelocityMps !== undefined) addLabel(diagram, shapes, { id: id + "-velocity-later-label", at: [390, 112], text: "v = " + clean(p.laterVelocityMps) + " m/s efter " + clean(p.elapsedS) + " s", anchorId: motion.id, textAnchor: "start", fontSize: 13 });
     if (p.flightTimeS !== undefined) addLabel(diagram, shapes, { id: id + "-velocity-time-label", at: [390, 148], text: "t = " + clean(p.flightTimeS) + " s till marken", anchorId: motion.id, textAnchor: "start", fontSize: 13 });

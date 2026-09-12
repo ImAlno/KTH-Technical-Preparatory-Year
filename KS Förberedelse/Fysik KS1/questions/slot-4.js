@@ -109,6 +109,28 @@
     return diagramKit.create({ id: id, title: title, description: description, purpose: purpose, width: width, height: height });
   }
 
+  function angleLabelAt(arc, distance, fontSize) {
+    const start = Math.atan2(arc.fromRay[1], arc.fromRay[0]);
+    const end = Math.atan2(arc.toRay[1], arc.toRay[0]);
+    let delta = end - start;
+    if (arc.sweep === 1 && delta < 0) delta += Math.PI * 2;
+    if (arc.sweep === -1 && delta > 0) delta -= Math.PI * 2;
+    const angle = start + delta / 2;
+    return [arc.vertex[0] + distance * Math.cos(angle), arc.vertex[1] + distance * Math.sin(angle) + fontSize * 0.375];
+  }
+
+  function beamStatics(p) {
+    const leftX = 190;
+    const rightX = 470;
+    const weight = p.massKg * G;
+    const rightForce = weight - p.knownSupportN;
+    return {
+      leftX: leftX,
+      rightX: rightX,
+      weightX: (p.knownSupportN * leftX + rightForce * rightX) / weight
+    };
+  }
+
   function answer(family, p) {
     if (family === "hanging-masses") return (p.upperMassKg + p.lowerMassKg) * G;
     if (family === "cables-at-angles") return p.massKg * G / (2 * Math.sin(radians(p.angleDeg)));
@@ -130,7 +152,7 @@
         : family === "missing-fourth-force"
           ? "Tre kända krafter visas med sina x- och y-komposanter. Pilarna visar endast riktning och har avsiktligt samma längd."
           : family === "supported-beams"
-            ? "En horisontell styv kropp vilar på två stöd. Kroppens massa och den vänstra stödreaktionen är utskrivna."
+            ? "En horisontell styv kropp med markerad tyngdpunkt vilar på två stöd. Kroppens massa och den vänstra stödreaktionen är utskrivna."
             : "En sfärisk kropp ligger mot en friktionsfri lodrät vägg och hålls av en lina med utskriven vinkel över horisontalen.";
     const diagram = makeDiagram(id + "-diagram", row.scenario + ": kraftsituation", desc + " Figuren är schematisk, inte skalenlig och visar inte den fullständiga kraftfiguren.", "prompt", 660, 400);
     const shapes = [];
@@ -158,7 +180,7 @@
       addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-right-cable", a: rightAnchor, b: [body.x + body.width, body.y], role: "rope", strokeWidth: 3 }));
       addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-horizontal-reference", a: [body.x - 90, body.y], b: [body.x, body.y], role: "line", strokeWidth: 1.5 }));
       const angle = addShape(diagram, shapes, "information", diagramKit.angleArc({ id: id + "-cable-angle", vertex: [body.x, body.y], fromRay: [body.x - 60, body.y], toRay: leftAnchor, radius: 45, role: "angle", strokeWidth: 2 }));
-      label({ id: id + "-angle-label", at: [210, 336], text: "α = " + clean(p.angleDeg) + "°", anchorId: angle.id }, "angle", { x: 170, y: 315, width: 105, height: 42 });
+      label({ id: id + "-angle-label", at: angleLabelAt(angle, 135, 13), text: "α = " + clean(p.angleDeg) + "°", anchorId: angle.id, fontSize: 13 }, "angle", { x: 110, y: 215, width: 175, height: 85 });
       label({ id: id + "-mass-label", at: [470, 335], text: "m = " + clean(p.massKg) + " kg", anchorId: body.id, textAnchor: "start" }, "given", { x: 460, y: 310, width: 150, height: 40 });
     } else if (family === "missing-fourth-force") {
       addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-x-axis", a: [80, 190], b: [580, 190], role: "axis", strokeWidth: 1.5 }));
@@ -175,12 +197,15 @@
     } else if (family === "supported-beams") {
       const baseline = { a: [90, 220], b: [570, 220] };
       const body = addShape(diagram, shapes, "geometry", diagramKit.bodyOnLine({ id: id + "-body", line: baseline, bottomCenter: [330, 220], width: 400, height: 60, outwardNormal: [0, -1], role: "body", strokeWidth: 2.5 }));
-      const leftContact = [190, 220]; const rightContact = [470, 220];
+      const statics = beamStatics(p);
+      const leftContact = [statics.leftX, 220]; const rightContact = [statics.rightX, 220];
       addShape(diagram, shapes, "connections", diagramKit.polygon({ id: id + "-left-support", points: [leftContact, [158, 270], [222, 270]], role: "support", strokeWidth: 2 }));
       addShape(diagram, shapes, "connections", diagramKit.polygon({ id: id + "-right-support", points: [rightContact, [438, 270], [502, 270]], role: "support", strokeWidth: 2 }));
+      const centerOfMass = addShape(diagram, shapes, "information", diagramKit.circle({ id: id + "-center-of-mass", center: [statics.weightX, 190], radius: 5, role: "point", strokeWidth: 2 }));
       const force = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-given-support-force", from: leftContact, to: [190, 70], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
       label({ id: id + "-given-support-force-label", at: [230, 72], text: "F₁ = " + clean(p.knownSupportN) + " N", anchorId: force.id, textAnchor: "start" }, "given-force", { x: 220, y: 50, width: 160, height: 34 });
       label({ id: id + "-mass-label", at: [470, 135], text: "m = " + clean(p.massKg) + " kg", anchorId: body.id, textAnchor: "start" }, "given", { x: 460, y: 112, width: 150, height: 35 });
+      label({ id: id + "-center-of-mass-label", at: [statics.weightX + 17, 197], text: "G", anchorId: centerOfMass.id, fontSize: 13 }, "given", { x: 360, y: 178, width: 40, height: 32 });
     } else {
       const wallX = 500;
       const centerX = 420;
@@ -190,12 +215,14 @@
       const attachmentX = centerX + radius * Math.cos(angle);
       const attachmentY = centerY - radius * Math.sin(angle);
       const anchorY = centerY - (wallX - centerX) * Math.tan(angle);
+      const attachment = [attachmentX, attachmentY];
+      const anchor = [wallX, anchorY];
       const wall = addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-wall", a: [wallX, 35], b: [wallX, 340], role: "wall", strokeWidth: 5 }));
       const sphere = addShape(diagram, shapes, "geometry", diagramKit.circle({ id: id + "-sphere", center: [centerX, centerY], radius: radius, role: "circle", strokeWidth: 2.5 }));
-      const cable = addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-cable", a: [attachmentX, attachmentY], b: [wallX, anchorY], role: "rope", strokeWidth: 3 }));
-      addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-horizontal-reference", a: sphere.center, b: [wallX, centerY], role: "line", strokeWidth: 1.5 }));
-      const arc = addShape(diagram, shapes, "information", diagramKit.angleArc({ id: id + "-cable-angle", vertex: sphere.center, fromRay: [wallX, centerY], toRay: [wallX, anchorY], radius: 42, role: "angle", strokeWidth: 2 }));
-      label({ id: id + "-angle-label", at: [335, 125], text: "α = " + clean(p.cableAngleDeg) + "°", anchorId: arc.id, fontSize: 13 }, "angle", { x: 300, y: 105, width: 75, height: 38 });
+      const cable = addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-cable", a: attachment, b: anchor, role: "rope", strokeWidth: 3 }));
+      addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-horizontal-reference", a: attachment, b: [630, attachmentY], role: "line", strokeWidth: 1.5 }));
+      const arc = addShape(diagram, shapes, "information", diagramKit.angleArc({ id: id + "-cable-angle", vertex: attachment, fromRay: [630, attachmentY], toRay: anchor, radius: 26, role: "angle", strokeWidth: 2 }));
+      label({ id: id + "-angle-label", at: angleLabelAt(arc, 105, 13), text: "α = " + clean(p.cableAngleDeg) + "°", anchorId: arc.id, fontSize: 13 }, "angle", { x: 505, y: 72, width: 125, height: 92 });
       label({ id: id + "-mass-label", at: [245, 332], text: "m = " + clean(p.massKg) + " kg", anchorId: sphere.id, textAnchor: "start" }, "given", { x: 235, y: 310, width: 150, height: 36 });
     }
     const result = diagram.finish();
@@ -213,15 +240,15 @@
       return item;
     }
     if (family === "hanging-masses") {
-      const body = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-isolated-system", x: 235, y: 150, width: 190, height: 90, role: "body", strokeWidth: 2.5 }));
-      const upperX = 275; const lowerX = 385;
-      const tensionX = (p.upperMassKg * upperX + p.lowerMassKg * lowerX) / (p.upperMassKg + p.lowerMassKg);
-      const tension = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-tension", from: [tensionX, 195], to: [tensionX, 55], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
-      const upperWeight = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-upper-weight", from: [upperX, 195], to: [upperX, 355], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
-      const lowerWeight = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-lower-weight", from: [lowerX, 195], to: [lowerX, 355], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
-      label({ id: id + "-force-tension-label", at: [tensionX + 38, 58], text: "T", anchorId: tension.id }, "force", { x: tensionX + 20, y: 40, width: 38, height: 30 });
-      label({ id: id + "-force-upper-weight-label", at: [upperX - 42, 362], text: "m₁g", anchorId: upperWeight.id }, "force", { x: upperX - 65, y: 344, width: 46, height: 30 });
-      label({ id: id + "-force-lower-weight-label", at: [lowerX + 44, 362], text: "m₂g", anchorId: lowerWeight.id }, "force", { x: lowerX + 20, y: 344, width: 48, height: 30 });
+      const commonX = 330;
+      const upper = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-isolated-upper-body", x: 285, y: 120, width: 90, height: 60, role: "body", strokeWidth: 2.5 }));
+      const lower = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-isolated-lower-body", x: 285, y: 255, width: 90, height: 60, role: "body", strokeWidth: 2.5 }));
+      const tension = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-tension", from: [commonX, upper.y], to: [commonX, 50], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      const upperWeight = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-upper-weight", from: [commonX, upper.y + upper.height / 2], to: [commonX, 225], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      const lowerWeight = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-lower-weight", from: [commonX, lower.y + lower.height / 2], to: [commonX, 375], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      label({ id: id + "-force-tension-label", at: [370, 55], text: "T", anchorId: tension.id }, "force", { x: 350, y: 38, width: 42, height: 30 });
+      label({ id: id + "-force-upper-weight-label", at: [280, 222], text: "m₁g", anchorId: upperWeight.id }, "force", { x: 255, y: 202, width: 50, height: 32 });
+      label({ id: id + "-force-lower-weight-label", at: [380, 372], text: "m₂g", anchorId: lowerWeight.id }, "force", { x: 355, y: 352, width: 50, height: 32 });
     } else if (family === "cables-at-angles") {
       const body = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-isolated-body", x: 280, y: 190, width: 100, height: 60, role: "body", strokeWidth: 2.5 }));
       const angle = radians(p.angleDeg);
@@ -250,10 +277,8 @@
     } else if (family === "supported-beams") {
       const baseline = { a: [100, 240], b: [560, 240] };
       addShape(diagram, shapes, "geometry", diagramKit.bodyOnLine({ id: id + "-isolated-body", line: baseline, bottomCenter: [330, 240], width: 360, height: 60, outwardNormal: [0, -1], role: "body", strokeWidth: 2.5 }));
-      const leftX = 190; const rightX = 470;
-      const weight = p.massKg * G;
-      const rightForce = weight - p.knownSupportN;
-      const weightX = (p.knownSupportN * leftX + rightForce * rightX) / weight;
+      const statics = beamStatics(p);
+      const leftX = statics.leftX; const rightX = statics.rightX; const weightX = statics.weightX;
       const left = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-support-left", from: [leftX, 240], to: [leftX, 65], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
       const right = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-support-right", from: [rightX, 240], to: [rightX, 65], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
       const gravity = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-weight", from: [weightX, 210], to: [weightX, 370], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));

@@ -836,6 +836,121 @@ test("all vertical-motion prompts derive origin, ground, body, trajectory and mo
   });
 });
 
+test("zero initial-height motion bodies touch ground while positive heights retain a real nonzero measure", () => {
+  const questions = loadSlots()[3].filter((question) => question.sourceData.givens.initialHeightM !== undefined);
+  const zero = questions.filter((question) => question.sourceData.givens.initialHeightM === 0);
+  const positive = questions.filter((question) => question.sourceData.givens.initialHeightM > 0);
+  assert.deepEqual(zero.map((question) => question.id), [
+    "physics-s3-maximum-height-01",
+    "physics-s3-maximum-height-04",
+    "physics-s3-flight-time-01"
+  ]);
+  assert.equal(positive.length, 12);
+  zero.forEach((question) => {
+    const manifest = question.sourceData.diagram;
+    const ground = manifestElement(manifest, `${question.id}-ground`);
+    const body = manifestElement(manifest, `${question.id}-body`);
+    const origin = manifestElement(manifest, `${question.id}-origin`);
+    assert.ok(close(body.center[1] + body.radius, ground.from[1]), `${question.id}: zero-height body is bottom-tangent to ground`);
+    assert.equal(manifest.elements.some((element) => element.id === `${question.id}-height-measure`), false, `${question.id}: zero height has no nonzero measure line`);
+    const zeroLabel = manifestElement(manifest, `${question.id}-origin-label`);
+    assert.match(zeroLabel.text, /y₀\s*=\s*0.*marknivå/iu, question.id);
+    assert.equal(zeroLabel.anchorId, origin.id, question.id);
+  });
+  const scales = positive.map((question) => {
+    const manifest = question.sourceData.diagram;
+    const ground = manifestElement(manifest, `${question.id}-ground`);
+    const body = manifestElement(manifest, `${question.id}-body`);
+    const measure = manifestElement(manifest, `${question.id}-height-measure`);
+    assertPoint(measure.from, [measure.from[0], ground.from[1]], `${question.id}: height starts at ground`);
+    assertPoint(measure.to, [measure.to[0], body.center[1] + body.radius], `${question.id}: height ends at body bottom`);
+    assert.ok(measure.from[1] > measure.to[1], `${question.id}: positive height is nonzero and upward`);
+    return (measure.from[1] - measure.to[1]) / question.sourceData.givens.initialHeightM;
+  });
+  scales.forEach((scale) => assert.ok(close(scale, scales[0]), `positive y₀ values share one geometric scale: ${scales}`));
+});
+
+test("cable angle labels are derived from the painted arc bisector rather than fixed zones", () => {
+  loadSlots()[4].filter((question) => ["cables-at-angles", "frictionless-wall-contact"].includes(question.sourceData.family)).forEach((question) => {
+    const manifest = question.sourceData.diagram;
+    const arc = manifestElement(manifest, `${question.id}-cable-angle`);
+    const label = manifestElement(manifest, `${question.id}-angle-label`);
+    const start = Math.atan2(arc.fromRay[1], arc.fromRay[0]);
+    const end = Math.atan2(arc.toRay[1], arc.toRay[0]);
+    const turn = (angle) => {
+      let delta = angle - start;
+      if (arc.sweep === 1 && delta < 0) delta += Math.PI * 2;
+      if (arc.sweep === -1 && delta > 0) delta -= Math.PI * 2;
+      return delta;
+    };
+    const total = turn(end);
+    const center = boxCenter(label.bbox);
+    const vector = subtractPoints(center, arc.vertex);
+    const progress = turn(Math.atan2(vector[1], vector[0]));
+    assert.ok(Math.sign(progress) === Math.sign(total) && Math.abs(progress) > 1e-3 && Math.abs(progress) < Math.abs(total) - 1e-3, `${question.id}: label centre lies strictly inside directed sector`);
+    assert.ok(Math.abs(progress - total / 2) <= 0.09, `${question.id}: label centre follows arc bisector`);
+    const radius = Math.hypot(...vector);
+    assert.ok(radius > arc.radius + 15 && radius < arc.radius + 95, `${question.id}: label remains near its arc`);
+  });
+});
+
+test("hanging solution preserves the prompt stack and uses three collinear non-layered force shafts", () => {
+  loadSlots()[4].filter((question) => question.sourceData.family === "hanging-masses").forEach((question) => {
+    const prompt = question.sourceData.diagram;
+    const solution = question.sourceData.solutionDiagram;
+    const promptUpper = manifestElement(prompt, `${question.id}-upper-body`);
+    const promptLower = manifestElement(prompt, `${question.id}-lower-body`);
+    const promptRopes = [manifestElement(prompt, `${question.id}-upper-rope`), manifestElement(prompt, `${question.id}-lower-rope`)];
+    const commonX = promptUpper.x + promptUpper.width / 2;
+    assert.ok(close(promptLower.x + promptLower.width / 2, commonX) && promptRopes.every((rope) => close(rope.from[0], commonX) && close(rope.to[0], commonX)), question.id);
+    const upper = manifestElement(solution, `${question.id}-isolated-upper-body`);
+    const lower = manifestElement(solution, `${question.id}-isolated-lower-body`);
+    assert.ok(upper.y + upper.height < lower.y, `${question.id}: isolated bodies retain stacked order`);
+    assert.ok(close(upper.x + upper.width / 2, commonX) && close(lower.x + lower.width / 2, commonX), `${question.id}: solution bodies retain prompt line of action`);
+    const tension = manifestElement(solution, `${question.id}-force-tension`);
+    const upperWeight = manifestElement(solution, `${question.id}-force-upper-weight`);
+    const lowerWeight = manifestElement(solution, `${question.id}-force-lower-weight`);
+    [tension, upperWeight, lowerWeight].forEach((force) => assert.ok(close(force.from[0], commonX) && close(force.to[0], commonX), `${force.id}: prompt-collinear force`));
+    assertPoint(tension.from, [commonX, upper.y], `${question.id}: tension starts at top connection`);
+    assertPoint(upperWeight.from, [commonX, upper.y + upper.height / 2], `${question.id}: m1g starts at upper COM`);
+    assertPoint(lowerWeight.from, [commonX, lower.y + lower.height / 2], `${question.id}: m2g starts at lower COM`);
+    const shafts = [tension, upperWeight, lowerWeight].map((force) => [Math.min(force.from[1], force.to[1]), Math.max(force.from[1], force.to[1])]);
+    shafts.forEach((shaft, index) => shafts.slice(index + 1).forEach((other) => assert.ok(shaft[1] < other[0] || other[1] < shaft[0], `${question.id}: force shafts do not overlap`)));
+    const totalMass = question.sourceData.givens.upperMassKg + question.sourceData.givens.lowerMassKg;
+    assert.ok(close(totalMass * question.sourceData.g - question.sourceData.givens.upperMassKg * question.sourceData.g - question.sourceData.givens.lowerMassKg * question.sourceData.g, 0), `${question.id}: force sum`);
+  });
+});
+
+test("beam prompt declares the COM that the solution uses with the exact prompt support contacts", () => {
+  loadSlots()[4].filter((question) => question.sourceData.family === "supported-beams").forEach((question) => {
+    const data = question.sourceData;
+    const prompt = data.diagram;
+    const solution = data.solutionDiagram;
+    const body = manifestElement(prompt, `${question.id}-body`);
+    const underside = body.points.slice(0, 2);
+    const supportX = ["left", "right"].map((side) => {
+      const support = manifestElement(prompt, `${question.id}-${side}-support`);
+      return support.points.find((point) => pointOnSegment(point, underside[0], underside[1]))[0];
+    });
+    const com = manifestElement(prompt, `${question.id}-center-of-mass`);
+    const weight = data.givens.massKg * data.g;
+    const secondReaction = weight - data.givens.knownSupportN;
+    const expectedComX = (data.givens.knownSupportN * supportX[0] + secondReaction * supportX[1]) / weight;
+    assert.ok(close(com.center[0], expectedComX), `${question.id}: prompt COM follows authored reactions`);
+    assert.ok(pointInsideBox(com.center, body.bbox), `${question.id}: COM mark lies on prompt beam`);
+    assert.match(prompt.description, /markerad tyngdpunkt/iu, question.id);
+    assert.equal(prompt.elements.some((element) => element.id === `${question.id}-force-weight` || element.id === `${question.id}-force-support-right`), false, `${question.id}: prompt does not leak weight or unknown reaction`);
+    const left = manifestElement(solution, `${question.id}-force-support-left`);
+    const right = manifestElement(solution, `${question.id}-force-support-right`);
+    const gravity = manifestElement(solution, `${question.id}-force-weight`);
+    assert.ok(close(left.from[0], supportX[0]) && close(right.from[0], supportX[1]), `${question.id}: solution reactions use prompt contacts`);
+    assert.ok(close(gravity.from[0], com.center[0]), `${question.id}: solution weight uses prompt COM vertical`);
+    const resultant = data.givens.knownSupportN + secondReaction - weight;
+    const moment = (supportX[0] - com.center[0]) * data.givens.knownSupportN + (supportX[1] - com.center[0]) * secondReaction;
+    assert.ok(close(resultant, 0) && close(moment, 0), `${question.id}: independent prompt-geometry force and moment balance`);
+  });
+});
+
 test("static prompt geometry uses exact body contacts, declared horizontal angles and only the given vectors", () => {
   loadSlots()[4].forEach((question) => {
     const data = question.sourceData;
@@ -902,10 +1017,12 @@ test("static prompt geometry uses exact body contacts, declared horizontal angle
       assert.ok(close(wall.from[0], wall.to[0]) && close(sphere.center[0] + sphere.radius, wall.from[0]), `${question.id}: sphere is tangent to vertical wall`);
       assert.ok(close(Math.hypot(cable.from[0] - sphere.center[0], cable.from[1] - sphere.center[1]), sphere.radius), `${question.id}: cable attaches at declared circle point`);
       assert.ok(pointOnSegment(cable.to, wall.from, wall.to), `${question.id}: cable terminates at wall anchor`);
-      assertPoint(angle.vertex, sphere.center, `${question.id}: wall cable angle is declared at centre`);
+      assertPoint(angle.vertex, cable.from, `${question.id}: wall cable angle is declared at cable attachment`);
       assertPoint(angle.fromRay, [1, 0], `${question.id}: wall cable angle starts from horizontal`);
       assertPoint(reference.from, angle.vertex, `${question.id}: painted horizontal ray starts at angle vertex`);
       assert.ok(close(reference.from[1], reference.to[1]) && reference.to[0] > reference.from[0], `${question.id}: reference ray is horizontal and rightward`);
+      const cableDirection = subtractPoints(cable.to, cable.from);
+      assertPoint(angle.toRay, cableDirection.map((value) => value / Math.hypot(...cableDirection)), `${question.id}: angle ends on cable ray`);
       assert.ok(close(Math.acos(angle.fromRay[0] * angle.toRay[0] + angle.fromRay[1] * angle.toRay[1]), data.givens.cableAngleDeg * Math.PI / 180), `${question.id}: wall cable angle equals stated degrees`);
       assert.equal(promptForces.length, 0, question.id);
     }
@@ -921,8 +1038,8 @@ test("all 25 static solution diagrams contain the authored complete force set an
     let physical;
     let center;
     if (data.family === "hanging-masses") {
-      const body = manifestElement(manifest, `${question.id}-isolated-system`);
-      center = boxCenter(body.bbox);
+      const promptUpper = manifestElement(data.diagram, `${question.id}-upper-body`);
+      center = [promptUpper.x + promptUpper.width / 2, promptUpper.y + promptUpper.height / 2];
       physical = [
         { id: `${question.id}-force-tension`, vector: [0, (data.givens.upperMassKg + data.givens.lowerMassKg) * data.g] },
         { id: `${question.id}-force-upper-weight`, vector: [0, -data.givens.upperMassKg * data.g] },
@@ -947,8 +1064,7 @@ test("all 25 static solution diagrams contain the authored complete force set an
         .concat([{ id: `${question.id}-force-4`, vector: [-sum[0], -sum[1]] }]);
       assert.deepEqual(labels.slice().sort(), ["F₁", "F₂", "F₃", "F₄"].sort(), question.id);
     } else if (data.family === "supported-beams") {
-      const body = manifestElement(manifest, `${question.id}-isolated-body`);
-      center = boxCenter(body.bbox);
+      center = manifestElement(data.diagram, `${question.id}-center-of-mass`).center;
       physical = [
         { id: `${question.id}-force-support-left`, vector: [0, data.givens.knownSupportN] },
         { id: `${question.id}-force-support-right`, vector: [0, data.givens.massKg * data.g - data.givens.knownSupportN] },
@@ -970,8 +1086,11 @@ test("all 25 static solution diagrams contain the authored complete force set an
     assert.equal(forces.length, physical.length, `${question.id}: complete force count`);
     const actual = physical.map((force) => ({ ...force, geometry: manifestElement(manifest, force.id) }));
     if (data.family === "hanging-masses") {
-      const body = manifestElement(manifest, `${question.id}-isolated-system`);
-      actual.forEach((force) => assert.ok(pointInsideBox(force.geometry.from, body.bbox), `${force.id}: applied to isolated system`));
+      const upper = manifestElement(manifest, `${question.id}-isolated-upper-body`);
+      const lower = manifestElement(manifest, `${question.id}-isolated-lower-body`);
+      assertPoint(actual[0].geometry.from, [upper.x + upper.width / 2, upper.y], `${question.id}: tension applied at upper connection`);
+      assertPoint(actual[1].geometry.from, [upper.x + upper.width / 2, upper.y + upper.height / 2], `${question.id}: upper weight applied at COM`);
+      assertPoint(actual[2].geometry.from, [lower.x + lower.width / 2, lower.y + lower.height / 2], `${question.id}: lower weight applied at COM`);
     } else if (data.family === "cables-at-angles") {
       const body = manifestElement(manifest, `${question.id}-isolated-body`);
       assertPoint(actual[0].geometry.from, [body.x, body.y], `${question.id}: left tension applied at left attachment`);
