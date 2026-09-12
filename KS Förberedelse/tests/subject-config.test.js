@@ -4,16 +4,25 @@ const fs = require("node:fs");
 const path = require("node:path");
 const config = require("../assets/js/subject-config.js");
 
-test("hub page includes minimalist subject-nav styling tokens", () => {
+test("hub uses the shared journal stylesheet and three authentic exam rows", () => {
   const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
 
-  assert.match(html, /<style>[\s\S]*?<\/style>/);
-  assert.ok(html.includes("system-ui"));
-  assert.ok(html.includes("#f5f5f7"));
-  assert.ok(html.includes("#ffffff"));
-  assert.ok(html.includes("#d2d2d7"));
-  assert.ok(html.includes("#0071e3"));
-  assert.ok(html.includes("a:hover"));
+  assert.match(html, /<link\s+rel="stylesheet"\s+href="assets\/app\.css">/);
+  assert.match(html, /<body\s+class="hub-page">/);
+  assert.match(html, /<main\s+class="hub-shell">/);
+  assert.equal((html.match(/class="subject-row"/g) || []).length, 3);
+  [
+    ["Matematik KS2", "5 frågor", "10 poäng", "105 minuter", "Matematik KS2/index.html"],
+    ["Fysik KS1", "5 frågor", "10 poäng", "105 minuter", "Fysik KS1/index.html"],
+    ["Kemi KS", "6 frågor", "20 poäng", "120 minuter", "Kemi KS/index.html"]
+  ].forEach(([name, questions, points, duration, href]) => {
+    const row = html.match(new RegExp(`<li\\s+class="subject-row"[\\s\\S]*?${name}[\\s\\S]*?<\\/li>`))[0];
+    assert.match(row, new RegExp(questions));
+    assert.match(row, new RegExp(points));
+    assert.match(row, new RegExp(duration));
+    assert.match(row, new RegExp(`<a[^>]+href="${href.replace(".", "\\.")}"[^>]*>\\s*Starta provet\\s*<\\/a>`));
+  });
+  assert.doesNotMatch(html, /<style>|https?:\/\/|system-ui|#0071e3|#f5f5f7|hero|card-grid/i);
 });
 
 test("all subject configs match the real KS limits", () => {

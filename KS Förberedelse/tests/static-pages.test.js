@@ -623,39 +623,70 @@ test("subject shells expose semantic landmarks, live feedback and native dialogs
   }
 });
 
-test("the visual system uses the approved restrained tokens and responsive grid", () => {
+test("the visual system uses the approved academic-journal tokens and font roles", () => {
   const css = read("assets/app.css");
   const tokens = {
-    text: "#1d1d1f",
-    secondary: "#6e6e73",
-    line: "#d2d2d7",
-    surface: "#ffffff",
-    background: "#f5f5f7",
-    accent: "#0071e3",
-    success: "#168447",
-    danger: "#b42318"
+    paper: "#FBF8EF",
+    ground: "#E8E1D3",
+    ink: "#34202A",
+    muted: "#74676C",
+    rule: "#C9BEB8",
+    work: "#356B59",
+    attention: "#A94F3B"
   };
 
   Object.entries(tokens).forEach(([name, value]) => {
     assert.match(css, new RegExp(`--${name}:\\s*${value}`, "i"));
   });
-  assert.match(css, /font-family:\s*-apple-system,\s*BlinkMacSystemFont,\s*"SF Pro Text",\s*"Helvetica Neue",\s*Arial,\s*sans-serif/);
-  assert.match(css, /grid-template-columns:\s*96px\s+minmax\(0,\s*760px\)/);
-  assert.match(css, /@media\s*\(max-width:\s*680px\)/);
-  assert.match(css, /overflow-x:\s*auto/);
+  assert.match(css, /(?:\.prompt|\.solution)[\s\S]{0,240}font-family:\s*Georgia,\s*"Times New Roman",\s*serif/);
+  assert.match(css, /(?:button|input)[\s\S]{0,180}font-family:\s*"Helvetica Neue",\s*Arial,\s*sans-serif/);
+  assert.match(css, /(?:h1|h2)[\s\S]{0,240}font-family:\s*Georgia,\s*"Times New Roman",\s*serif/);
+  assert.match(css, /grid-template-columns:\s*104px\s+minmax\(0,\s*72ch\)/);
   assert.match(css, /:focus-visible/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.doesNotMatch(css, /gradient\s*\(/i);
-  assert.doesNotMatch(css, /box-shadow\s*:/i);
   assert.doesNotMatch(css, /text-transform:\s*uppercase/i);
+  assert.doesNotMatch(css, /#0071e3|#0068d1|#f5f5f7|#d2d2d7|-apple-system|BlinkMacSystemFont|SF Pro/i);
+  assert.equal((css.match(/box-shadow\s*:/gi) || []).length, 1, "only the continuous paper may cast a shadow");
 });
 
-test("the exam is one continuous white work surface on the gray page", () => {
+test("the exam is one continuous paper surface with one narrow folio rail", () => {
   const css = read("assets/app.css");
   const layoutRule = css.match(/\.exam-layout\s*\{[^}]+\}/)[0];
+  const railRule = css.match(/\.question-nav\s*\{[^}]+\}/)[0];
 
-  assert.match(layoutRule, /background:\s*var\(--surface\)/);
-  assert.match(css, /body\s*\{[^}]*background:\s*var\(--background\)/s);
+  assert.match(layoutRule, /background:\s*var\(--paper\)/);
+  assert.match(layoutRule, /box-shadow:\s*0\s+\d+px\s+\d+px/);
+  assert.match(css, /body\s*\{[^}]*background:\s*var\(--ground\)/s);
+  assert.match(railRule, /border-left:\s*3px\s+solid\s+var\(--ink\)/);
+  assert.match(css, /\.question-nav\s+button\[aria-current="step"\]\s*\{[^}]*background:\s*var\(--ink\)[^}]*color:\s*var\(--paper\)/s);
+  assert.doesNotMatch(css, /\.question-screen\s*\{[^}]*box-shadow|\.prompt\s*\{[^}]*box-shadow|\.answer-area\s*\{[^}]*box-shadow/s);
+});
+
+test("work, comparison, warnings and manual correction have distinct structural treatments", () => {
+  const css = read("assets/app.css");
+
+  assert.match(css, /\.work-on-paper[\s\S]{0,180}border-left:\s*3px\s+solid\s+var\(--work\)/);
+  assert.match(css, /\.comparison[\s\S]{0,180}border-top:\s*3px\s+solid\s+var\(--work\)/);
+  assert.match(css, /\.solution\s*\{[^}]*border-top:\s*3px\s+solid\s+var\(--work\)/s);
+  assert.match(css, /button\[data-flagged="true"\][\s\S]{0,220}border-color:\s*var\(--attention\)/);
+  assert.match(css, /button\[data-flagged="true"\][\s\S]{0,300}content:\s*"\s*⚑\s*"/);
+  assert.match(css, /\.override-grade\s+summary\s*\{[^}]*color:\s*var\(--muted\)/s);
+  assert.match(css, /\.exam-total\s*\{[^}]*border-radius:\s*6px/s);
+  assert.match(css, /dialog\s*\{[^}]*border-radius:\s*6px/s);
+});
+
+test("mobile journal layout contains scrolling to the rail and keeps 44px targets", () => {
+  const css = read("assets/app.css");
+  const mobile = css.slice(css.indexOf("@media (max-width: 680px)"), css.indexOf("@media (prefers-reduced-motion: reduce)"));
+
+  assert.match(mobile, /body\s*\{[^}]*overflow-x:\s*hidden/s);
+  assert.match(mobile, /\.exam-layout\s*\{[^}]*flex-direction:\s*column/s);
+  assert.match(mobile, /\.question-nav\s*\{[^}]*overflow-x:\s*auto/s);
+  assert.match(mobile, /\.question-nav\s+ol\s*\{[^}]*flex-direction:\s*row/s);
+  assert.match(mobile, /\.question-nav\s+button\s*\{[^}]*min-width:\s*44px[^}]*min-height:\s*44px/s);
+  assert.match(mobile, /\.timer\s+button[\s\S]{0,180}min-width:\s*44px/);
+  assert.match(css, /img,\s*svg\s*\{[^}]*max-width:\s*100%/s);
 });
 
 test("programmatic main focus receives a visible keyboard focus replacement", () => {
@@ -684,15 +715,29 @@ test("closed native dialogs stay hidden in the no-dialog fallback", () => {
 test("print mode removes interaction and prints every prompt with answer space", () => {
   const css = read("assets/app.css");
   const source = read("assets/js/app.js");
+  const printRules = css.slice(css.indexOf("@media print"));
 
   assert.match(css, /@media\s+print/);
-  ["app-header", "question-nav", "status-region", "timer", "screen-controls", "answer-area", "grade", "solution"].forEach((name) => {
-    assert.match(css, new RegExp(`\\.${name}`), name);
+  ["app-header", "question-nav", "status-region", "timer", "screen-controls", "answer-area", "grade", "solution-controls", "solution"].forEach((name) => {
+    assert.match(printRules, new RegExp(`\\.${name}[\\s\\S]{0,220}display:\\s*none\\s*!important`), name);
   });
-  assert.match(css, /\.print-exam[\s\S]*display:\s*block/);
-  assert.match(css, /\.print-answer-space/);
-  assert.match(css, /break-inside:\s*avoid/);
+  assert.match(printRules, /:root,\s*body\s*\{[^}]*background:\s*#fff(?:fff)?[^}]*color:\s*#000/s);
+  assert.match(printRules, /\.print-exam\s*\{[^}]*display:\s*block/s);
+  assert.match(printRules, /\.print-work-on-paper\s*\{[^}]*display:\s*block[^}]*border-left:\s*3px\s+solid\s+#000/s);
+  assert.match(printRules, /\.print-answer-space\s*\{[^}]*min-height:\s*55mm[^}]*border:\s*1px\s+solid\s+#000/s);
+  assert.match(printRules, /\.print-question\s*\{[^}]*break-inside:\s*avoid/s);
   assert.match(source, /`Uppgift \$\{position \+ 1\}: \$\{question\.title\} \(\$\{formatPoints\(question\.points\)\} p\)`/);
+  assert.match(source, /"aside",\s*"print-work-on-paper"/);
+});
+
+test("student-facing sources use no external assets or decorative separator templates", () => {
+  const files = ["index.html", ...SUBJECT_PAGES, "assets/app.css", "assets/js/app.js"];
+
+  files.forEach((file) => {
+    const source = read(file);
+    assert.doesNotMatch(source, /https?:\/\/|@import\s+url|url\(\s*["']?\/\//i, file);
+    assert.doesNotMatch(source, /\s·\s|\s—\s/, file);
+  });
 });
 
 test("formula-sheet printing removes the modal backdrop from the A4 page", () => {

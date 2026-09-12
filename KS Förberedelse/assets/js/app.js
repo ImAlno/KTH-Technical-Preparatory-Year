@@ -507,6 +507,14 @@
         const article = createElement(document, "article", "print-question");
         article.append(createElement(document, "h2", "", `Uppgift ${position + 1}: ${question.title} (${formatPoints(question.points)} p)`));
         article.append(setHtml(createElement(document, "div", "prompt"), question.promptHtml));
+        if (question.workOnPaper) {
+          const paper = createElement(document, "aside", "print-work-on-paper");
+          paper.append(
+            createElement(document, "h3", "", question.workOnPaper.title),
+            createElement(document, "p", "", question.workOnPaper.instruction)
+          );
+          article.append(paper);
+        }
         article.append(createElement(document, "div", "print-answer-space"));
         print.append(article);
       });
@@ -551,7 +559,7 @@
       const header = createElement(document, "header", "question-header");
       const heading = createElement(document, "div", "question-heading");
       heading.append(
-        createElement(document, "p", "", `Uppgift ${snapshot.currentIndex + 1} av ${snapshot.questionIds.length} · ${formatPoints(question.points)} poäng`),
+        createElement(document, "p", "", `Uppgift ${snapshot.currentIndex + 1} av ${snapshot.questionIds.length}, ${formatPoints(question.points)} poäng`),
         createElement(document, "h1", "", question.title)
       );
       const flag = createElement(document, "button", "neutral-button flag-button", snapshot.flags.includes(questionId) ? "Avmarkera" : "Markera");

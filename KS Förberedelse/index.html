@@ -3,76 +3,35 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KS-ämnen</title>
-    <meta name="description" content="Välj ämne för KS-förberedelse.">
-    <style>
-      :root {
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-        color: #000;
-      }
-
-      body {
-        margin: 0;
-        background: #f5f5f7;
-        color: #000;
-      }
-
-      main {
-        max-width: 40rem;
-        margin: 0 auto;
-        padding: 1.5rem;
-        background: #ffffff;
-        min-height: 100vh;
-      }
-
-      section {
-        border-top: 1px solid #d2d2d7;
-      }
-
-      ul {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-      }
-
-      li {
-        padding: 0.85rem 0;
-        border-bottom: 1px solid #d2d2d7;
-      }
-
-      a {
-        color: #0071e3;
-      }
-
-      a:hover {
-        text-decoration: underline;
-      }
-
-      p {
-        margin: 0.25rem 0 0;
-        color: #555;
-      }
-    </style>
+    <title>KS-förberedelse</title>
+    <meta name="description" content="Träna inför kontrollskrivningar i matematik, fysik och kemi.">
+    <link rel="stylesheet" href="assets/app.css">
   </head>
-  <body>
-    <main>
-      <h1>Välj ämne att träna</h1>
-      <section aria-label="Ämnesval">
-        <ul>
-          <li>
-            <a href="Matematik KS2/index.html">Matematik KS2</a>
-            <p>Antal frågor: 5, tid: 105 minuter</p>
+  <body class="hub-page">
+    <main class="hub-shell">
+      <header class="hub-masthead">
+        <h1>KS-förberedelse</h1>
+        <p>Välj ett ämne. Varje prov sätter samman nya frågor och sparar dina svar lokalt på den här enheten.</p>
+      </header>
+      <nav aria-label="Välj ämne">
+        <ul class="subject-list">
+          <li class="subject-row">
+            <h2>Matematik KS2</h2>
+            <p class="subject-structure"><span>5 frågor, 10 poäng</span><span>105 minuter</span></p>
+            <a class="subject-start" href="Matematik KS2/index.html">Starta provet</a>
           </li>
-          <li>
-            <a href="Fysik KS1/index.html">Fysik KS1</a>
-            <p>Antal frågor: 5, tid: 105 minuter</p>
+          <li class="subject-row">
+            <h2>Fysik KS1</h2>
+            <p class="subject-structure"><span>5 frågor, 10 poäng</span><span>105 minuter</span></p>
+            <a class="subject-start" href="Fysik KS1/index.html">Starta provet</a>
           </li>
-          <li>
-            <a href="Kemi KS/index.html">Kemi KS</a>
-            <p>Antal frågor: 6, tid: 120 minuter</p>
+          <li class="subject-row">
+            <h2>Kemi KS</h2>
+            <p class="subject-structure"><span>6 frågor, 20 poäng</span><span>120 minuter</span></p>
+            <a class="subject-start" href="Kemi KS/index.html">Starta provet</a>
           </li>
         </ul>
-      </section>
+      </nav>
     </main>
   </body>
 </html>
