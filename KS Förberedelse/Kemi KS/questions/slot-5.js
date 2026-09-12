@@ -91,8 +91,13 @@
       slot: 5,
       title: "Gasinsamling " + caseNumber,
       points: 2,
-      promptHtml: "<p>" + row.scene + " Den balanserade reaktionen är <strong>" + row.reaction + "</strong></p><p>Utgå från " + inputDescription + ". " + assumptionText + " Gasen " + row.gasFormula + " mäts vid " + clean(row.pressurePa / 1000) + " kPa och " + clean(row.temperatureK - 273.15) + " °C. Beräkna med pV = nRT den slutliga volymen i " + unitLabel + " och avrunda till 3 värdesiffror.</p>",
+      promptHtml: "<p>" + row.scene + " Den balanserade reaktionen är <strong>" + row.reaction + "</strong></p><p>Utgå från " + inputDescription + ". " + assumptionText + " Gasen " + row.gasFormula + " mäts vid " + clean(row.pressurePa / 1000) + " kPa och " + clean(row.temperatureK - 273.15) + " °C. Använd pV = nRT och ange endast den slutliga volymen i " + unitLabel + " som digitalt slutsvar, avrundad till 3 värdesiffror.</p>",
       fields: [{ id: "volume", label: "Gasvolym (" + unitLabel + "; 3 värdesiffror)", kind: "numeric", applied: true, points: 2, expected: expected, targetUnit: row.targetUnit, requestedUnitLabel: unitLabel, significantFigures: figures, tolerance: tolerance(expected, figures), help: "Du kan skriva talet med eller utan den angivna volymenheten." }],
+      workOnPaper: {
+        title: "Arbeta i räknehäftet",
+        instruction: "Visa enhetsomvandling till Pa och K, molmassa eller given substansmängd, koefficientförhållande och pV = nRT i räknehäftet. I appen anger du endast volymens slutsvar.",
+        comparison: "Jämför antagande, SI-enheter, stökiometri och volymomvandling med lösningen efter rättning."
+      },
       solutionHtml: "<p><strong>Reaktionsantagande:</strong> " + assumptionText + "</p><p><strong>Substansmängd:</strong> " + amountStep + " Reaktionskoefficienterna ger n(" + row.gasFormula + ") = " + row.gasCoefficient + "/" + row.inputCoefficient + " · " + clean(inputMoles) + " = " + clean(gasAmount) + " mol.</p><p><strong>Allmänna gaslagen:</strong> p = " + clean(row.pressurePa) + " Pa och T = " + clean(row.temperatureK) + " K. V = nRT/p = " + clean(gasAmount) + "·8,314·" + clean(row.temperatureK) + "/" + clean(row.pressurePa) + " = " + clean(volumeM3) + " m³. Efter dimensionssäker omvandling och avrundning blir svaret <strong>" + formatSignificant(expected, figures) + " " + unitLabel + "</strong> (3 värdesiffror).</p>",
       rubric: [
         { points: 1, text: "Substansmängden gas bestäms med rätt molmassa vid behov och rätt koefficientförhållande ur den balanserade reaktionen." },

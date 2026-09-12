@@ -132,13 +132,13 @@
       return nonEmptyString(field.expected) && (field.statePoints === undefined ||
         (Number.isFinite(field.statePoints) && field.statePoints >= 0 && field.statePoints <= field.points));
     }
-    return field.kind === "self";
+    return false;
   }
 
   function validField(field, ids) {
     if (!field || !nonEmptyString(field.id) || ids.has(field.id) || !nonEmptyString(field.label)) return false;
     if (!Number.isFinite(field.points) || field.points <= 0) return false;
-    if (field.kind !== "self" && !FIELD_GRADERS[field.kind]) return false;
+    if (Object.hasOwn(field, "multiline") || !FIELD_GRADERS[field.kind]) return false;
     if (!validFieldData(field)) return false;
     ids.add(field.id);
     return true;

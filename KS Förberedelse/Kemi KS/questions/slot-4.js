@@ -98,6 +98,17 @@
     ["vid 2 H2S + 3 O2 → 2 SO2 + 2 H2O bryts S–H-bindningar i H2S", "kovalent intramolekylär bindning", "covalent-intramolecular"]
   ];
 
+  const PHASE_OPTIONS = [
+    { value: "metallic", label: "Metallbindning" },
+    { value: "ionic", label: "Jonbindning" },
+    { value: "hydrogen", label: "Vätebindning" },
+    { value: "dipole-dipole", label: "Dipol–dipolbindning" },
+    { value: "dispersion", label: "Dispersionskraft" }
+  ];
+  const REACTION_OPTIONS = [
+    { value: "covalent-intramolecular", label: "Kovalent intramolekylär bindning" }
+  ];
+
   function item(tuple, process) {
     return { text: tuple[0], answer: tuple[1], bondType: tuple[2], process: process };
   }
@@ -112,8 +123,24 @@
       slot: 4,
       title: "Bindningskontroll " + caseNumber,
       points: 2,
-      promptHtml: "<p>För fasövergångarna a–c ska du ange den dominerande bindningen eller intermolekylära kraften mellan partiklarna i ämnet. För den kemiska reaktionen d ska du ange vilken typ av intramolekylär bindning som bryts. Motivera skillnaden kort.</p><p>" + promptItems + "</p>",
-      fields: [{ id: "classification", label: "Svar a–d med kort motivering", kind: "self", points: 2, multiline: true, help: "Bedöm listan med den konkreta fyrdelade checklistan efter rättning." }],
+      promptHtml: "<p>För fasövergångarna a–c väljer du den dominerande bindningen eller intermolekylära kraften mellan partiklarna i ämnet. För den kemiska reaktionen d väljer du typen av intramolekylär bindning som bryts. Välj endast ett digitalt slutsvar för varje del och skriv den korta motiveringen i räknehäftet.</p><p>" + promptItems + "</p>",
+      fields: items.map(function (entry, itemIndex) {
+        const letter = String.fromCharCode(97 + itemIndex);
+        return {
+          id: "part-" + letter,
+          label: letter + ") Bindning eller kraft",
+          kind: "choice",
+          points: 0.5,
+          expected: entry.bondType,
+          options: entry.process === "phase-change" ? PHASE_OPTIONS : REACTION_OPTIONS,
+          help: "Välj klassificeringen; skriv förklaringen i räknehäftet."
+        };
+      }),
+      workOnPaper: {
+        title: "Arbeta i räknehäftet",
+        instruction: "Skriv den korta motiveringen för del a–d i räknehäftet. Skilj mellan dominerande attraktion mellan partiklar vid fasövergång och kovalent bindning inne i reaktantmolekylen; i appen väljer du endast slutsvaren.",
+        comparison: "Jämför partikelinteraktioner och intramolekylär bindning med den fyrdelade lösningschecklistan efter rättning."
+      },
       solutionHtml: "<ol type=\"a\">" + solutionItems + "</ol><p><strong>Viktig skillnad:</strong> smältning och förångning förändrar avstånd och ordning mellan partiklar. En kemisk reaktion förändrar däremot vilka atomer som är kovalent bundna till varandra.</p>",
       rubric: items.map(function (entry, itemIndex) {
         const letter = String.fromCharCode(97 + itemIndex);

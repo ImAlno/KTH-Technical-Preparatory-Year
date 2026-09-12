@@ -32,22 +32,47 @@
     { molecule: "H2", name: "väte", scene: "En referenscell innehåller endast tvåatomiga vätemolekyler.", task: "geometry", geometry: "linjär", structure: "De två väteatomerna delar ett elektronpar i en enkelbindning.", polar: false, explanation: "Identiska väteatomer drar lika starkt i bindningselektronerna, så ingen permanent laddningsförskjutning finns." }
   ];
 
+  const GEOMETRY_OPTIONS = [
+    { value: "linear", label: "Linjär" },
+    { value: "bent", label: "Vinklad" },
+    { value: "trigonal-planar", label: "Trigonal plan" },
+    { value: "trigonal-pyramidal", label: "Trigonal pyramid" },
+    { value: "tetrahedral", label: "Tetraedrisk" }
+  ];
+
+  function geometryValue(raw) {
+    if (raw === "linjär") return "linear";
+    if (raw === "vinklad") return "bent";
+    if (raw === "trigonal plan") return "trigonal-planar";
+    if (raw === "trigonal pyramid") return "trigonal-pyramidal";
+    if (raw === "tetraedrisk" || raw === "tetraedrisk kring kol") return "tetrahedral";
+    throw new Error("Unknown chemistry geometry: " + raw);
+  }
+
   function makeQuestion(row, index) {
     const caseNumber = index + 1;
+    const expectedGeometry = geometryValue(row.geometry);
     const structureRequest = row.task === "electron"
-      ? "Rita en elektronformel för " + row.molecule + " och markera fria elektronpar."
-      : "Rita eller beskriv molekylens geometri och ange formen med ord.";
+      ? "Rita en elektronformel för " + row.molecule + " och markera fria elektronpar i räknehäftet. Ange endast molekylgeometrin som digitalt slutsvar."
+      : "Rita molekylens geometri i räknehäftet. Ange endast formen som digitalt slutsvar.";
     const verdict = row.polar ? "är en dipol" : "är inte en dipol";
     return {
       id: "chemistry-s3-polarity-" + String(caseNumber).padStart(2, "0"),
       slot: 3,
       title: "Molekylkort " + caseNumber + ": " + row.name,
       points: 2,
-      promptHtml: "<p>" + row.scene + " Molekylens formel är <strong>" + row.molecule + "</strong>.</p><p>a) " + structureRequest + " b) Avgör om molekylen är en dipol och motivera kort med bindningspolaritet, geometri och om bindningsdipolerna tar ut varandra.</p>",
+      promptHtml: "<p>" + row.scene + " Molekylens formel är <strong>" + row.molecule + "</strong>.</p><p>a) " + structureRequest + " b) Välj digitalt om molekylen är en dipol. Skriv motiveringen med bindningspolaritet, geometri och bindningsdipolernas vektorsumma i räknehäftet.</p>",
       fields: [
-        { id: "structure", label: "a) Elektronformel eller molekylgeometri", kind: "self", points: 1, multiline: true, help: "Jämför din ritning eller geometribeskrivning med facit efter rättning." },
-        { id: "polarity", label: "b) Dipolbedömning med motivering", kind: "self", points: 1, multiline: true, help: "Skriv både slutsats och varför bindningsdipolernas vektorsumma blir eller inte blir noll." }
+        { id: "geometry", label: "a) Molekylgeometri", kind: "choice", points: 1, expected: expectedGeometry, options: GEOMETRY_OPTIONS, help: "Välj den geometri som du har ritat och analyserat i räknehäftet." },
+        { id: "polarity", label: "b) Är molekylen en dipol?", kind: "choice", points: 1, expected: row.polar ? "yes" : "no", options: [{ value: "yes", label: "Ja" }, { value: "no", label: "Nej" }], help: "Motivera valet i räknehäftet." }
       ],
+      workOnPaper: {
+        title: "Arbeta i räknehäftet",
+        instruction: row.task === "electron"
+          ? "Rita elektronformeln med fria elektronpar och visa hur formen bestäms i räknehäftet. Skriv också dipolmotiveringen där; i appen väljer du endast geometri och ja/nej."
+          : "Rita molekylens geometri och visa dipolmotiveringen i räknehäftet; i appen väljer du endast geometri och ja/nej.",
+        comparison: "Jämför elektronpar, molekylform och dipolvektorernas summa med lösningen efter rättning."
+      },
       solutionHtml: "<p><strong>a)</strong> " + row.structure + " Den molekylgeometri som ska framgå är <strong>" + row.geometry + "</strong>.</p><p><strong>b)</strong> " + row.molecule + " <strong>" + verdict + "</strong>. " + row.explanation + " En korrekt förklaring kopplar alltså samman bindningarnas polaritet med hela molekylens tredimensionella symmetri.</p>",
       rubric: [
         { points: 1, text: "Elektronformeln visar rätt bindningar och fria elektronpar, eller så anges rätt molekylgeometri med en entydig skiss." },

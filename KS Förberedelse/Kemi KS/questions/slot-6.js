@@ -75,11 +75,16 @@
       slot: 6,
       title: "Sammansättningsprov " + caseNumber,
       points: 3,
-      promptHtml: "<p>" + row.scene + " Summaformeln är <strong>" + row.molecularFormula + "</strong>.</p><p>a) Ange den empiriska formeln, alltså minsta heltalsförhållandet mellan atomslagen. b) Beräkna massprocenten " + row.elementName + " i ämnet. Svara i % med 3 värdesiffror och redovisa molmassan.</p>",
+      promptHtml: "<p>" + row.scene + " Summaformeln är <strong>" + row.molecularFormula + "</strong>.</p><p>a) Ange den empiriska formeln, alltså minsta heltalsförhållandet mellan atomslagen. b) Beräkna massprocenten " + row.elementName + " i ämnet. Ange endast slutsvaret i % med 3 värdesiffror i appen; visa molmassan och mellanleden i räknehäftet.</p>",
       fields: [
         { id: "empirical", label: "a) Empirisk formel", kind: "chemical-formula", purpose: "formula", points: 1, expected: row.empiricalFormula },
         { id: "percent", label: "b) Massprocent (%; 3 värdesiffror)", kind: "numeric", applied: true, points: 2, expected: expectedPercent, targetUnit: "%", requestedUnitLabel: "%", significantFigures: figures, tolerance: tolerance(expectedPercent, figures) }
       ],
+      workOnPaper: {
+        title: "Arbeta i räknehäftet",
+        instruction: "Visa största gemensamma faktor, molmassa och massbidrag i räknehäftet. I appen anger du endast den empiriska formeln och massprocentens slutsvar.",
+        comparison: "Jämför atomförhållande, molmassa och massprocentens beräkning med lösningen efter rättning."
+      },
       solutionHtml: "<p><strong>a)</strong> Indexen i " + row.molecularFormula + " divideras med deras största gemensamma faktor. Minsta atomförhållandet ger <strong>" + row.empiricalFormula + "</strong>.</p><p><strong>b) Samband:</strong> massprocent = m(atomslag i en mol förening)/M(förening) · 100 %. M(" + row.molecularFormula + ") = " + clean(mass) + " g/mol och " + row.percentElement + " bidrar med " + clean(elementMass) + " g/mol. Andelen blir " + clean(exactPercent) + " %, alltså <strong>" + formatSignificant(expectedPercent, figures) + " %</strong> med 3 värdesiffror.</p>",
       rubric: [
         { points: 1, text: "Alla formelindex förkortas till minsta heltalsförhållande och rätt empirisk formel anges." },
@@ -100,11 +105,16 @@
       slot: 6,
       title: "Jonpar " + (index + 1),
       points: 3,
-      promptHtml: "<p>" + row.scene + " Jonerna är " + row.cationName + " <strong>" + row.cation + "</strong> och " + row.anionName + " <strong>" + row.anion + "</strong>.</p><p>a) Skriv saltets formelenhet i minsta heltalsförhållande. b) Beräkna formelenhetens molmassa i g/mol och avrunda till 3 värdesiffror.</p>",
+      promptHtml: "<p>" + row.scene + " Jonerna är " + row.cationName + " <strong>" + row.cation + "</strong> och " + row.anionName + " <strong>" + row.anion + "</strong>.</p><p>a) Skriv saltets formelenhet i minsta heltalsförhållande. b) Beräkna formelenhetens molmassa och ange endast slutsvaret i g/mol med 3 värdesiffror i appen; visa laddningsbalans och atomräkning i räknehäftet.</p>",
       fields: [
         { id: "formula", label: "a) Neutral formelenhet", kind: "chemical-formula", purpose: "formula", points: 1, expected: row.formula },
         { id: "molar-mass", label: "b) Molmassa (g/mol; 3 värdesiffror)", kind: "numeric", applied: true, points: 2, expected: expectedMass, targetUnit: "g/mol", requestedUnitLabel: "g/mol", significantFigures: figures, tolerance: tolerance(expectedMass, figures) }
       ],
+      workOnPaper: {
+        title: "Arbeta i räknehäftet",
+        instruction: "Visa laddningsbalans, minsta heltalsförhållande, parenteser och atomräkning i räknehäftet. I appen anger du endast formelenhet och molmassa.",
+        comparison: "Jämför laddningsbalans, index och molmassasumman med lösningen efter rättning."
+      },
       solutionHtml: "<p><strong>a)</strong> Laddningarna ska summera till noll: " + row.cationCount + "·(" + row.cationCharge + ") + " + row.anionCount + "·(" + row.anionCharge + ") = 0. Det minsta heltalsförhållandet ger <strong>" + row.formula + "</strong>.</p><p><strong>b)</strong> Varje atom räknas med sitt index i formelenheten och atommassorna summeras. M(" + row.formula + ") = " + clean(mass) + " g/mol, vilket med 3 värdesiffror blir <strong>" + formatSignificant(expectedMass, figures) + " g/mol</strong>.</p>",
       rubric: [
         { points: 1, text: "Katjonens och anjonens laddningar balanseras till minsta neutrala heltalsförhållande och rätt formelenhet anges." },
@@ -142,11 +152,16 @@
       slot: 6,
       title: "Mätkolv " + (index + 1),
       points: 3,
-      promptHtml: "<p>" + row.scene + " " + clean(row.massG) + " g <strong>" + row.soluteFormula + "</strong> löses och lösningens slutvolym är " + clean(row.volumeDm3) + " dm³.</p><p>a) Beräkna saltkoncentrationen i mol/dm³. b) Beräkna koncentrationen av " + row.ionName + " (" + row.ion + ") i mol/dm³. Avrunda båda svaren till 3 värdesiffror.</p>",
+      promptHtml: "<p>" + row.scene + " " + clean(row.massG) + " g <strong>" + row.soluteFormula + "</strong> löses och lösningens slutvolym är " + clean(row.volumeDm3) + " dm³.</p><p>a) Beräkna saltkoncentrationen i mol/dm³. b) Beräkna koncentrationen av " + row.ionName + " (" + row.ion + ") i mol/dm³. Ange endast båda slutsvaren i mol/dm³ i appen, avrundade till 3 värdesiffror; visa molmassa och stökiometri i räknehäftet.</p>",
       fields: [
         { id: "salt-concentration", label: "a) Saltkoncentration (mol/dm³; 3 värdesiffror)", kind: "numeric", applied: true, points: 1, expected: expectedSalt, targetUnit: "mol/dm3", requestedUnitLabel: "mol/dm³", significantFigures: figures, tolerance: tolerance(expectedSalt, figures) },
         { id: "ion-concentration", label: "b) Jonkoncentration (mol/dm³; 3 värdesiffror)", kind: "numeric", applied: true, points: 2, expected: expectedIon, targetUnit: "mol/dm3", requestedUnitLabel: "mol/dm³", significantFigures: figures, tolerance: tolerance(expectedIon, figures) }
       ],
+      workOnPaper: {
+        title: "Arbeta i räknehäftet",
+        instruction: "Visa molmassa, n = m/M, c = n/V och jonens stökiometriska faktor i räknehäftet. I appen anger du endast de två koncentrationernas slutsvar.",
+        comparison: "Jämför hydratets molmassa, volym och jonfaktor med lösningen efter rättning."
+      },
       solutionHtml: "<p><strong>a) Samband:</strong> n = m/M och c = n/V. Hydratvattnet ingår i molmassan: M(" + row.soluteFormula + ") = " + clean(mass) + " g/mol. n = " + clean(row.massG) + "/" + clean(mass) + " = " + clean(amount) + " mol och c(salt) = " + clean(amount) + "/" + clean(row.volumeDm3) + " = <strong>" + formatSignificant(expectedSalt, figures) + " mol/dm³</strong>.</p><p><strong>b)</strong> Varje formelenhet ger " + row.ionMultiplier + " " + row.ionName + ". Därför blir c(" + row.ion + ") = " + row.ionMultiplier + "·c(salt) = <strong>" + formatSignificant(expectedIon, figures) + " mol/dm³</strong>, avrundat till 3 värdesiffror.</p>",
       rubric: [
         { points: 1, text: "Hydratets fullständiga molmassa används och c = (m/M)/V ger rätt saltkoncentration i mol/dm³." },

@@ -173,6 +173,30 @@ test("invalid grader data and self-assessment rubrics are rejected before any si
   });
 });
 
+test("strict final-answer contract rejects self and multiline fields before side effects", () => {
+  const subject = { id: "x", questionCount: 1, maxPoints: 1, passPoints: 1, durationMinutes: 1 };
+  const candidates = [
+    Object.assign(field("f", "aliases", 1, "ja"), { multiline: true }),
+    Object.assign(field("f", "self", 1), { multiline: true })
+  ];
+
+  candidates.forEach((candidate) => {
+    const legacyQuestion = Object.assign(question("q", 1, 1, [candidate]), {
+      rubric: [{ points: 1, text: "Legacyfält ska inte levereras." }]
+    });
+    const store = memoryStore();
+    let rngCalls = 0;
+    assert.throws(
+      () => exam.createSession(subject, { 1: [legacyQuestion] }, store, () => { rngCalls += 1; return 0.5; }),
+      /invalid exam data/i
+    );
+    assert.equal(store.historyReads, 0);
+    assert.equal(store.historyWrites, 0);
+    assert.equal(store.activeWrites, 0);
+    assert.equal(rngCalls, 0);
+  });
+});
+
 test("choice fields and exact work-on-paper metadata are validated before any side effect", () => {
   const subject = { id: "x", questionCount: 1, maxPoints: 1, passPoints: 1, durationMinutes: 1 };
   const validChoice = {
@@ -223,8 +247,8 @@ test("snapshots bind every selected answer field to its id, kind, and choice val
   assert.equal(Object.hasOwn(snapshot.fieldSchema.q1[0], "label"), false);
   assert.equal(Object.hasOwn(snapshot.fieldSchema.q1[0], "points"), false);
   assert.equal(Object.hasOwn(snapshot.fieldSchema.q1[0], "expected"), false);
-  assert.deepEqual(exam.questionFieldSchema({ fields: [{ id: "work", kind: "self" }] }), [
-    { id: "work", kind: "self", options: null }
+  assert.deepEqual(exam.questionFieldSchema({ fields: [{ id: "work", kind: "aliases" }] }), [
+    { id: "work", kind: "aliases", options: null }
   ]);
 });
 
@@ -326,30 +350,16 @@ test("submit dispatches every automatic field kind and aggregates field points",
   assert.deepEqual(session.snapshot().result, { status: "complete", earned: 7, possible: 7 });
 });
 
-test("self fields keep automatic points and manual grading sets the question total", () => {
-  const { session } = makeSession({
-    subject: { id: "manual", questionCount: 1, maxPoints: 3, passPoints: 2, durationMinutes: 1 },
-    slots: { 1: [Object.assign(question("manual-q", 1, 3, [field("auto", "aliases", 1, "rätt"), field("work", "self", 2)]), {
-      rubric: [{ points: 2, text: "Korrekt redovisning" }]
-    })] }
+test("legacy self-assessment fields are no longer accepted by session creation", () => {
+  const candidate = Object.assign(question("manual-q", 1, 3, [field("auto", "aliases", 1, "rätt"), field("work", "self", 2)]), {
+    rubric: [{ points: 2, text: "Korrekt redovisning" }]
   });
-  session.setAnswer("manual-q", "auto", "rätt");
-  session.setAnswer("manual-q", "work", "på papper");
-  session.submit();
-
-  let snapshot = session.snapshot();
-  assert.equal(snapshot.grades["manual-q"].status, "self");
-  assert.equal(snapshot.grades["manual-q"].earned, 1);
-  assert.deepEqual(snapshot.result, { status: "preliminary", earned: 1, possible: 3 });
-  assert.deepEqual(session.setSelfGrade("manual-q", 2.5), { ok: true });
-
-  snapshot = session.snapshot();
-  assert.equal(snapshot.grades["manual-q"].earned, 2.5);
-  assert.equal(snapshot.grades["manual-q"].status, "partial");
-  assert.equal(snapshot.grades["manual-q"].selfAssessed, true);
-  assert.deepEqual(snapshot.result, { status: "complete", earned: 2.5, possible: 3 });
-  assert.deepEqual(session.setSelfGrade("manual-q", 2.25), { ok: false, reason: "invalid-points" });
-  assert.deepEqual(session.setSelfGrade("manual-q", 3.5), { ok: false, reason: "invalid-points" });
+  assert.throws(() => exam.createSession(
+    { id: "manual", questionCount: 1, maxPoints: 3, passPoints: 2, durationMinutes: 1 },
+    { 1: [candidate] },
+    memoryStore(),
+    seededRng(1)
+  ), /invalid exam data/i);
 });
 
 test("override replaces the whole submitted question score and marks metadata", () => {

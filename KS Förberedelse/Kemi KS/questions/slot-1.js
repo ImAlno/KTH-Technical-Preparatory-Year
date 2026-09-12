@@ -64,6 +64,18 @@
     return row.isotopeTask === "neutrons" ? row.massNumber - row.atomicNumber : Math.abs(row.massNumber - row.comparisonMass);
   }
 
+  function shellAliases(shells) {
+    const canonical = shells.join(",");
+    return Array.from(new Set([
+      canonical.replaceAll(",", "-"),
+      canonical.replaceAll(",", "–"),
+      canonical.replaceAll(",", ", "),
+      canonical.replaceAll(",", " , "),
+      canonical.replaceAll(",", " - "),
+      canonical.replaceAll(",", " – ")
+    ]));
+  }
+
   function makeQuestion(row, index) {
     const caseNumber = index + 1;
     const hasBohr = index < 10;
@@ -74,7 +86,10 @@
       { id: "term", label: "b) Kemisk term", kind: "aliases", purpose: "terminology", points: 1, expected: row.term, aliases: row.aliases }
     ];
     if (hasBohr) {
-      fields.push({ id: "bohr", label: "c) Bohrmodell (rita på papper eller beskriv)", kind: "self", points: 1, multiline: true, help: "Visa kärna och samtliga elektroner fördelade på skal." });
+      fields.push({
+        id: "shells", label: "c) Elektronfördelning från innersta till yttersta skal", kind: "aliases", purpose: "bohr-shell-distribution", points: 1,
+        expected: row.shells.join(","), aliases: shellAliases(row.shells), help: "Ange endast skalens elektronantal här; rita hela Bohrmodellen i räknehäftet."
+      });
       fields.push({
         id: "ion", label: "d) Jonbeteckning", kind: "chemical-formula", purpose: "jonbeteckning-formula", points: 1,
         expected: row.ion, aliases: row.ion.includes("^") ? [row.ion.replace("^", "")] : []
@@ -87,7 +102,7 @@
     }
 
     const thirdPrompt = hasBohr
-      ? "c) Rita en neutral " + row.symbol + "-atom enligt Bohrs modell. d) Ange den vanligaste enkla jon som atomen bildar."
+      ? "c) Rita en neutral " + row.symbol + "-atom enligt Bohrs modell i räknehäftet. Ange endast elektronfördelningen från innersta till yttersta skal som digitalt slutsvar. d) Ange den vanligaste enkla jon som atomen bildar."
       : (definesOutermostShell
         ? "c) Ange antalet elektroner i det yttersta besatta skalet hos en neutral " + row.symbol + "-atom; här avses skalet med högst huvudkvanttal. "
         : "c) Ange antalet valenselektroner hos en neutral " + row.symbol + "-atom. ") + "d) En lösning har koncentrationen " + clean(row.concentration) + " mol/dm³ och volymen " + clean(row.volumeDm3) + " dm³. Beräkna n = cV i mol och avrunda till 3 värdesiffror.";
@@ -107,6 +122,13 @@
       points: 4,
       promptHtml: "<p>Ett laboratorium jämför två isotoper och arbetar samtidigt med en lösning eller jon av samma grundämne.</p><p>a) " + isotopePrompt(row) + " b) " + row.termPrompt + " " + thirdPrompt + "</p>",
       fields: fields,
+      workOnPaper: {
+        title: "Arbeta i räknehäftet",
+        instruction: hasBohr
+          ? "Rita den fullständiga Bohrmodellen med kärna och elektroner i räknehäftet. I appen anger du endast skalens elektronfördelning."
+          : "Visa definitionsvillkor och mellanled för n = cV i räknehäftet. I appen anger du endast slutsvaren.",
+        comparison: "Jämför isotopresonemang, elektronfördelning och beräkning med lösningen efter rättning."
+      },
       solutionHtml: "<p><strong>a)</strong> " + isotopeSolution + "</p><p><strong>b)</strong> Rätt term är <strong>" + row.term + "</strong>. " + row.termExplanation + "</p><p><strong>c–d)</strong> " + structureSolution + "</p>",
       rubric: [
         { points: 1, text: "Isotopjämförelsen använder atomnummer och masstal korrekt." },

@@ -99,12 +99,17 @@
       slot: 2,
       title: familyLabel + " " + caseNumber,
       points: 7,
-      promptHtml: "<p>" + row.context + "</p><p>a) Skriv den balanserade reaktionsformeln med aggregationstillstånd. b) Utgå från " + clean(row.inputMassG) + " g " + row.inputFormula + " och beräkna massan " + row.outputFormula + " när den andra reaktanten finns i överskott. Redovisa formelsamband, molmassor och substansmängdsförhållande; svara i g med 3 värdesiffror.</p><p>c) I ett separat prov blandas vattenlösningar av " + precipitation.prompt + ". Skriv en balanserad reaktionsformel med aggregationstillstånd som visar fällningen.</p>",
+      promptHtml: "<p>" + row.context + "</p><p>a) Skriv den balanserade reaktionsformeln med aggregationstillstånd som digitalt slutsvar. b) Utgå från " + clean(row.inputMassG) + " g " + row.inputFormula + " och beräkna massan " + row.outputFormula + " när den andra reaktanten finns i överskott. Gör formelsamband, molmassor och substansmängdsförhållande i räknehäftet; ange endast slutsvaret i g med 3 värdesiffror i appen.</p><p>c) I ett separat prov blandas vattenlösningar av " + precipitation.prompt + ". Skriv en balanserad reaktionsformel med aggregationstillstånd som visar fällningen som digitalt slutsvar.</p>",
       fields: [
         { id: "reaction", label: "a) Balanserad reaktionsformel med tillstånd", kind: "chemical-equation", purpose: "equation", points: 2, expected: row.equation, requireStates: true, statePoints: 1 },
         { id: "mass", label: "b) Produktmassa (g; 3 värdesiffror)", kind: "numeric", applied: true, points: 3, expected: expectedMass, targetUnit: "g", requestedUnitLabel: "g", significantFigures: figures, tolerance: tolerance(expectedMass, figures), help: "Skriv endast slutsvaret här och redovisa beräkningen på papper." },
         { id: "precipitation", label: "c) Fällningsreaktion med tillstånd", kind: "chemical-equation", purpose: "equation", points: 2, expected: precipitation.equation, requireStates: true, statePoints: 1 }
       ],
+      workOnPaper: {
+        title: "Arbeta i räknehäftet",
+        instruction: "Balansera båda reaktionsformlerna och visa molmassor, n = m/M och koefficientförhållanden i räknehäftet. I appen lämnar du endast de färdiga slutsvaren.",
+        comparison: "Jämför balansering, aggregationstillstånd och stökiometriska mellanled med lösningen efter rättning."
+      },
       solutionHtml: "<p><strong>a) Reaktion:</strong> " + row.equation + ". Koefficienterna ger det minsta heltalsförhållandet och alla ämnen har angivet aggregationstillstånd.</p><p><strong>b) Samband:</strong> n = m/M och m = nM. M(" + row.inputFormula + ") = " + clean(inputMolarMass) + " g/mol, så n = " + clean(row.inputMassG) + "/" + clean(inputMolarMass) + " = " + clean(inputAmount) + " mol. Koefficienterna ger n(" + row.outputFormula + ") = " + row.outputCoefficient + "/" + row.inputCoefficient + " · n(" + row.inputFormula + ") = " + clean(outputAmount) + " mol. Med M(" + row.outputFormula + ") = " + clean(outputMolarMass) + " g/mol fås m = " + clean(exactMass) + " g, alltså <strong>" + formatSignificant(expectedMass, figures) + " g</strong> med 3 värdesiffror.</p><p><strong>c) Fällning:</strong> " + precipitation.equation + ". Produkten märkt (s) är det svårlösliga ämnet; övriga salter är lösta och skrivs (aq).</p>",
       rubric: [
         { points: 1, text: "Rätt reaktanter och produkter samt bevarade atomslag i huvudreaktionen." },

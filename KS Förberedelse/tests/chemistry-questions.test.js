@@ -281,7 +281,7 @@ test("slot structures and curriculum topic rotations are explicit and complete",
     question.sourceData.subtopics.forEach((topic) => slotOneTopics.add(topic));
     if (question.sourceData.subtopics.includes("bohr-model")) {
       bohrGroups += 1;
-      assert.equal(question.fields.some((field) => field.kind === "self"), true, question.id);
+      assert.equal(question.fields.find((field) => field.id === "shells").kind, "aliases", question.id);
       assert.match(question.rubric.map((item) => item.text).join(" "), /kärna.*elektron|elektron.*skal/iu, question.id);
     }
     if (question.sourceData.subtopics.includes("amount-from-concentration")) amountGroups += 1;
@@ -309,7 +309,7 @@ test("slot structures and curriculum topic rotations are explicit and complete",
   slots[3].forEach((question) => {
     requiredMolecules.delete(question.sourceData.molecule);
     assert.deepEqual(question.fields.map((field) => field.points), [1, 1], question.id);
-    assert.deepEqual(question.fields.map((field) => field.kind), ["self", "self"], question.id);
+    assert.deepEqual(question.fields.map((field) => field.kind), ["choice", "choice"], question.id);
     assert.match(question.rubric.map((item) => item.text).join(" "), /elektron|geometri/iu, question.id);
     assert.match(question.rubric.map((item) => item.text).join(" "), /dipol|laddningsförskjutning|symmetri/iu, question.id);
   });
@@ -317,7 +317,7 @@ test("slot structures and curriculum topic rotations are explicit and complete",
 
   const bondTypes = new Set();
   slots[4].forEach((question) => {
-    assert.deepEqual(question.fields.map((field) => [field.kind, field.points]), [["self", 2]], question.id);
+    assert.deepEqual(question.fields.map((field) => [field.kind, field.points]), [["choice", 0.5], ["choice", 0.5], ["choice", 0.5], ["choice", 0.5]], question.id);
     assert.ok([4, 5].includes(question.sourceData.items.length), question.id);
     question.sourceData.items.forEach((item) => bondTypes.add(item.bondType));
     assert.deepEqual(question.rubric.map((item) => item.points), [0.5, 0.5, 0.5, 0.5], `${question.id}: one checklist point per part`);
@@ -350,11 +350,49 @@ test("slot structures and curriculum topic rotations are explicit and complete",
 test("terminology aliases are not used to grade chemistry notation or explanations", () => {
   allQuestions().forEach((question) => {
     question.fields.forEach((field) => {
-      if (field.kind === "aliases") assert.equal(field.purpose, "terminology", `${question.id}/${field.id}`);
+      if (field.kind === "aliases" && field.purpose === "terminology") assert.equal(field.purpose, "terminology", `${question.id}/${field.id}`);
       if (/formula|equation|jonbeteckning/u.test(field.purpose || "")) {
         assert.ok(["chemical-formula", "chemical-equation"].includes(field.kind), `${question.id}/${field.id}`);
       }
     });
+  });
+});
+
+test("chemistry delivers objective final answers with notebook-only method work", () => {
+  const slots = loadSlots();
+  const questions = Object.values(slots).flat();
+  questions.forEach((question) => {
+    question.fields.forEach((field) => {
+      assert.notEqual(field.kind, "self", `${question.id}/${field.id}`);
+      assert.equal(Object.hasOwn(field, "multiline"), false, `${question.id}/${field.id}`);
+    });
+    assert.ok(question.workOnPaper, `${question.id}: notebook instructions`);
+    assert.deepEqual(Object.keys(question.workOnPaper).sort(), ["comparison", "instruction", "title"], question.id);
+  });
+
+  slots[1].slice(0, 10).forEach((question) => {
+    const shells = question.fields.find((field) => field.id === "shells");
+    assert.equal(shells.kind, "aliases", question.id);
+    assert.equal(shells.points, 1, question.id);
+    assert.match(shells.expected, /^\d+(?:,\d+)+$/u, question.id);
+    [shells.expected, shells.expected.replaceAll(",", "-"), shells.expected.replaceAll(",", "–"), shells.expected.replaceAll(",", ", ")].forEach((answer) => {
+      assert.equal(grading.gradeAliases(shells, answer).status, "correct", `${question.id}: ${answer}`);
+    });
+  });
+
+  slots[3].forEach((question) => {
+    assert.deepEqual(question.fields.map((field) => [field.id, field.kind, field.points]), [["geometry", "choice", 1], ["polarity", "choice", 1]], question.id);
+    question.fields.forEach((field) => {
+      assert.ok(field.options.some((option) => option.value === field.expected), `${question.id}/${field.id}`);
+      assert.equal(new Set(field.options.map((option) => option.value)).size, field.options.length, `${question.id}/${field.id}`);
+    });
+  });
+
+  slots[4].forEach((question) => {
+    assert.deepEqual(question.fields.map((field) => [field.id, field.kind, field.points]), [
+      ["part-a", "choice", 0.5], ["part-b", "choice", 0.5], ["part-c", "choice", 0.5], ["part-d", "choice", 0.5]
+    ], question.id);
+    question.fields.forEach((field) => assert.ok(field.options.some((option) => option.value === field.expected), `${question.id}/${field.id}`));
   });
 });
 
@@ -444,11 +482,12 @@ test("every canonical automatic answer earns its exact field points", () => {
   const graders = {
     numeric: grading.gradeNumeric,
     aliases: grading.gradeAliases,
+    choice: grading.gradeChoice,
     "chemical-formula": grading.gradeChemicalFormula,
     "chemical-equation": grading.gradeChemicalEquation
   };
   allQuestions().forEach((question) => {
-    question.fields.filter((field) => field.kind !== "self").forEach((field) => {
+    question.fields.forEach((field) => {
       const raw = field.kind === "numeric" ? `${field.expected}${field.targetUnit ? ` ${field.targetUnit}` : ""}` : field.expected;
       const result = graders[field.kind](field, raw);
       assert.equal(result.status, "correct", `${question.id}/${field.id}: ${result.message}`);
@@ -509,18 +548,18 @@ test("applied solutions preserve the requested significant trailing zeros", () =
   });
 });
 
-test("mixed manual and automatic chemistry work preserves earned automatic credit", () => {
-  const sourceQuestion = loadSlots()[1].find((question) => question.fields.some((field) => field.kind === "self"));
+test("chemistry final-answer fields are all scored automatically", () => {
+  const sourceQuestion = loadSlots()[1][0];
   const subject = { id: "chemistry-mixed", questionCount: 1, maxPoints: 4, passPoints: 2, durationMinutes: 1 };
   const session = exam.createSession(subject, { 1: [sourceQuestion] }, memoryStore(), seededRng(2));
   sourceQuestion.fields.forEach((field) => {
-    const raw = field.kind === "self" ? "Ritad på papper" : field.kind === "numeric" ? `${field.expected}${field.targetUnit ? ` ${field.targetUnit}` : ""}` : field.expected;
+    const raw = field.id === "shells" ? "fel-fördelning" : field.kind === "numeric" ? `${field.expected}${field.targetUnit ? ` ${field.targetUnit}` : ""}` : field.expected;
     session.setAnswer(sourceQuestion.id, field.id, raw);
   });
   session.submit();
   const grade = session.snapshot().grades[sourceQuestion.id];
-  const automaticPoints = sourceQuestion.fields.filter((field) => field.kind !== "self").reduce((sum, field) => sum + field.points, 0);
-  assert.equal(grade.status, "self");
+  const automaticPoints = sourceQuestion.fields.filter((field) => field.id !== "shells").reduce((sum, field) => sum + field.points, 0);
+  assert.equal(grade.status, "partial");
   assert.equal(grade.earned, automaticPoints);
   assert.equal(grade.possible, 4);
 });
@@ -562,7 +601,7 @@ test("slot 1 isotope, shell, ion and concentration answers recompute independent
     }
   });
 
-  assert.deepEqual(questions[0].fields.map((field) => field.expected), [8, "isotoper", undefined, "N^3-"]);
+  assert.deepEqual(questions[0].fields.map((field) => field.expected), [8, "isotoper", "2,5", "N^3-"]);
   assert.equal(numericField(questions[10], "amount").expected, 0.0084);
 });
 
