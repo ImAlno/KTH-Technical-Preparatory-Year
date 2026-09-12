@@ -330,6 +330,16 @@ test("every numeric answer grades correctly and satisfies an independent forward
   });
 });
 
+test("a representative incorrect final answer earns no physics credit", () => {
+  allPhysicsQuestions().forEach((question) => {
+    const field = numericField(question);
+    const wrong = field.expected + Math.max(1, Math.abs(field.expected));
+    const result = grading.gradeNumeric(field, `${wrong} ${field.targetUnit}`);
+    assert.notEqual(result.status, "correct", question.id);
+    assert.equal(result.earned, 0, question.id);
+  });
+});
+
 test("a real physics field keeps full credit while identifying an equivalent alternative unit", () => {
   const question = loadSlots()[2].find((candidate) => candidate.id === "physics-s2-cylinder-01");
   const result = grading.gradeNumeric(numericField(question), "1,32 kg");
@@ -598,29 +608,34 @@ test("all data-generated SVGs are accessible, uniquely labelled and honest about
   assert.equal(descIds.size, 125);
 });
 
-test("manual force work has concrete Swedish rubrics while automatic credit remains intact", () => {
-  const mixed = allPhysicsQuestions().filter((question) => question.fields.some((field) => field.kind === "self"));
-  assert.ok(mixed.length >= 65);
-  mixed.forEach((question) => {
-    const manual = question.fields.find((field) => field.kind === "self");
-    const numeric = question.fields.find((field) => field.kind === "numeric");
-    assert.equal(manual.points, 1, question.id);
-    assert.equal(numeric.points, 1, question.id);
-    assert.match(manual.label, /kraftfigur|resonemang/i, question.id);
-    assert.ok(question.rubric.some((item) => /riktning|kraft|newton|jämvikt|komposant/i.test(item.text)), question.id);
-    assert.ok(question.rubric.every((item) => !/korrekt lösning$/i.test(item.text.trim())), question.id);
+test("physics exposes exactly one full-credit numeric final answer and paper-work guidance per question", () => {
+  const questions = allPhysicsQuestions();
+  assert.equal(questions.length, 125);
+  questions.forEach((question) => {
+    assert.deepEqual(question.fields.map((field) => field.id), ["answer"], question.id);
+    assert.equal(question.fields.length, 1, question.id);
+    const answer = question.fields[0];
+    assert.equal(answer.kind, "numeric", question.id);
+    assert.equal(answer.points, 2, question.id);
+    assert.equal(Object.hasOwn(answer, "multiline"), false, question.id);
+    assert.ok(!question.fields.some((field) => field.kind === "self"), question.id);
+    assert.deepEqual(Object.keys(question.workOnPaper).sort(), ["comparison", "instruction", "title"], question.id);
+    Object.values(question.workOnPaper).forEach((value) => assert.equal(typeof value, "string"));
+    Object.values(question.workOnPaper).forEach((value) => assert.ok(value.trim(), question.id));
+    assert.match(question.workOnPaper.title, /räknehäftet/i, question.id);
+    assert.match(question.workOnPaper.instruction, /endast slutsvaret.*digitalt|slutsvaret.*digitalt/i, question.id);
+    assert.match(question.workOnPaper.instruction, /räknehäftet|anteckningsbok|häftet/i, question.id);
+    assert.match(question.workOnPaper.comparison, /lösning|lösnings|jämför/i, question.id);
   });
+});
 
-  const question = mixed[0];
-  const subject = { id: "physics-mixed-check", name: "Kontroll", questionCount: 1, maxPoints: 2, passPoints: 1, durationMinutes: 1 };
-  const session = exam.createSession(subject, { 1: [Object.assign({}, question, { slot: 1 })] }, memoryStore(), seededRng(9));
-  const numeric = question.fields.find((field) => field.kind === "numeric");
-  session.setAnswer(question.id, numeric.id, `${numeric.expected} ${numeric.targetUnit}`);
-  session.submit();
-  const grade = session.snapshot().grades[question.id];
-  assert.equal(grade.requiresSelfAssessment, true);
-  assert.equal(grade.fieldResults[numeric.id].status, "correct");
-  assert.equal(grade.earned, 1, "automatic point must survive a pending self field");
+test("paper-work instructions name the method expected by each physics family", () => {
+  const byFamily = Object.fromEntries(allPhysicsQuestions().map((question) => [question.sourceData.family, question.workOnPaper.instruction]));
+  assert.match(byFamily["graph-interpretation"], /graf|lutning|area|avläs|beräkna/i);
+  assert.match(byFamily["contact-equilibrium"], /kraftfigur|frilägg|jämvikt/i);
+  ["cylinder", "cone", "sphere", "prism", "liquid-column"].forEach((family) => assert.match(byFamily[family], /enhet|SI|geometri|mått|volym/i));
+  ["time-to-apex", "maximum-height", "initial-speed", "impact-speed", "flight-time"].forEach((family) => assert.match(byFamily[family], /positiv riktning|tecken|rot|rörelse/i));
+  ["hanging-masses", "cables-at-angles", "missing-fourth-force", "supported-beams", "frictionless-wall-contact", "horizontal-pull", "inclined-plane", "connected-masses", "unknown-pull", "unknown-friction"].forEach((family) => assert.match(byFamily[family], /kraftfigur|frilägg|Newtons|kraft/i));
 });
 
 test("vertical solutions define upward-positive signs before substitution", () => {

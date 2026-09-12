@@ -169,6 +169,23 @@
     return "Kraftfiguren visar mg nedåt, väggens normalkraft horisontellt och spännkraften längs linan.";
   }
 
+  function equilibriumWorkOnPaper(family) {
+    const method = family === "hanging-masses"
+      ? "frilägg det valda systemet med tyngdkrafter och spännkraft"
+      : family === "cables-at-angles"
+        ? "rita tyngdkraften och de två spännkrafterna längs linorna, och dela upp dem i komponenter"
+        : family === "missing-fourth-force"
+          ? "rita kraftvektorerna med komponentaxlar och låt den fjärde kraften balansera resultanten"
+          : family === "supported-beams"
+            ? "frilägg balken med tyngdkraften och de två separata stödreaktionerna"
+            : "frilägg kroppen med tyngdkraft, väggens normalkraft och spännkraften längs linan";
+    return {
+      title: "Arbeta i räknehäftet",
+      instruction: "Arbeta i räknehäftet: " + method + ". Ange riktningar, välj axlar och ställ upp jämvikt komponentvis innan du räknar. Endast slutsvaret skrivs in digitalt; fullständig kraftfigur och beräkning görs i räknehäftet.",
+      comparison: "Jämför frilagd kropp/system, alla kraftpilar och riktningar, komponenter, jämviktsvillkor, enhet och avrundning med lösningen."
+    };
+  }
+
   function makeQuestion(family, row, familyIndex, rowIndex) {
     const id = "physics-s4-" + family + "-" + String(rowIndex + 1).padStart(2, "0");
     const figures = 3;
@@ -180,10 +197,8 @@
       title: row.scenario,
       points: 2,
       promptHtml: "<p>" + promptText(family, row) + " Använd g = 9,82 m/s².</p>" + situationSvg(id, family, row) + "<p><small>Figuren är schematisk och inte skalenlig; varken pillängd eller avstånd får mätas.</small></p><p>Rita en fullständig kraftfigur. Svara i N. Avrunda till " + figures + " värdesiffror.</p>",
-      fields: [
-        { id: "diagram", label: "Kraftfigur och resonemang", kind: "self", points: 1, multiline: true, help: "Frilägg rätt kropp/system och namnge vektorer och riktningar." },
-        { id: "answer", label: "Svar (N; " + figures + " värdesiffror)", kind: "numeric", points: 1, expected: expected, targetUnit: "N", tolerance: tolerance(expected, figures), help: "Ange den efterfrågade kraftens storlek." }
-      ],
+      fields: [{ id: "answer", label: "Svar (N; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: "N", tolerance: tolerance(expected, figures), help: "Ange den efterfrågade kraftens storlek." }],
+      workOnPaper: equilibriumWorkOnPaper(family),
       solutionHtml: solution(family, row.givens, exact, expected, figures),
       rubric: [
         { points: 1, text: rubricDiagram(family) },

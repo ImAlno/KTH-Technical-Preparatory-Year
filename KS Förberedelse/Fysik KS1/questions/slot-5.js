@@ -163,6 +163,19 @@
     return "Kraftfiguren visar mg nedåt, N uppåt samt driv-/dragkraft och kinetisk friktion i motsatta horisontella riktningar.";
   }
 
+  function dynamicsWorkOnPaper(family) {
+    const method = family === "inclined-plane"
+      ? "rita en kraftfigur på planet, välj positiv riktning nedför och dela tyngdkraften i komponenter"
+      : family === "connected-masses"
+        ? "rita separata friläggningar för båda kropparna, med spännkraft och kinetisk friktion i rätt riktningar"
+        : "frilägg kroppen med tyngdkraft, normalkraft, driv-/dragkraft och kinetisk friktion";
+    return {
+      title: "Arbeta i räknehäftet",
+      instruction: "Arbeta i räknehäftet: " + method + ". Ställ upp Newtons andra lag längs vald riktning och kontrollera normalkraft, friktion och tecken. Endast slutsvaret skrivs in digitalt; fullständig kraftfigur och beräkning görs i räknehäftet.",
+      comparison: "Jämför friläggning(ar), kraftpilar och riktningar, komponenter eller friktionsmodell, Newtons lag, fysikalisk kontroll, enhet och avrundning med lösningen."
+    };
+  }
+
   function makeQuestion(family, row, familyIndex, rowIndex) {
     const id = "physics-s5-" + family + "-" + String(rowIndex + 1).padStart(2, "0");
     const figures = 3;
@@ -178,10 +191,8 @@
       title: row.scenario,
       points: 2,
       promptHtml: "<p>" + promptText(family, row) + " Använd g = 9,82 m/s² och försumma övriga motstånd.</p>" + dynamicsSvg(id, family, row) + "<p><small>Figuren är schematisk och inte skalenlig; använd endast utskrivna data.</small></p><p>Rita kraftfigur(er). Svara i " + info.unitLabel + ". Avrunda till " + figures + " värdesiffror.</p>",
-      fields: [
-        { id: "diagram", label: "Kraftfigur och resonemang", kind: "self", points: 1, multiline: true, help: "Frilägg varje relevant kropp och ange vald positiv riktning." },
-        { id: "answer", label: "Svar (" + info.unitLabel + "; " + figures + " värdesiffror)", kind: "numeric", points: 1, expected: expected, targetUnit: info.targetUnit, tolerance: tolerance(expected, figures), help: "Ange den efterfrågade accelerationens eller kraftens storlek." }
-      ],
+      fields: [{ id: "answer", label: "Svar (" + info.unitLabel + "; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: info.targetUnit, tolerance: tolerance(expected, figures), help: "Ange den efterfrågade accelerationens eller kraftens storlek." }],
+      workOnPaper: dynamicsWorkOnPaper(family),
       solutionHtml: solution(family, row.givens, exact, expected, figures, info.unitLabel),
       rubric: [
         { points: 1, text: rubricDiagram(family) },

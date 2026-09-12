@@ -130,6 +130,19 @@
     return "<p><strong>Samband:</strong> sträckan är arean under en v-t-graf. Dela området vid grafens brytpunkter i trianglar och parallelltrapetser.</p><p>Summan av delareorna är " + clean(exact) + " (m/s)·s = " + clean(exact) + " m.</p><p>Efter avrundning blir svaret <strong>" + rendered + " " + unitLabel + "</strong>.</p>";
   }
 
+  function graphWorkOnPaper(row) {
+    const method = row.graphTask === "slope" || row.graphTask === "acceleration"
+      ? "läs av två brytpunkter på den relevanta räta delen och beräkna lutningen"
+      : row.graphTask === "average-speed"
+        ? "läs av alla brytpunkter, summera delsträckornas belopp och dividera med hela tiden"
+        : "dela arean under v-t-grafen i trianglar och parallelltrapetser och summera delareorna";
+    return {
+      title: "Arbeta i räknehäftet",
+      instruction: "Arbeta i räknehäftet: " + method + ". Skriv enheter och tecken tydligt. Endast slutsvaret skrivs in digitalt; all avläsning och beräkning görs i räknehäftet.",
+      comparison: "Jämför grafavläsning, val av brytpunkter eller delareor, tecken, enhet och avrundning med lösningen."
+    };
+  }
+
   function makeGraph(row, index) {
     const id = "physics-s1-graph-" + String(index + 1).padStart(2, "0");
     const figures = 2;
@@ -151,6 +164,7 @@
       points: 2,
       promptHtml: "<p>Diagrammet visar " + (row.graphType === "s-t" ? "läge s" : "hastighet v") + " som funktion av tiden för " + row.scenario.toLowerCase() + ". " + row.prompt + "</p>" + graphSvg(id, row) + "<p><small>Grafens rutnät, brytpunkter och axelvärden är exakt skalenliga.</small></p><p>Svara i " + unit[1] + ". Avrunda till " + figures + " värdesiffror.</p>",
       fields: [{ id: "answer", label: "Svar (" + unit[1] + "; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: unit[0], tolerance: tolerance(expected, figures), help: "Du kan skriva talet med eller utan den angivna enheten." }],
+      workOnPaper: graphWorkOnPaper(row),
       solutionHtml: graphSolution(row, exact, formatSignificant(expected, figures), unit[1]),
       rubric: [
         { points: 1, text: "Rätt grafisk metod: lutning, total delsträcka eller area väljs och brytpunkternas exakta axelvärden används." },
@@ -192,6 +206,17 @@
     return "<p>Kraftfiguren ska visa tyngdkraften mg nedåt och de två stödreaktionerna F₁ och F₂ uppåt på balken.</p><p><strong>Samband:</strong> jämvikt i vertikalled ger F₁ + F₂ − mg = 0, alltså F₂ = mg − F₁.</p><p>Insättning: F₂ = " + clean(row.massKg) + "·9,82 − " + clean(row.knownSupportN) + " = " + clean(exact) + " N. Efter avrundning: <strong>" + rendered + " N uppåt</strong>.</p>";
   }
 
+  function contactWorkOnPaper(row) {
+    const forces = row.contactType === "two-support"
+      ? "frilägg balken och rita tyngdkraften samt båda stödreaktionerna"
+      : "frilägg kroppen och rita tyngdkraften, normalkraften och den yttre kraften med rätt riktning";
+    return {
+      title: "Arbeta i räknehäftet",
+      instruction: "Arbeta i räknehäftet: " + forces + ". Ställ upp jämvikt i vertikalled och beräkna normalkraften eller stödreaktionen. Endast slutsvaret skrivs in digitalt; kraftfigur och beräkning görs i räknehäftet.",
+      comparison: "Jämför friläggning, kraftpilar och riktningar, jämviktsvillkor, enhet och avrundning med lösningen."
+    };
+  }
+
   function makeContact(row, index) {
     const id = "physics-s1-contact-" + String(index + 1).padStart(2, "0");
     const figures = 2;
@@ -203,10 +228,8 @@
       title: row.scenario,
       points: 2,
       promptHtml: "<p>" + contactPrompt(row) + "</p>" + contactSvg(id, row) + "<p><small>Figuren är schematisk och inte skalenlig; pilarnas längder får inte användas för mätning.</small></p><p>Rita först en kraftfigur. Svara sedan i N. Avrunda till " + figures + " värdesiffror.</p>",
-      fields: [
-        { id: "diagram", label: "Kraftfigur och resonemang", kind: "self", points: 1, multiline: true, help: "Beskriv eller rita alla krafter på den frilagda kroppen och ange riktning." },
-        { id: "answer", label: "Svar (N; " + figures + " värdesiffror)", kind: "numeric", points: 1, expected: expected, targetUnit: "N", tolerance: tolerance(expected, figures), help: "Ange normalkraftens eller stödreaktionens storlek." }
-      ],
+      fields: [{ id: "answer", label: "Svar (N; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: "N", tolerance: tolerance(expected, figures), help: "Ange normalkraftens eller stödreaktionens storlek." }],
+      workOnPaper: contactWorkOnPaper(row),
       solutionHtml: contactSolution(row, exact, formatSignificant(expected, figures)),
       rubric: [
         { points: 1, text: "Kraftfiguren visar tyngdkraft och samtliga kontakt-/yttre krafter på rätt kropp med rätt riktning." },

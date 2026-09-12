@@ -127,6 +127,23 @@
     return "<p><strong>Teckenval:</strong> Positiv riktning: uppåt. Då är a = −9,82 m/s² under hela rörelsen och marknivån används som y = 0.</p><p><strong>Insättning och samband:</strong> " + work + "</p><p>Efter avrundning till " + figures + " värdesiffror blir svaret <strong>" + formatSignificant(expected, figures) + " " + unitLabel + "</strong>.</p>";
   }
 
+  function motionWorkOnPaper(family) {
+    const method = family === "time-to-apex"
+      ? "sätt v = 0 i högsta punkten och lös ut tiden"
+      : family === "maximum-height"
+        ? "sätt v = 0 i vändläget och lös ut den största höjden"
+        : family === "initial-speed"
+          ? "använd den uppåt positiva hastighetsekvationen och lös ut utgångshastigheten"
+          : family === "impact-speed"
+            ? "använd lägesekvationen med konsekventa tecken och välj fartens belopp före markträffen"
+            : "ställ upp lägesekvationen till marknivån och välj den positiva, fysikaliskt giltiga flygtidsroten";
+    return {
+      title: "Arbeta i räknehäftet",
+      instruction: "Arbeta i räknehäftet: välj uppåt som positiv riktning, använd a = −g och " + method + ". Validera tecken, enhet och att vald rot eller fart är fysikaliskt giltig. Endast slutsvaret skrivs in digitalt; teckenval och hela beräkningen görs i räknehäftet.",
+      comparison: "Jämför positiv riktning, a = −g, rörelseekvation, rot-/beloppsval, fysikalisk kontroll, enhet och avrundning med lösningen."
+    };
+  }
+
   function makeQuestion(family, row, familyIndex, rowIndex) {
     const id = "physics-s3-" + family + "-" + String(rowIndex + 1).padStart(2, "0");
     const figures = 3;
@@ -140,6 +157,7 @@
       points: 2,
       promptHtml: "<p>" + row.object.charAt(0).toUpperCase() + row.object.slice(1) + " kastas vertikalt. Givet är " + givensText(family, row.givens) + ". Luftmotståndet försummas och g = 9,82 m/s². " + info.question + "</p>" + motionSvg(id, row, family) + "<p><small>Figuren är schematisk och inte skalenlig; använd tecken och utskrivna värden, inte pilarnas längder.</small></p><p>Svara i " + info.unitLabel + ". Avrunda till " + figures + " värdesiffror.</p>",
       fields: [{ id: "answer", label: "Svar (" + info.unitLabel + "; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: info.targetUnit, tolerance: tolerance(expected, figures), help: "Ange den positiva tid, höjd eller fart som efterfrågas." }],
+      workOnPaper: motionWorkOnPaper(family),
       solutionHtml: solution(family, row.givens, exact, expected, info.unitLabel, figures),
       rubric: [
         { points: 1, text: "Positiv riktning definieras, a = −g används och rätt rörelseekvation ställs upp med konsekventa tecken." },

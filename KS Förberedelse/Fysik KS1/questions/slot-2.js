@@ -169,6 +169,25 @@
     return "<p><strong>Samband:</strong> densitet definieras som ρ = m/V och kroppens volym ges av " + formula + "." + definition + " Alla givna mått omvandlas först till SI.</p><p>För den sökta storheten fås <strong>" + rearrangement + "</strong>. Insättning ger " + formatSignificant(exactSI, 6) + " " + UNIT_LABELS[siUnit] + ".</p><p>Omräknat till begärd enhet och avrundat till " + figures + " värdesiffror blir svaret <strong>" + formatSignificant(expected, figures) + " " + UNIT_LABELS[row.targetUnit] + "</strong>.</p>";
   }
 
+  function geometryWorkOnPaper(family, row) {
+    const shape = family === "cylinder"
+      ? "cylinderns volymformel V = πr²h"
+      : family === "cone"
+        ? "konens volymformel V = πr²h/3"
+        : family === "sphere"
+          ? "sfärens volymformel V = 4πr³/3"
+          : family === "prism" && row.baseShape === "regular-hexagon"
+            ? "den regelbundna sexkantens basarea och volymformel V = (3√3/2)r²h"
+            : family === "prism"
+              ? "prismats volymformel V = lbh"
+              : "vätskepelarens cylindriska volymformel V = πr²h";
+    return {
+      title: "Arbeta i räknehäftet",
+      instruction: "Arbeta i räknehäftet: skriv om alla givna mått till SI-enheter, välj " + shape + ", och lös ut den sökta storheten stegvis. Kontrollera dimensionerna och avrundningen. Endast slutsvaret skrivs in digitalt; alla enhetsbyten, geometri och beräkningar görs i räknehäftet.",
+      comparison: "Jämför SI-omvandlingar, vald volymformel, geometrisk definition, algebraisk omskrivning, enhet och tre värdesiffror med lösningen."
+    };
+  }
+
   function makeQuestion(family, row, familyIndex, rowIndex) {
     const id = "physics-s2-" + family + "-" + String(rowIndex + 1).padStart(2, "0");
     const figures = 3;
@@ -187,6 +206,7 @@
       points: 2,
       promptHtml: "<p>" + row.object.charAt(0).toUpperCase() + row.object.slice(1) + " har " + givensText(row) + ". Bestäm " + quantityPrompt + ". Använd den idealiserade geometrin i figuren.</p>" + bodySvg(id, family, row) + "<p><small>Figuren är schematisk och inte skalenlig; använd enbart de utskrivna måtten.</small></p><p>Svara i " + requestedUnitLabel + ". Avrunda till " + figures + " värdesiffror.</p>",
       fields: [{ id: "answer", label: answerLabel + " (" + requestedUnitLabel + "; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: row.targetUnit, tolerance: tolerance(expected, figures), help: "Ange ett tal i den begärda enheten." }],
+      workOnPaper: geometryWorkOnPaper(family, row),
       solutionHtml: solutionText(family, row, exactSI, expected, figures),
       rubric: [
         { points: 1, text: "Rätt densitets- och volymsamband väljs och samtliga längder/massor omvandlas dimensionsriktigt till SI." },
