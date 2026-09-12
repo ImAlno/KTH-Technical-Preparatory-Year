@@ -152,13 +152,23 @@ test("couples rope tangent pair and arc so both contacts are C1 and side-specifi
 test("vector rope sides select sampled arc on the requested side", () => {
   const top = kit.ropeAroundCircle({ id: "rope-vector-top", from: [0, -10], pulley: { center: [0, 0], radius: 2 }, to: [8, 0], side: [0, -1] });
   const bottom = kit.ropeAroundCircle({ id: "rope-vector-bottom", from: [0, -10], pulley: { center: [0, 0], radius: 2 }, to: [8, 0], side: [0, 1] });
-  const midpoint = (rope) => {
-    const angle = Math.atan2(rope.fromTangent[1], rope.fromTangent[0]) + rope.arc.sweep * rope.arc.delta / 2;
-    return [Math.cos(angle), Math.sin(angle)];
+  const contains = (rope, side) => {
+    const start = Math.atan2(rope.fromTangent[1], rope.fromTangent[0]);
+    const target = Math.atan2(side[1], side[0]);
+    const travel = rope.arc.sweep === 1 ? ((target - start) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) : ((start - target) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+    return travel <= rope.arc.delta + 1e-9;
   };
   assert.notDeepEqual(top.tangentPoints, bottom.tangentPoints);
-  assert.ok(kit.dot(midpoint(top), [0, -1]) > 0);
-  assert.ok(kit.dot(midpoint(bottom), [0, 1]) > 0);
+  assert.equal(top.arc.turns, 0);
+  assert.equal(bottom.arc.turns, 0);
+  assert.ok(top.arc.delta <= 2 * Math.PI + 1e-9);
+  assert.ok(bottom.arc.delta <= 2 * Math.PI + 1e-9);
+  assert.ok(contains(top, [0, -1]));
+  assert.ok(contains(bottom, [0, 1]));
+  for (const rope of [top, bottom]) {
+    const expectedLength = Math.hypot(rope.from[0] - rope.fromTangent[0], rope.from[1] - rope.fromTangent[1]) + Math.hypot(rope.to[0] - rope.toTangent[0], rope.to[1] - rope.toTangent[1]) + rope.pulley.radius * rope.arc.delta;
+    assert.ok(Math.abs(rope.length - expectedLength) < 1e-9);
+  }
 });
 
 test("requires branded semantic primitives and rejects raw collision bypasses", () => {
@@ -227,6 +237,20 @@ test("emits an exact DOM ID set and rejects path/rectangle overflow before reser
   assert.deepEqual(new Set(parsed), new Set(result.manifest.domIds));
   assert.throws(() => kit.path({ id: "path-overflow", d: "M 1e308 0 L -1e308 0", strokeWidth: 1 }), /finite|overflow/i);
   assert.throws(() => kit.rect({ id: "zero-rect", x: 0, y: 0, width: 1e-14, height: 1, rx: Infinity }), /finite|degenerate|rectangle/i);
+});
+
+test("finishes a finite raw M/L/H/V/Z path and rejects command-letter tampering", () => {
+  const diagram = kit.create({ id: "kit-raw-path", title: "A", description: "B", width: 20, height: 20, purpose: "prompt" });
+  diagram.add("geometry", kit.path({ id: "raw-path", d: "M 2 2 L 8 2 H 12 V 8 L 2 8 Z", role: "line", strokeWidth: 1 }));
+  const output = diagram.finish();
+  assert.equal(output.manifest.paths[0].path, "M 2 2 L 8 2 H 12 V 8 L 2 8 Z");
+  const tampered = JSON.parse(JSON.stringify(output.manifest));
+  const replaceCommands = (value) => typeof value === "string" ? value.replace(/L/gu, "M") : value;
+  tampered.layers[0].elements[0].path = replaceCommands(tampered.layers[0].elements[0].path);
+  tampered.geometry[0].path = replaceCommands(tampered.geometry[0].path);
+  tampered.elements[0].path = replaceCommands(tampered.elements[0].path);
+  tampered.paths[0].path = replaceCommands(tampered.paths[0].path);
+  assert.throws(() => kit.validateManifest(tampered), /path|command|canonical|tamper/i);
 });
 
 test("path and dimension paint records include exact stroke extents and one dimension path", () => {

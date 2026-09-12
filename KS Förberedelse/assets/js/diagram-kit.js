@@ -221,20 +221,26 @@
         const midpointAngle = startCandidateAngle + candidateSweep * candidateDelta / 2;
         const midpoint = add(pulley.center, [r * Math.cos(midpointAngle), r * Math.sin(midpointAngle)]);
         const sideScore = dot(sub(midpoint, pulley.center), sideDirection);
-        solutions.push({ fromTangent: fromTangentCandidate, toTangent: toTangentCandidate, sweep: candidateSweep, delta: candidateDelta, sideScore, firstContinuity, lastContinuity });
+        const requestedAngle = Math.atan2(sideDirection[1], sideDirection[0]);
+        const directedTravel = candidateSweep === 1 ? normalizeAngle(requestedAngle - startCandidateAngle) : normalizeAngle(startCandidateAngle - requestedAngle);
+        solutions.push({ fromTangent: fromTangentCandidate, toTangent: toTangentCandidate, sweep: candidateSweep, delta: candidateDelta, sideScore, firstContinuity, lastContinuity, containsSide: directedTravel <= candidateDelta + 1e-9 });
       }
     }
     if (!solutions.length) fail("INVARIANT", "no continuous tangent rope path exists for the supplied endpoints");
+    if (requestedSide) {
+      const sideSolutions = solutions.filter((solution) => solution.containsSide);
+      if (!sideSolutions.length) fail("NO_SIDE", "no continuous tangent arc reaches the requested rope side");
+      solutions.splice(0, solutions.length, ...sideSolutions);
+    }
     solutions.sort((a, b) => {
-      if (requestedSide && Math.abs(b.sideScore - a.sideScore) > 1e-9) return b.sideScore - a.sideScore;
+      if (requestedSide) return a.delta - b.delta;
       if (opts.side === "long" || opts.side === "bottom" || opts.side === "left") return b.delta - a.delta;
       return a.delta - b.delta;
     });
     const selected = solutions[0];
     const fromTangent = selected.fromTangent; const toTangent = selected.toTangent; const sweep = selected.sweep;
-    const extraTurns = requestedSide && selected.sideScore < 0 ? 1 : 0;
-    const delta = selected.delta + extraTurns * Math.PI * 2;
-    const arc = { kind: "arc", from: clone(fromTangent), to: clone(toTangent), center: clone(pulley.center), radius: r, sweep, delta, turns: extraTurns, largeArc: selected.delta > Math.PI };
+    const delta = selected.delta;
+    const arc = { kind: "arc", from: clone(fromTangent), to: clone(toTangent), center: clone(pulley.center), radius: r, sweep, delta, turns: 0, largeArc: delta > Math.PI };
     const fromSegment = { kind: "segment", from: clone(from), to: clone(fromTangent) };
     const toSegment = { kind: "segment", from: clone(toTangent), to: clone(to) };
     [fromTangent, toTangent].forEach(function (point, index) {
@@ -242,14 +248,7 @@
       if (Math.abs(dot(sub(point, pulley.center), sub(external, point))) > 1e-6) fail("INVARIANT", "rope tangent is not orthogonal to its radius");
     });
     if (selected.firstContinuity < 1 - 1e-6 || selected.lastContinuity < 1 - 1e-6) fail("INVARIANT", "rope contacts are not C1 continuous");
-    let path = "M " + from[0] + " " + from[1] + " L " + fromTangent[0] + " " + fromTangent[1];
-    const startAngle = Math.atan2(fromTangent[1] - pulley.center[1], fromTangent[0] - pulley.center[0]);
-    for (let turn = 1; turn <= extraTurns * 4; turn += 1) {
-      const angle = startAngle + sweep * Math.PI / 2 * turn;
-      const point = add(pulley.center, [r * Math.cos(angle), r * Math.sin(angle)]);
-      path += " A " + r + " " + r + " 0 0 " + (sweep === 1 ? 1 : 0) + " " + point[0] + " " + point[1];
-    }
-    path += " A " + r + " " + r + " 0 " + (selected.delta > Math.PI ? 1 : 0) + " " + (sweep === 1 ? 1 : 0) + " " + toTangent[0] + " " + toTangent[1] + " L " + to[0] + " " + to[1];
+    const path = "M " + from[0] + " " + from[1] + " L " + fromTangent[0] + " " + fromTangent[1] + " A " + r + " " + r + " 0 " + (delta > Math.PI ? 1 : 0) + " " + (sweep === 1 ? 1 : 0) + " " + toTangent[0] + " " + toTangent[1] + " L " + to[0] + " " + to[1];
     return finalizePrimitive({
       kind: "rope", role: opts.role || "rope", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "rope.strokeWidth"),
       id: opts.id, from, to, pulley: { center: clone(pulley.center), radius: r }, side: opts.side || "top", fromTangent, toTangent,
@@ -423,6 +422,12 @@
     [result.x, result.y, result.width, result.height].forEach((value) => finite(value, "path bounds"));
     return result;
   }
+  function pathSignature(source) {
+    const tokenPattern = /([a-zA-Z])|([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)/giu;
+    const signature = []; let match;
+    while ((match = tokenPattern.exec(source))) signature.push(match[1] ? match[1] : Number(match[2]));
+    return signature;
+  }
 
   function path(options) {
     const s = shapeBase(options, "path", "line");
@@ -430,6 +435,7 @@
     s.d = options.d;
     s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "path.strokeWidth");
     const rawBounds = parsePathBounds(options.d); const halfStroke = s.strokeWidth / 2;
+    s.commands = pathSignature(options.d);
     s.bbox = { x: rawBounds.x - halfStroke, y: rawBounds.y - halfStroke, width: rawBounds.width + s.strokeWidth, height: rawBounds.height + s.strokeWidth };
     Object.values(s.bbox).forEach((value) => finite(value, "path painted bounds"));
     return finalizePrimitive(s, false);
@@ -543,6 +549,7 @@
     if (shape.kind === "circle") result.geometry = { center: shape.center, radius: shape.radius };
     if (shape.kind === "rect") result.geometry = { x: shape.x, y: shape.y, width: shape.width, height: shape.height, rx: element.rx };
     if (shape.kind === "polygon" || shape.kind === "polyline") result.geometry = { points: shape.points };
+    if (shape.kind === "path") result.geometry = { d: shape.d, commands: pathSignature(shape.d) };
     if (shape.kind === "body") result.geometry = { points: shape.corners, line: shape.line, outwardNormal: shape.outwardNormal, bottomCenter: shape.bottomCenter, width: length(sub(shape.bottomRight, shape.bottomLeft)), height: length(sub(shape.topLeft, shape.bottomLeft)) };
     if (shape.kind === "dimension") result.geometry = { a: shape.a, b: shape.b, normal: shape.normal, offset: shape.offset, extension: shape.extension };
     if (shape.kind === "angleArc") result.geometry = { vertex: shape.vertex, fromRay: shape.fromRay, toRay: shape.toRay, radius: shape.radius, sweep: shape.sweep };
@@ -557,6 +564,7 @@
     if (element.kind === "circle") return { center: element.center, radius: element.radius };
     if (element.kind === "rect") return { x: element.x, y: element.y, width: element.width, height: element.height, rx: element.rx };
     if (element.kind === "polygon" || element.kind === "polyline") return { points: element.points };
+    if (element.kind === "path") return { d: element.path, commands: element.commands };
     if (element.kind === "body") return { points: element.points, line: element.line, outwardNormal: element.outwardNormal, bottomCenter: element.bottomCenter, width: element.width, height: element.height };
     if (element.kind === "dimension") return { a: element.a, b: element.b, normal: element.normal, offset: element.offset, extension: element.extension };
     if (element.kind === "angleArc") return { vertex: element.vertex, fromRay: element.fromRay, toRay: element.toRay, radius: element.radius, sweep: element.sweep };
@@ -598,7 +606,7 @@
     if (typeof left === "string" && typeof right === "string" && /[MLHVZ]/iu.test(left) && /[MLHVZ]/iu.test(right)) {
       const tokenize = (value) => value.match(/[a-zA-Z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/giu) || [];
       const a = tokenize(left); const b = tokenize(right);
-      return a.length === b.length && a.every((token, index) => /[a-zA-Z]/u.test(token) || geometryEqual(Number(token), Number(b[index])));
+      return a.length === b.length && a.every((token, index) => /[a-zA-Z]/u.test(token) ? token === b[index] : geometryEqual(Number(token), Number(b[index])));
     }
     if (left === right) return true;
     if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false;
@@ -791,6 +799,7 @@
           if (element.kind === "polygon" || element.kind === "polyline") Object.assign(record, { points: element.points.map(clone) });
           if (element.kind === "rect") Object.assign(record, { x: element.x, y: element.y, width: element.width, height: element.height, rx: element.attrs.rx });
           if (element.kind === "path" || element.kind === "angleArc" || element.kind === "rope" || element.kind === "dimension") Object.assign(record, { path: element.d || element.path, segments: element.segments || null });
+          if (element.kind === "path") record.commands = element.commands.slice();
           if (element.kind === "dimension") Object.assign(record, { a: clone(element.a), b: clone(element.b), normal: clone(element.normal), offset: element.offset, anchors: element.anchors.map(clone), extension: element.extension });
           if (element.kind === "angleArc") Object.assign(record, { vertex: clone(element.vertex), fromRay: clone(element.fromRay), toRay: clone(element.toRay), radius: element.radius, sweep: element.sweep });
           if (element.kind === "rope") Object.assign(record, { from: clone(element.from), to: clone(element.to), pulley: { center: clone(element.pulley.center), radius: element.pulley.radius }, side: element.side, fromTangent: clone(element.fromTangent), toTangent: clone(element.toTangent), arc: Object.assign({}, element.arc) });
