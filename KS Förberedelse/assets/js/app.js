@@ -125,7 +125,7 @@
       correct: "Rätt",
       incorrect: "Inte rätt",
       partial: "Delvis rätt",
-      self: "Bedöm själv"
+      self: "Rättningen behöver kontrolleras"
     }[status] || "Bedömning saknas";
   }
 
@@ -315,14 +315,47 @@
         : String(questionAnswers[fieldId]);
     }
 
+    function renderChoiceField(container, question, field, snapshot) {
+      const fieldset = createElement(document, "fieldset", "choice-fieldset");
+      const legend = createElement(document, "legend", "", field.label);
+      const name = `answer-${question.id}-${field.id}`;
+      fieldset.append(legend);
+      field.options.forEach(function (option, optionIndex) {
+        const optionId = `${name}-${optionIndex}`;
+        const label = createElement(document, "label", "choice-option");
+        const control = createElement(document, "input");
+        control.id = optionId;
+        control.type = "radio";
+        control.name = name;
+        control.value = option.value;
+        control.checked = answerValue(snapshot, question.id, field.id) === option.value;
+        label.htmlFor = optionId;
+        label.append(control, createElement(document, "span", "choice-label", option.label));
+        control.addEventListener("change", function () {
+          session.setAnswer(question.id, field.id, option.value);
+          renderNavigation();
+        });
+        fieldset.append(label);
+      });
+      if (field.help) {
+        const help = createElement(document, "p", "field-help", field.help);
+        help.id = `${name}-help`;
+        fieldset.append(help);
+        fieldset.setAttribute("aria-describedby", help.id);
+      }
+      container.append(fieldset);
+    }
+
     function renderActiveFields(container, question, snapshot) {
       question.fields.forEach(function (field, fieldIndex) {
+        if (field.kind === "choice") {
+          renderChoiceField(container, question, field, snapshot);
+          return;
+        }
         const wrapper = createElement(document, "div", "answer-field");
         const id = `answer-${question.id}-${field.id}`;
         const label = createElement(document, "label", "", field.label);
-        const control = field.kind === "self" || field.multiline
-          ? createElement(document, "textarea")
-          : createElement(document, "input");
+        const control = createElement(document, "input");
         label.htmlFor = id;
         control.id = id;
         control.name = field.id;
@@ -359,16 +392,51 @@
       });
     }
 
+    function choiceLabel(field, value) {
+      const option = Array.isArray(field.options)
+        ? field.options.find(function (candidate) { return candidate.value === value; })
+        : null;
+      return option ? option.label : "";
+    }
+
     function renderLockedFields(container, question, snapshot) {
       question.fields.forEach(function (field) {
         const wrapper = createElement(document, "div", "answer-field");
         const value = answerValue(snapshot, question.id, field.id);
+        const visibleValue = field.kind === "choice" ? choiceLabel(field, value) : value;
         wrapper.append(
           createElement(document, "strong", "", field.label),
-          createElement(document, "p", "saved-answer", value || "Inget svar")
+          createElement(document, "p", "saved-answer", visibleValue || "Inget svar")
         );
         container.append(wrapper);
       });
+    }
+
+    function renderWorkOnPaper(question) {
+      if (!question.workOnPaper) return null;
+      const aside = createElement(document, "aside", "work-on-paper");
+      aside.append(
+        createElement(document, "h2", "", question.workOnPaper.title),
+        createElement(document, "p", "", question.workOnPaper.instruction)
+      );
+      return aside;
+    }
+
+    function renderComparison(question) {
+      if (!question.workOnPaper) return null;
+      const aside = createElement(document, "aside", "comparison");
+      aside.append(
+        createElement(document, "h2", "", "Jämför med lösningen"),
+        createElement(document, "p", "", question.workOnPaper.comparison)
+      );
+      if (Array.isArray(question.rubric) && question.rubric.length) {
+        const checklist = createElement(document, "ul", "rubric-checklist");
+        question.rubric.forEach(function (item) {
+          checklist.append(createElement(document, "li", "", item.text));
+        });
+        aside.append(checklist);
+      }
+      return aside;
     }
 
     function pointButtons(question, grade, action, label, focusPrefix) {
@@ -382,7 +450,7 @@
         const focusKey = focusPrefix + ":" + question.id + ":" + normalized;
         button.dataset.focusKey = focusKey;
         button.setAttribute("aria-label", `${formatPoints(normalized)} av ${formatPoints(question.points)} poäng`);
-        button.setAttribute("aria-pressed", String(Boolean(grade.selfAssessed || grade.overridden) && grade.earned === normalized));
+        button.setAttribute("aria-pressed", String(Boolean(grade.overridden) && grade.earned === normalized));
         button.addEventListener("click", function () {
           action(normalized);
           render();
@@ -403,7 +471,10 @@
         createElement(document, "strong", "", `${formatPoints(grade.earned)} av ${formatPoints(grade.possible)} poäng`),
         createElement(document, "span", "", gradeLabel(grade.status))
       );
-      section.append(heading, summary, createElement(document, "p", "grade-message", grade.message));
+      const gradeMessage = grade.status === "self"
+        ? "Rättningen behöver kontrolleras. Kontrollera lösningen och ändra poängen manuellt."
+        : grade.message;
+      section.append(heading, summary, createElement(document, "p", "grade-message", gradeMessage));
 
       const fieldList = createElement(document, "ul", "field-results");
       question.fields.forEach(function (field) {
@@ -417,22 +488,6 @@
         fieldList.append(item);
       });
       if (fieldList.children.length) section.append(fieldList);
-
-      if (grade.requiresSelfAssessment) {
-        const manual = createElement(document, "section", "manual-grade");
-        manual.append(createElement(document, "h3", "", "Bedöm din lösning"));
-        if (question.rubric.length) {
-          const rubric = createElement(document, "ul", "rubric");
-          question.rubric.forEach(function (item) {
-            rubric.append(createElement(document, "li", "", `${formatPoints(item.points)} p – ${item.text}`));
-          });
-          manual.append(rubric);
-        }
-        manual.append(pointButtons(question, grade, function (points) {
-          session.setSelfGrade(question.id, points);
-        }, "Självbedömning", "self-score"));
-        section.append(manual);
-      }
 
       const override = createElement(document, "details", "override-grade");
       override.append(createElement(document, "summary", "", "Ändra poängen manuellt"));
@@ -461,10 +516,11 @@
     function renderTotal(snapshot, container) {
       if (!snapshot.result) return;
       const result = createElement(document, "section", "exam-total");
-      const preliminary = snapshot.result.status === "preliminary";
       result.append(
-        createElement(document, "strong", "", `${preliminary ? "Preliminärt: " : "Resultat: "}${formatPoints(snapshot.result.earned)} av ${formatPoints(snapshot.result.possible)} poäng`),
-        createElement(document, "span", "", preliminary ? "Slutför självbedömningen för ett slutligt resultat." : snapshot.result.earned >= subject.passPoints ? "Godkänd nivå uppnådd." : "Godkänd nivå är inte uppnådd ännu.")
+        createElement(document, "strong", "", `Resultat: ${formatPoints(snapshot.result.earned)} av ${formatPoints(snapshot.result.possible)} poäng`),
+        createElement(document, "span", "", snapshot.result.status === "preliminary"
+          ? "Rättningen behöver kontrolleras. Ändra poängen manuellt vid behov."
+          : snapshot.result.earned >= subject.passPoints ? "Godkänd nivå uppnådd." : "Godkänd nivå är inte uppnådd ännu.")
       );
       container.append(result);
     }
@@ -511,6 +567,9 @@
       header.append(heading, flag);
       article.append(header, setHtml(createElement(document, "div", "prompt"), question.promptHtml));
 
+      const workOnPaper = renderWorkOnPaper(question);
+      if (workOnPaper) article.append(workOnPaper);
+
       const answers = createElement(document, "section", "answer-area");
       answers.setAttribute("aria-label", "Svar");
       if (snapshot.status === "active") renderActiveFields(answers, question, snapshot);
@@ -537,6 +596,8 @@
           solution.append(createElement(document, "h2", "", "Lösning"));
           solution.append(setHtml(createElement(document, "div"), question.solutionHtml));
           article.append(solution);
+          const comparison = renderComparison(question);
+          if (comparison) article.append(comparison);
         }
         renderTotal(snapshot, article);
       }
@@ -573,7 +634,7 @@
       if (elements.sessionState) {
         elements.sessionState.textContent = snapshot.status === "active"
           ? "Pågående prov"
-          : snapshot.result && snapshot.result.status === "preliminary" ? "Preliminärt resultat" : "Rättat prov";
+          : "Rättat prov";
       }
       renderNavigation();
       renderTimer();

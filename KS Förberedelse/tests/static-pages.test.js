@@ -83,6 +83,17 @@ function fakeNode(tagName) {
     scrollLeft: 0,
     scrollTop: 0,
     attributes: {},
+    value: "",
+    type: "",
+    name: "",
+    checked: false,
+    htmlFor: "",
+    _textContent: null,
+    get textContent() {
+      if (this._textContent !== null) return this._textContent;
+      return (this.children || []).map((child) => child && child.textContent || "").join("");
+    },
+    set textContent(value) { this._textContent = String(value); },
     append(...children) {
       children.forEach((child) => {
         if (child && typeof child === "object") {
@@ -106,6 +117,9 @@ function fakeNode(tagName) {
     setAttribute(name, value) {
       this.attributes[name] = String(value);
       if (name === "open") this.open = true;
+      if (name === "type") this.type = String(value);
+      if (name === "name") this.name = String(value);
+      if (name === "value") this.value = String(value);
     },
     removeAttribute(name) {
       delete this.attributes[name];
@@ -124,10 +138,26 @@ function fakeNode(tagName) {
     close() { this.removeAttribute("open"); },
     focus() { this.focused = true; },
     querySelectorAll(selector) {
-      if (selector !== "[data-focus-key]") return [];
-      return descendants(this).filter((node) => node !== this && typeof node.dataset.focusKey === "string");
+      return descendants(this).filter((node) => node !== this && matchesSelector(node, selector));
+    },
+    querySelector(selector) {
+      return this.querySelectorAll(selector)[0] || null;
     }
   };
+}
+
+function matchesSelector(node, selector) {
+  if (selector === "[data-focus-key]") return typeof node.dataset.focusKey === "string";
+  if (selector === "input") return node.tagName === "INPUT";
+  if (selector === "textarea") return node.tagName === "TEXTAREA";
+  if (selector === "button") return node.tagName === "BUTTON";
+  if (selector === "label") return node.tagName === "LABEL";
+  if (selector === "fieldset") return node.tagName === "FIELDSET";
+  if (selector === "legend") return node.tagName === "LEGEND";
+  if (selector === "aside") return node.tagName === "ASIDE";
+  if (selector === "input[type=radio]") return node.tagName === "INPUT" && node.type === "radio";
+  if (selector.startsWith(".")) return node.className === selector.slice(1);
+  return false;
 }
 
 function descendants(node) {
@@ -184,7 +214,9 @@ function recoveryHarness(savedSnapshot, options) {
       1: [{
         id: "q1", slot: 1, title: "Testfråga", points: 1,
         promptHtml: "<p>Fråga</p>", solutionHtml: "<p>Lösning</p>",
-        fields: [{ id: "a", label: "Svar", kind: "aliases", points: 1, expected: "ja" }], rubric: []
+        fields: [{ id: "a", label: "Svar", kind: "aliases", points: 1, expected: "ja" }],
+        workOnPaper: { title: "Räknehäftet", instruction: "Visa ditt arbete i räknehäftet.", comparison: "Jämför ditt arbete med lösningen." },
+        rubric: [{ points: 1, text: "Korrekt redovisning" }]
       }]
     }
   };
@@ -391,6 +423,113 @@ test("numeric answer fields expose the requested unit as a fixed accessible suff
   assert.ok(suffix, "the target unit is rendered beside the input");
   assert.equal(suffix.textContent, "m/s²");
   assert.equal(input.attributes["aria-describedby"], suffix.id);
+});
+
+test("choice fields render a semantic radio group and persist only the stable option value", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+  harness.subjectData.slots[1][0].fields = [{
+    id: "polarity", label: "Är molekylen en dipol?", kind: "choice", points: 1,
+    expected: "yes", options: [{ value: "yes", label: "Ja" }, { value: "no", label: "Nej" }]
+  }];
+
+  assert.deepEqual(app.mount(harness.root, harness.subjectData), { ok: true });
+  const fieldset = harness.root.querySelector("fieldset");
+  const legend = harness.root.querySelector("legend");
+  const radios = harness.root.querySelectorAll("input[type=radio]");
+  const labels = harness.root.querySelectorAll("label");
+
+  assert.ok(fieldset);
+  assert.equal(legend.textContent, "Är molekylen en dipol?");
+  assert.equal(radios.length, 2);
+  assert.equal(labels.length, 2);
+  assert.equal(new Set(radios.map((radio) => radio.name)).size, 1);
+  assert.notEqual(radios[0].name, "polarity");
+
+  radios[1].fire("change");
+  const saved = JSON.parse(harness.values.get("ks-practice:v1:recovery-test:active"));
+  assert.deepEqual(saved.answers, { q1: { polarity: "no" } });
+});
+
+test("work-on-paper guidance precedes answers and never renders an input", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+
+  assert.deepEqual(app.mount(harness.root, harness.subjectData), { ok: true });
+  const article = harness.root.children[0];
+  const paper = article.children.find((node) => node.className === "work-on-paper");
+  const answers = article.children.find((node) => node.className === "answer-area");
+
+  assert.ok(paper);
+  assert.equal(paper.tagName, "ASIDE");
+  assert.equal(paper.children[0].textContent, "Räknehäftet");
+  assert.ok(article.children.indexOf(paper) < article.children.indexOf(answers));
+  assert.equal(paper.querySelectorAll("input").length, 0);
+});
+
+test("solution comparison is gated behind grading and explicit reveal", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+
+  app.mount(harness.root, harness.subjectData);
+  assert.equal(harness.root.querySelector(".comparison"), null);
+
+  harness.nodes["submit-confirm"].fire("click");
+  assert.equal(harness.root.querySelector(".comparison"), null);
+  const showSolution = descendants(harness.root).find((node) => node.tagName === "BUTTON" && node.textContent === "Visa lösning");
+  assert.ok(showSolution);
+  showSolution.fire("click");
+
+  const comparison = harness.root.querySelector(".comparison");
+  assert.ok(comparison);
+  assert.match(comparison.textContent, /Jämför ditt arbete med lösningen/);
+  assert.match(comparison.textContent, /Korrekt redovisning/);
+  assert.equal(comparison.querySelectorAll("input").length, 0);
+  assert.equal(comparison.querySelectorAll("button").length, 0);
+  assert.equal(comparison.querySelectorAll("textarea").length, 0);
+  assert.doesNotMatch(comparison.textContent, /\b1\s*p\b/);
+});
+
+test("locked choice answers show Swedish labels and shipped UI has no self-assessment controls", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+  harness.subjectData.slots[1][0].fields = [{
+    id: "polarity", label: "Val", kind: "choice", points: 1,
+    expected: "yes", options: [{ value: "yes", label: "Ja" }, { value: "no", label: "Nej" }]
+  }];
+
+  app.mount(harness.root, harness.subjectData);
+  const radio = harness.root.querySelector("input[type=radio]");
+  radio.fire("change");
+  harness.nodes["submit-confirm"].fire("click");
+
+  assert.equal(harness.root.querySelectorAll("input").length, 0);
+  assert.equal(harness.root.querySelectorAll("textarea").length, 0);
+  assert.equal(harness.root.querySelector(".manual-grade"), null);
+  assert.equal(harness.root.querySelector(".self-score"), null);
+  assert.match(harness.root.textContent, /Ja/);
+  assert.doesNotMatch(harness.root.textContent, /Bedöm din lösning|Slutför självbedömningen/);
+});
+
+test("objective uncertainty directs the student to collapsed manual correction", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+  harness.subjectData.slots[1][0].fields = [{
+    id: "answer", label: "Svar", kind: "numeric", points: 1, expected: 2,
+    targetUnit: "1", tolerance: { absolute: 0 }
+  }];
+
+  app.mount(harness.root, harness.subjectData);
+  const input = harness.root.querySelector("input");
+  input.value = "inte ett tal";
+  input.fire("input");
+  harness.nodes["submit-confirm"].fire("click");
+
+  assert.match(harness.root.textContent, /Rättningen behöver kontrolleras/);
+  const correction = harness.root.querySelector(".override-grade");
+  assert.ok(correction);
+  assert.equal(correction.open, false);
+  assert.equal(harness.root.querySelector(".manual-grade"), null);
 });
 
 test("subject shells expose semantic landmarks, live feedback and native dialogs", () => {
@@ -726,11 +865,11 @@ test("solution toggling restores focus to its equivalent newly rendered control"
 
   app.mount(harness.root, harness.subjectData);
   harness.nodes["submit-confirm"].fire("click");
-  const original = descendants(harness.root).find((node) => node.textContent === "Visa lösning");
+  const original = descendants(harness.root).find((node) => node.tagName === "BUTTON" && node.textContent === "Visa lösning");
   assert.ok(original);
   original.fire("click");
 
-  const replacement = descendants(harness.root).find((node) => node.textContent === "Dölj lösning");
+  const replacement = descendants(harness.root).find((node) => node.tagName === "BUTTON" && node.textContent === "Dölj lösning");
   assert.notEqual(replacement, original);
   assert.equal(replacement.focused, true);
 });
@@ -900,7 +1039,7 @@ test("interaction wiring keeps navigation free, autosaves input and uses session
   assert.match(source, /session\.setAnswer\(/);
   assert.match(source, /session\.navigate\(/);
   assert.match(source, /session\.submit\(/);
-  assert.match(source, /session\.setSelfGrade\(/);
+  assert.doesNotMatch(source, /session\.setSelfGrade\(/);
   assert.match(source, /session\.overrideGrade\(/);
   assert.match(source, /session\.toggleSolution\(/);
   assert.match(source, /KS\.timer\.(?:start|pause|reset)\(/);
