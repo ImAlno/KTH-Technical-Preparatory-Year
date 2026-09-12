@@ -28,11 +28,15 @@ Timern är valfri och avstängd från början.
 
 Tiden fortsätter att beräknas korrekt efter en omladdning. När tiden tar slut lämnas provet inte in automatiskt.
 
-## Rätta och självbedöma
+## Rätta provet
 
 Välj `Rätta provet`. Appen varnar om uppgifter är obesvarade och låser svaren först efter din bekräftelse.
 
-Säkert tolkade svar rättas automatiskt. För ritningar, längre resonemang och svar som appen inte kan tolka säkert visas `Bedöm själv`. Öppna `Visa lösning`, jämför med bedömningsanvisningen och välj uppnådda poäng. Resultatet är preliminärt tills alla sådana bedömningar är klara. En automatisk bedömning kan också ersättas manuellt; det markeras i resultatet.
+Skriv bara in uppgiftens slutsvar i datorn. Uträkningar, bevis, motiveringar och ritningar — till exempel kraftfigurer — gör du i ditt räknehäfte enligt instruktionen i uppgiften. Den digitala poängen bygger enbart på de slutsvar som appen rättar.
+
+Den fullständiga lösningsmetoden och jämförelsepunkterna för arbetet i räknehäftet visas först efter att provet har rättats och du uttryckligen väljer `Visa lösning`. Jämför då din egen metod och figur med lösningen.
+
+Använd bara den manuella poängkorrigeringen när ditt slutsvar faktiskt är korrekt men appens tolkning inte kände igen ett likvärdigt skrivsätt. Den är inte avsedd för att självbedöma uträkningar, resonemang eller ritningar.
 
 ## Formelblad i kemi
 
