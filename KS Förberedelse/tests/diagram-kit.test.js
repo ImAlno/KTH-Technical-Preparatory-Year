@@ -159,7 +159,7 @@ test("requires explicit purpose and globally reserves every emitted fragment id"
   assert.throws(() => kit.create({ id: "kit-purpose-missing", title: "A", description: "B", width: 10, height: 10 }), /purpose/i);
   const first = kit.create({ id: "kit-global-foo", title: "A", description: "B", width: 20, height: 20, purpose: "prompt" });
   first.finish();
-  assert.throws(() => kit.create({ id: "kit-global-foo-title", title: "A", description: "B", width: 20, height: 20, purpose: "prompt" }), /duplicate/i);
+  assert.throws(() => kit.create({ id: "kit-global-foo-title", title: "A", description: "B", width: 20, height: 20, purpose: "prompt" }).finish(), /duplicate/i);
   const labelDiagram = kit.create({ id: "kit-global-label", title: "A", description: "B", width: 80, height: 80, purpose: "prompt" });
   labelDiagram.add("geometry", kit.line({ id: "owner-label", a: [10, 20], b: [70, 20], role: "line" }));
   labelDiagram.add("labels", kit.label({ id: "opaque", at: [40, 60], text: "X", anchorId: "owner-label", background: true }));
@@ -177,7 +177,7 @@ test("validateManifest independently rejects tampering, unrelated IDs, and out-o
   assert.throws(() => kit.validateManifest(tampered), /aria|access/i);
   const tamperedExtent = JSON.parse(JSON.stringify(result.manifest));
   tamperedExtent.elements[0].bbox.width = -1;
-  assert.throws(() => kit.validateManifest(tamperedExtent), /bbox|negative|finite/i);
+  assert.throws(() => kit.validateManifest(tamperedExtent), /bbox|negative|finite|canonical/i);
   const unrelated = JSON.parse(JSON.stringify(result.manifest));
   unrelated.paths.push({ id: "unrelated" });
   assert.throws(() => kit.validateManifest(unrelated), /path|reconcil|ID/i);
@@ -190,4 +190,61 @@ test("vector outputs reject MAX_VALUE overflow and degenerate polygons", () => {
   assert.throws(() => kit.polygon({ id: "flat-polygon", points: [[0, 0], [1, 1], [2, 2]], role: "shape" }), /zero|degenerate/i);
   assert.throws(() => kit.polyline({ id: "zero-polyline", points: [[0, 0], [0, 0]], role: "line" }), /zero|degenerate/i);
   assert.throws(() => kit.graphTransform({ xDomain: [0, 1e-14], yDomain: [0, 1], plot: { x: 0, y: 0, width: 100, height: 100 } }), /zero|degenerate/i);
+});
+
+test("uses distinct arrow markers with exact custom head geometry and reconciled paint", () => {
+  const diagram = kit.create({ id: "kit-arrows", title: "Arrows", description: "Two arrows", width: 100, height: 100, purpose: "prompt" });
+  diagram.add("information", kit.arrow({ id: "arrow-a", from: [20, 50], to: [80, 50], headLength: 10, headWidth: 8 }));
+  diagram.add("information", kit.arrow({ id: "arrow-b", from: [50, 20], to: [50, 80], headLength: 4, headWidth: 3 }));
+  const output = diagram.finish();
+  assert.equal(new Set(output.manifest.arrowheads.map((item) => item.markerId)).size, 2);
+  assert.match(output.html, /markerUnits="userSpaceOnUse"/g);
+  assert.equal(output.manifest.arrowheads.length, 2);
+  assert.throws(() => { const far = kit.create({ id: "kit-arrow-overflow", title: "A", description: "B", width: 20, height: 20, purpose: "prompt" }); far.add("information", kit.arrow({ id: "far-arrow", from: [5, 5], to: [21, 5], headLength: 8, headWidth: 8 })); far.finish(); }, /viewBox|overflow/i);
+});
+
+test("path and dimension paint records include exact stroke extents and one dimension path", () => {
+  const pathDiagram = kit.create({ id: "kit-path-boundary", title: "A", description: "B", width: 10, height: 10, purpose: "prompt" });
+  pathDiagram.add("geometry", kit.path({ id: "boundary", d: "M .5 2 L 8 2", role: "line", strokeWidth: 2 }));
+  assert.throws(() => pathDiagram.finish(), /overflow|viewBox|non-negative/i);
+  const dimensionDiagram = kit.create({ id: "kit-dimension-path", title: "A", description: "B", width: 100, height: 100, purpose: "prompt" });
+  dimensionDiagram.add("information", kit.dimension({ id: "dim", a: [20, 20], b: [80, 20], offset: 10 }));
+  const output = dimensionDiagram.finish();
+  assert.match(output.html, /<path[^>]+data-geometry-id="dim"/);
+  assert.equal(output.manifest.paths.filter((item) => item.id === "dim").length, 1);
+});
+
+test("deep manifest reconciliation rejects safe tampering and invalid semantic label references", () => {
+  const diagram = kit.create({ id: "kit-deep-manifest", title: "A", description: "B", width: 100, height: 100, purpose: "prompt" });
+  diagram.add("geometry", kit.line({ id: "owner", a: [10, 10], b: [90, 10], role: "line" }));
+  diagram.add("labels", kit.label({ id: "valid-label", at: [50, 50], text: "L", anchorId: "owner", avoid: ["owner"] }));
+  const output = diagram.finish();
+  for (const mutate of [
+    (m) => { m.elements[0].bbox.width += 1; },
+    (m) => { m.collisions[0].bbox.width += 1; },
+    (m) => { m.strokes[0].width = 999; },
+    (m) => { m.paths.push({ id: "owner", path: "M 0 0 L 1 1" }); },
+    (m) => { m.geometry = []; }
+  ]) {
+    const tampered = JSON.parse(JSON.stringify(output.manifest)); mutate(tampered);
+    assert.throws(() => kit.validateManifest(tampered), /reconcil|canonical|bbox|stroke|path|layer|alias|paint|tamper/i);
+  }
+  const self = kit.create({ id: "kit-label-self", title: "A", description: "B", width: 40, height: 40, purpose: "prompt" });
+  self.add("labels", kit.label({ id: "self", at: [10, 20], text: "X", anchorId: "self" }));
+  assert.throws(() => self.finish(), /anchor|semantic/i);
+  const invalidAvoid = kit.create({ id: "kit-label-avoid", title: "A", description: "B", width: 40, height: 40, purpose: "prompt" });
+  invalidAvoid.add("geometry", kit.line({ id: "avoid-owner", a: [2, 2], b: [30, 2], role: "line" }));
+  invalidAvoid.add("labels", kit.label({ id: "label-avoid-test", at: [10, 20], text: "X", anchorId: "avoid-owner", avoid: ["label-avoid-test"] }));
+  assert.throws(() => invalidAvoid.finish(), /anchor|avoid|semantic/i);
+});
+
+test("failed finishes do not reserve IDs and explicit nonsemantic rectangles remain auditable", () => {
+  const failed = kit.create({ id: "kit-retry", title: "A", description: "B", width: 10, height: 10, purpose: "prompt" });
+  failed.add("geometry", kit.line({ id: "retry-line", a: [1, 1], b: [11, 1], role: "line" }));
+  assert.throws(() => failed.finish(), /overflow/i);
+  const retry = kit.create({ id: "kit-retry", title: "A", description: "B", width: 10, height: 10, purpose: "prompt" });
+  retry.add("geometry", kit.rect({ id: "paper", x: 1, y: 1, width: 2, height: 2, role: "decorative", decorative: true }));
+  const output = retry.finish();
+  assert.equal(output.manifest.elements[0].collision, false);
+  assert.equal(output.manifest.collisions.length, 0);
 });

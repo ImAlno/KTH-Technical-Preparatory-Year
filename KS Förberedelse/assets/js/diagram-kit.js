@@ -52,12 +52,12 @@
   function safeVector(value, name) {
     return vector(value, name || "vector");
   }
-  function add(a, b) { return safeVector([a[0] + b[0], a[1] + b[1]], "addition result"); }
-  function sub(a, b) { return safeVector([a[0] - b[0], a[1] - b[1]], "subtraction result"); }
-  function mul(a, scalar) { finite(scalar, "scalar"); return safeVector([a[0] * scalar, a[1] * scalar], "scale result"); }
-  function dot(a, b) { const result = a[0] * b[0] + a[1] * b[1]; return finite(result, "dot product"); }
-  function cross(a, b) { const result = a[0] * b[1] - a[1] * b[0]; return finite(result, "cross product"); }
-  function length(v) { return finite(Math.hypot(v[0], v[1]), "vector magnitude"); }
+  function add(a, b) { const left = vector(a, "addition left"); const right = vector(b, "addition right"); return safeVector([left[0] + right[0], left[1] + right[1]], "addition result"); }
+  function sub(a, b) { const left = vector(a, "subtraction left"); const right = vector(b, "subtraction right"); return safeVector([left[0] - right[0], left[1] - right[1]], "subtraction result"); }
+  function mul(a, scalar) { const left = vector(a, "scale vector"); finite(scalar, "scalar"); return safeVector([left[0] * scalar, left[1] * scalar], "scale result"); }
+  function dot(a, b) { const left = vector(a, "dot left"); const right = vector(b, "dot right"); const result = left[0] * right[0] + left[1] * right[1]; return finite(result, "dot product"); }
+  function cross(a, b) { const left = vector(a, "cross left"); const right = vector(b, "cross right"); const result = left[0] * right[1] - left[1] * right[0]; return finite(result, "cross product"); }
+  function length(v) { const value = vector(v, "magnitude vector"); return finite(Math.hypot(value[0], value[1]), "vector magnitude"); }
 
   function normalize(value) {
     const v = vector(value);
@@ -225,7 +225,7 @@
     return {
       [PRIMITIVE_BRAND]: true,
       kind: "rope", role: opts.role || "rope", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "rope.strokeWidth"),
-      id: opts.id, from, to, pulley: { center: clone(pulley.center), radius: r }, fromTangent, toTangent,
+      id: opts.id, from, to, pulley: { center: clone(pulley.center), radius: r }, side: opts.side || "top", fromTangent, toTangent,
       tangentPoints: [clone(fromTangent), clone(toTangent)], start: clone(fromTangent), end: clone(toTangent), segments: [fromSegment, arc, toSegment], arc,
       path, length: length(sub(from, fromTangent)) + r * delta + length(sub(to, toTangent))
     };
@@ -263,7 +263,9 @@
     const offset = finite(opts.offset === undefined ? 0 : opts.offset, "dimension.offset");
     const start = add(a, mul(normal, offset));
     const end = add(b, mul(normal, offset));
-    return { [PRIMITIVE_BRAND]: true, kind: "dimension", role: opts.role || "dimension", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "dimension.strokeWidth"), id: opts.id, a, b, tangent, normal, offset, start, end, startAnchor: clone(start), endAnchor: clone(end), anchors: [clone(start), clone(end)], extension: [{ from: clone(a), to: clone(start) }, { from: clone(b), to: clone(end) }], length: length(sub(b, a)), labelAt: mul(add(start, end), 0.5) };
+    const extension = [{ from: clone(a), to: clone(start) }, { from: clone(b), to: clone(end) }];
+    const path = "M " + start[0] + " " + start[1] + " L " + end[0] + " " + end[1] + " M " + a[0] + " " + a[1] + " L " + start[0] + " " + start[1] + " M " + b[0] + " " + b[1] + " L " + end[0] + " " + end[1];
+    return { [PRIMITIVE_BRAND]: true, kind: "dimension", role: opts.role || "dimension", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "dimension.strokeWidth"), id: opts.id, a, b, tangent, normal, offset, start, end, startAnchor: clone(start), endAnchor: clone(end), anchors: [clone(start), clone(end)], extension, path, length: length(sub(b, a)), labelAt: mul(add(start, end), 0.5) };
   }
 
   function arrow(options) {
@@ -394,8 +396,10 @@
   function path(options) {
     const s = shapeBase(options, "path", "line");
     if (typeof options.d !== "string" || !options.d.trim() || /(?:NaN|Infinity)/u.test(options.d)) fail("INVALID_PATH", "path requires finite numeric geometry");
-    s.d = options.d; s.bbox = parsePathBounds(options.d);
+    s.d = options.d;
     s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "path.strokeWidth");
+    const rawBounds = parsePathBounds(options.d); const halfStroke = s.strokeWidth / 2;
+    s.bbox = { x: rawBounds.x - halfStroke, y: rawBounds.y - halfStroke, width: rawBounds.width + s.strokeWidth, height: rawBounds.height + s.strokeWidth };
     return s;
   }
 
@@ -484,6 +488,13 @@
     const minX = Math.min(first.x, second.x); const minY = Math.min(first.y, second.y);
     return { x: minX, y: minY, width: Math.max(first.x + first.width, second.x + second.width) - minX, height: Math.max(first.y + first.height, second.y + second.height) - minY };
   }
+  function deepEqual(left, right) {
+    if (left === right) return true;
+    if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false;
+    const leftKeys = Object.keys(left).sort(); const rightKeys = Object.keys(right).sort();
+    if (leftKeys.length !== rightKeys.length || leftKeys.some((key, index) => key !== rightKeys[index])) return false;
+    return leftKeys.every((key) => deepEqual(left[key], right[key]));
+  }
 
   function attrsFor(s) {
     const data = ' data-role="' + escapeAttr(s.role) + '" data-geometry-id="' + escapeAttr(s.id) + '"';
@@ -496,7 +507,7 @@
     if (s.kind === "arrow") return '<line x1="' + number(s.from[0]) + '" y1="' + number(s.from[1]) + '" x2="' + number(s.to[0]) + '" y2="' + number(s.to[1]) + '" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '" marker-end="url(#' + escapeAttr(s._markerId) + ')"' + data + '></line>';
     if (s.kind === "body") return '<polygon points="' + pointList(s.corners) + '" fill="none" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></polygon>';
     if (s.kind === "angleArc") return '<path d="' + escapeAttr(s.path) + '" fill="none" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></path>';
-    if (s.kind === "dimension") return '<g' + data + '><line x1="' + number(s.start[0]) + '" y1="' + number(s.start[1]) + '" x2="' + number(s.end[0]) + '" y2="' + number(s.end[1]) + '" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"></line><line x1="' + number(s.extension[0].from[0]) + '" y1="' + number(s.extension[0].from[1]) + '" x2="' + number(s.extension[0].to[0]) + '" y2="' + number(s.extension[0].to[1]) + '" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '" data-role="dimension" data-geometry-id="' + escapeAttr(s.id + "-extension-a") + '"></line><line x1="' + number(s.extension[1].from[0]) + '" y1="' + number(s.extension[1].from[1]) + '" x2="' + number(s.extension[1].to[0]) + '" y2="' + number(s.extension[1].to[1]) + '" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '" data-role="dimension" data-geometry-id="' + escapeAttr(s.id + "-extension-b") + '"></line></g>';
+    if (s.kind === "dimension") return '<path d="' + escapeAttr(s.path) + '" fill="none" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></path>';
     if (s.kind === "rope") return '<path d="' + escapeAttr(s.path) + '" fill="none" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></path>';
     if (s.kind === "label") {
       const bg = s.background === "opaque" ? ' data-label-background="opaque"' : ' data-label-background="none"';
@@ -539,7 +550,8 @@
       if (element.bbox.width < 0 || element.bbox.height < 0 || element.strokeWidth < 0) fail("NEGATIVE", "manifest extents and strokes must be non-negative");
       if (element.bbox.x < bounds.x - EPSILON || element.bbox.y < bounds.y - EPSILON || element.bbox.x + element.bbox.width > bounds.width + EPSILON || element.bbox.y + element.bbox.height > bounds.height + EPSILON) fail("VIEWBOX_OVERFLOW", "element overflows the declared viewBox: " + element.id);
       if (!element.role || !ROLES.has(element.role)) fail("INVALID_ROLE", "element has no validated semantic role");
-      if (element.collision !== true) fail("INVALID_COLLISION", "every painted element must remain a collision object");
+      if (element.role === "decorative") { if (element.collision !== false) fail("INVALID_COLLISION", "decorative exemptions must be explicitly non-colliding"); }
+      else if (element.collision !== true) fail("INVALID_COLLISION", "every semantic painted element must remain a collision object");
       if (element.kind === "label") {
         if (!element.anchorId || typeof element.anchorId !== "string") fail("INVALID_LABEL", "label anchorId is required");
         if (!element.avoid || !Array.isArray(element.avoid)) fail("INVALID_LABEL", "label avoid IDs are required");
@@ -553,8 +565,11 @@
     const byId = new Map(manifest.elements.map((element) => [element.id, element]));
     expectedElements.forEach((element) => {
       const actual = byId.get(element.id);
-      if (!actual || actual.kind !== element.kind || actual.layer !== element.layer || actual.collision !== true) fail("INVALID_MANIFEST", "manifest painted element reconciliation failed: " + element.id);
+      if (!actual || actual.kind !== element.kind || actual.layer !== element.layer || actual.collision !== element.collision) fail("INVALID_MANIFEST", "manifest painted element reconciliation failed: " + element.id);
+      if (!deepEqual(actual, element)) fail("INVALID_MANIFEST", "manifest canonical element was tampered: " + element.id);
     });
+    const layerAlias = { geometry: manifest.geometry, connections: manifest.connections, information: manifest.information, labels: manifest.labels };
+    LAYERS.forEach((name, index) => { if (!Array.isArray(layerAlias[name]) || !deepEqual(layerAlias[name], manifest.layers[index].elements)) fail("INVALID_MANIFEST", "manifest layer alias was tampered: " + name); });
     const elementIds = new Set(manifest.elements.map((element) => element.id));
     manifest.elements.forEach((element) => {
       if (!element.bbox || typeof element.bbox !== "object") fail("INVALID_MANIFEST", "painted element bbox is invalid");
@@ -563,15 +578,16 @@
       if (element.bbox.x + element.bbox.width > manifest.width + EPSILON || element.bbox.y + element.bbox.height > manifest.height + EPSILON) fail("VIEWBOX_OVERFLOW", "painted element overflows the viewBox: " + element.id);
     });
     manifest.elements.filter((element) => element.kind === "label").forEach((element) => {
-      if (!elementIds.has(element.anchorId)) fail("INVALID_LABEL", "label anchorId does not reference geometry: " + element.id);
-      element.avoid.forEach((avoidId) => { if (!elementIds.has(avoidId)) fail("INVALID_LABEL", "label avoid ID does not reference geometry: " + avoidId); });
+      const anchor = byId.get(element.anchorId);
+      if (!anchor || anchor.id === element.id || ["label", "label-background", "decorative"].includes(anchor.role) || anchor.collision !== true) fail("INVALID_LABEL", "label anchorId must reference semantic anchorable geometry: " + element.id);
+      element.avoid.forEach((avoidId) => { const avoided = byId.get(avoidId); if (!avoided || avoided.id === element.id || ["label", "label-background", "decorative"].includes(avoided.role)) fail("INVALID_LABEL", "label avoid ID must reference semantic geometry: " + avoidId); });
     });
     const exactIds = (items, name) => {
       if (!Array.isArray(items)) fail("INVALID_MANIFEST", name + " must be an array");
       items.forEach((item) => { if (!item || !elementIds.has(item.id)) fail("INVALID_MANIFEST", name + " references an unrelated ID"); });
     };
     exactIds(manifest.collisions, "collisions");
-    if (new Set(manifest.collisions.map((item) => item.id)).size !== manifest.elements.length) fail("INVALID_COLLISION", "every painted element needs exactly one collision record");
+    if (new Set(manifest.collisions.map((item) => item.id)).size !== manifest.elements.filter((element) => element.collision).length) fail("INVALID_COLLISION", "every colliding painted element needs exactly one collision record");
     exactIds(manifest.paths, "paths"); exactIds(manifest.strokes, "strokes"); exactIds(manifest.arrowheads, "arrowheads");
     exactIds(manifest.backgrounds, "backgrounds");
     manifest.paths.forEach((item) => { if (typeof item.path !== "string" || !item.path.trim()) fail("INVALID_MANIFEST", "painted path is missing its path data"); });
@@ -581,6 +597,16 @@
     const strokeIds = new Set(manifest.elements.filter((element) => element.strokeWidth > 0).map((element) => element.id));
     const arrowIds = new Set(manifest.elements.filter((element) => element.arrowhead).map((element) => element.id));
     const backgroundIds = new Set(manifest.elements.filter((element) => element.role === "label-background").map((element) => element.id));
+    const canonicalCollisions = manifest.elements.filter((element) => element.collision).map((element) => ({ id: element.id, role: element.role, bbox: element.bbox, layer: element.layer, minClearance: element.minClearance || 0 }));
+    if (!deepEqual(manifest.collisions, canonicalCollisions)) fail("INVALID_MANIFEST", "collision records were tampered");
+    const canonicalStrokes = manifest.elements.filter((element) => element.strokeWidth > 0).map((element) => ({ id: element.id, layer: element.layer, width: element.strokeWidth }));
+    if (!deepEqual(manifest.strokes, canonicalStrokes)) fail("INVALID_MANIFEST", "stroke records were tampered");
+    const canonicalPaths = manifest.elements.filter((element) => element.path).map((element) => ({ id: element.id, layer: element.layer, path: element.path }));
+    if (!deepEqual(manifest.paths, canonicalPaths)) fail("INVALID_MANIFEST", "path records were tampered");
+    const canonicalArrows = manifest.elements.filter((element) => element.arrowhead).map((element) => Object.assign({ id: element.id, layer: element.layer }, element.arrowhead));
+    if (!deepEqual(manifest.arrowheads, canonicalArrows)) fail("INVALID_MANIFEST", "arrowhead records were tampered");
+    const canonicalBackgrounds = manifest.elements.filter((element) => element.role === "label-background").map((element) => ({ id: element.id, labelId: element.labelId, bbox: element.bbox, role: element.role, collision: true, fill: element.fill }));
+    if (!deepEqual(manifest.backgrounds, canonicalBackgrounds)) fail("INVALID_MANIFEST", "background records were tampered");
     if (new Set(manifest.paths.map((item) => item.id)).size !== pathIds.size || manifest.paths.some((item) => !pathIds.has(item.id))) fail("INVALID_MANIFEST", "paths do not reconcile with painted paths");
     if (new Set(manifest.strokes.map((item) => item.id)).size !== strokeIds.size || manifest.strokes.some((item) => !strokeIds.has(item.id))) fail("INVALID_MANIFEST", "strokes do not reconcile with painted strokes");
     if (new Set(manifest.arrowheads.map((item) => item.id)).size !== arrowIds.size || manifest.arrowheads.some((item) => !arrowIds.has(item.id))) fail("INVALID_MANIFEST", "arrowheads do not reconcile with painted arrows");
@@ -612,8 +638,6 @@
     const purpose = opts.purpose;
     if (purpose !== "prompt" && purpose !== "solution") fail("INVALID_PURPOSE", "diagram purpose must be prompt or solution");
     const rootIds = [diagramId, diagramId + "-title", diagramId + "-desc"];
-    rootIds.forEach((fragmentId) => { if (USED_FRAGMENT_IDS.has(fragmentId)) fail("DUPLICATE_ID", "duplicate fragment ID: " + fragmentId); });
-    rootIds.forEach((fragmentId) => USED_FRAGMENT_IDS.add(fragmentId));
     const layers = LAYERS.map((name) => ({ name, elements: [] }));
     const elementIds = new Set(); let finished = false;
     const builder = {
@@ -628,7 +652,7 @@
         if (finished) fail("FINISHED", "diagram has already been finished");
         const fragmentIds = [];
         layers.forEach((layer) => layer.elements.forEach((element) => {
-          if (element.kind === "arrow") { element._markerId = diagramId + "-marker-arrow"; fragmentIds.push(element._markerId); }
+          if (element.kind === "arrow") { element._markerId = diagramId + "-marker-" + element.id; fragmentIds.push(element._markerId); }
           if (element.kind === "label" && element.background === "opaque") { element._backgroundId = diagramId + "-" + element.id + "-background"; fragmentIds.push(element._backgroundId); }
         }));
         const allDomIds = rootIds.concat(layers.flatMap((layer) => layer.elements.map((element) => element.id)), fragmentIds);
@@ -636,7 +660,7 @@
         allDomIds.forEach((fragmentId) => {
           id(fragmentId, "fragment.id");
           if (localIds.has(fragmentId)) fail("DUPLICATE_ID", "duplicate emitted DOM ID: " + fragmentId);
-          if (!rootIds.includes(fragmentId) && USED_FRAGMENT_IDS.has(fragmentId)) fail("DUPLICATE_ID", "duplicate fragment ID: " + fragmentId);
+          if (USED_FRAGMENT_IDS.has(fragmentId)) fail("DUPLICATE_ID", "duplicate fragment ID: " + fragmentId);
           localIds.add(fragmentId);
         });
         const manifestLayers = layers.map((layer) => ({ name: layer.name, elements: layer.elements.map((element) => {
@@ -646,7 +670,7 @@
           if (element.kind === "circle") Object.assign(record, { center: clone(element.center), radius: element.radius });
           if (element.kind === "body") Object.assign(record, { points: element.corners.map(clone) });
           if (element.kind === "polygon" || element.kind === "polyline") Object.assign(record, { points: element.points.map(clone) });
-          if (element.kind === "path" || element.kind === "angleArc" || element.kind === "rope") Object.assign(record, { path: element.d || element.path, segments: element.segments || null });
+          if (element.kind === "path" || element.kind === "angleArc" || element.kind === "rope" || element.kind === "dimension") Object.assign(record, { path: element.d || element.path, segments: element.segments || null });
           if (element.kind === "dimension") Object.assign(record, { anchors: element.anchors.map(clone), extension: element.extension });
           if (element.kind === "label") Object.assign(record, { at: clone(element.at), anchorId: element.anchorId, textAnchor: element.textAnchor, text: element.text, avoid: element.avoid.slice(), minClearance: element.minClearance, background: element.background });
           return record;
@@ -671,8 +695,8 @@
         finished = true;
         allDomIds.forEach((fragmentId) => USED_FRAGMENT_IDS.add(fragmentId));
         const body = layers.map((layer) => '<g data-layer="' + layer.name + '">' + layer.elements.map(attrsFor).join("") + "</g>").join("");
-        const markerId = layers.flatMap((layer) => layer.elements).find((element) => element.kind === "arrow");
-        const marker = markerId ? '<defs><marker id="' + escapeAttr(markerId._markerId) + '" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="currentColor" data-role="marker" data-geometry-id="' + escapeAttr(markerId._markerId) + '"></path></marker></defs>' : "";
+        const arrowElements = layers.flatMap((layer) => layer.elements).filter((element) => element.kind === "arrow");
+        const marker = arrowElements.length ? '<defs>' + arrowElements.map((arrowElement) => '<marker id="' + escapeAttr(arrowElement._markerId) + '" markerWidth="' + number(arrowElement.headLength) + '" markerHeight="' + number(arrowElement.headWidth) + '" markerUnits="userSpaceOnUse" refX="' + number(arrowElement.headLength) + '" refY="' + number(arrowElement.headWidth / 2) + '" orient="auto"><path d="M0,0 L' + number(arrowElement.headLength) + ',' + number(arrowElement.headWidth / 2) + ' L0,' + number(arrowElement.headWidth) + ' z" fill="currentColor" data-role="marker" data-geometry-id="' + escapeAttr(arrowElement._markerId) + '"></path></marker>').join("") + '</defs>' : "";
         const html = '<svg id="' + escapeAttr(diagramId) + '" viewBox="0 0 ' + number(width) + ' ' + number(height) + '" role="img" aria-labelledby="' + escapeAttr(diagramId + "-title " + diagramId + "-desc") + '"><title id="' + escapeAttr(diagramId + "-title") + '">' + escapeText(title) + '</title><desc id="' + escapeAttr(diagramId + "-desc") + '">' + escapeText(description) + '</desc>' + marker + body + '</svg>';
         return { html, manifest };
       }
