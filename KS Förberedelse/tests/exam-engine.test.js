@@ -250,6 +250,36 @@ test("restoring a snapshot rejects changed field ids, kinds, order, and choice o
   });
 });
 
+test("a current-bank field-id change is a schema mismatch when an active snapshot already has an answer", () => {
+  const subject = { id: "schema-active", questionCount: 1, maxPoints: 1, passPoints: 1, durationMinutes: 1 };
+  const originalSlots = { 1: [question("q1", 1, 1, [field("saved-answer", "aliases", 1, "ja")])] };
+  const session = exam.createSession(subject, originalSlots, memoryStore(), seededRng(1));
+  session.setAnswer("q1", "saved-answer", "ja");
+  const changedSlots = { 1: [question("q1", 1, 1, [field("current-answer", "aliases", 1, "ja")])] };
+
+  assert.deepEqual(exam.inspectSnapshot(session.snapshot(), changedSlots, subject), {
+    ok: false,
+    reason: "field-schema-mismatch"
+  });
+});
+
+test("a current-bank field change is a schema mismatch when a graded snapshot has saved grades", () => {
+  const subject = { id: "schema-graded", questionCount: 1, maxPoints: 1, passPoints: 1, durationMinutes: 1 };
+  const originalSlots = { 1: [question("q1", 1, 1, [field("saved-answer", "aliases", 1, "ja")])] };
+  const session = exam.createSession(subject, originalSlots, memoryStore(), seededRng(1));
+  session.setAnswer("q1", "saved-answer", "ja");
+  session.submit();
+  const changedSlots = { 1: [question("q1", 1, 1, [{
+    id: "current-answer", label: "Svar", kind: "choice", points: 1, expected: "yes",
+    options: [{ value: "yes", label: "Ja" }, { value: "no", label: "Nej" }]
+  }])] };
+
+  assert.deepEqual(exam.inspectSnapshot(session.snapshot(), changedSlots, subject), {
+    ok: false,
+    reason: "field-schema-mismatch"
+  });
+});
+
 test("dimensionless numeric fields may explicitly use a null target unit", () => {
   const subject = { id: "math", questionCount: 1, maxPoints: 1, passPoints: 1, durationMinutes: 1 };
   const numeric = { id: "f", label: "Svar", kind: "numeric", points: 1, expected: 2, targetUnit: null };

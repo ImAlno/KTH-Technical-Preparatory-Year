@@ -377,6 +377,17 @@
     });
   }
 
+  function validSavedAnswers(value, fieldSchema, selectedIds) {
+    return Object.keys(value).every(function (questionId) {
+      const answers = value[questionId];
+      if (!selectedIds.has(questionId) || !isRecord(answers)) return false;
+      const fieldIds = new Set(fieldSchema[questionId].map(function (field) { return field.id; }));
+      return Object.keys(answers).every(function (fieldId) {
+        return fieldIds.has(fieldId) && typeof answers[fieldId] === "string";
+      });
+    });
+  }
+
   function inspectSnapshot(snapshot, questionSource, subject) {
     if (!validateExamData(subject, questionSource) || !isRecord(snapshot) ||
         snapshot.subjectId !== subject.id || !nonEmptyString(snapshot.examId) ||
@@ -398,14 +409,6 @@
     if (!close(selectedPoints, subject.maxPoints) || !validIdCollection(snapshot.flags, selectedIds) ||
         !validIdCollection(snapshot.expandedSolutions, selectedIds)) return { ok: false, reason: "invalid-snapshot" };
 
-    for (const questionId of Object.keys(snapshot.answers)) {
-      const question = selectedIds.has(questionId) ? index[questionId] : null;
-      const answers = snapshot.answers[questionId];
-      if (!question || !isRecord(answers)) return { ok: false, reason: "invalid-snapshot" };
-      const fieldIds = new Set(question.fields.map(function (field) { return field.id; }));
-      if (Object.keys(answers).some(function (fieldId) { return !fieldIds.has(fieldId) || typeof answers[fieldId] !== "string"; })) return { ok: false, reason: "invalid-snapshot" };
-    }
-
     if (snapshot.status === "active") {
       if (!(Object.keys(snapshot.grades).length === 0 && snapshot.expandedSolutions.length === 0 && snapshot.result === undefined)) {
         return { ok: false, reason: "invalid-snapshot" };
@@ -414,7 +417,21 @@
       if (!sameKeys(snapshot.grades, snapshot.questionIds) || !hasOnlyKeys(snapshot.result, ["status", "earned", "possible"]) ||
           !["preliminary", "complete"].includes(snapshot.result.status) ||
           !Number.isFinite(snapshot.result.earned) || !Number.isFinite(snapshot.result.possible)) return { ok: false, reason: "invalid-snapshot" };
+    }
 
+    if (snapshot.schemaVersion === 1) return { ok: false, reason: "field-schema-mismatch" };
+    if (snapshot.schemaVersion !== 2 || !validFieldSchema(snapshot.fieldSchema, selectedIds)) {
+      return { ok: false, reason: "invalid-snapshot" };
+    }
+    if (!validSavedAnswers(snapshot.answers, snapshot.fieldSchema, selectedIds)) {
+      return { ok: false, reason: "invalid-snapshot" };
+    }
+    for (const questionId of snapshot.questionIds) {
+      if (!sameJsonValue(snapshot.fieldSchema[questionId], questionFieldSchema(index[questionId]))) {
+        return { ok: false, reason: "field-schema-mismatch" };
+      }
+    }
+    if (snapshot.status === "graded") {
       for (const questionId of snapshot.questionIds) {
         if (!validQuestionGrade(snapshot.grades[questionId], index[questionId], snapshot.answers[questionId] || {})) return { ok: false, reason: "invalid-snapshot" };
       }
@@ -422,16 +439,6 @@
       if (!(snapshot.result.status === expectedResult.status && close(snapshot.result.earned, expectedResult.earned) &&
           close(snapshot.result.possible, expectedResult.possible) && close(snapshot.result.possible, subject.maxPoints))) {
         return { ok: false, reason: "invalid-snapshot" };
-      }
-    }
-
-    if (snapshot.schemaVersion === 1) return { ok: false, reason: "field-schema-mismatch" };
-    if (snapshot.schemaVersion !== 2 || !validFieldSchema(snapshot.fieldSchema, selectedIds)) {
-      return { ok: false, reason: "invalid-snapshot" };
-    }
-    for (const questionId of snapshot.questionIds) {
-      if (!sameJsonValue(snapshot.fieldSchema[questionId], questionFieldSchema(index[questionId]))) {
-        return { ok: false, reason: "field-schema-mismatch" };
       }
     }
     return { ok: true, reason: null };
