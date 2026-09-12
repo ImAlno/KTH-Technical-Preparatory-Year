@@ -243,7 +243,7 @@
   }
 
   function label(diagram, id, suffix, text, anchorId, placement) {
-    const anchor = "middle"; const fontSize = placement.fontSize || 14; const clearance = 6;
+    const anchor = "middle"; const fontSize = placement.fontSize || 14; const clearance = placement.clearance || 6;
     const state = PLACEMENT_STATE.get(diagram);
     const avoid = Array.from(state.geometry.keys()).filter(function (geometryId) { return geometryId !== anchorId; });
     if (!state.geometry.has(anchorId)) throw new Error("Missing label anchor geometry: " + anchorId);
@@ -281,8 +281,8 @@
     return diagram;
   }
 
-  function localPlacement(kind, anchorPoint, preferredOffset, maxDistance) {
-    return { kind: kind, anchorPoint: anchorPoint, preferredCenter: add(anchorPoint, preferredOffset), maxDistance: maxDistance || 30 };
+  function localPlacement(kind, anchorPoint, preferredOffset, maxDistance, clearance) {
+    return { kind: kind, anchorPoint: anchorPoint, preferredCenter: add(anchorPoint, preferredOffset), maxDistance: maxDistance || 30, clearance: clearance || 6 };
   }
 
   function dimensionPlacement(dimension, preferredOffset) {
@@ -367,16 +367,18 @@
       ["ae-dimension", a, e, -54, "AE = " + clean(p.ae) + " " + p.unit],
       ["ec-dimension", e, c, -54, "EC = ?"]
     ].map(function (entry) {
-      const dimension = diagramKit.dimension({ id: id + "-" + entry[0], a: entry[1], b: entry[2], offset: entry[3], role: "dimension" });
+      const dimension = diagramKit.dimension({ id: id + "-" + entry[0], a: entry[1], b: entry[2], offset: entry[3], extensionGap: 35, role: "dimension" });
       addShape(diagram, "information", dimension);
       return { suffix: entry[0].replace("dimension", "label"), text: entry[4], dimension: dimension };
     });
+    const pointLabels = [["A", a, [0, -30]], ["B", b, [-26, 18]], ["C", c, [26, 18]], ["D", d, [-30, 0]], ["E", e, [30, 0]]];
+    pointLabels.forEach(function (entry) {
+      const placement = localPlacement("vertex", entry[1], entry[2], 32, 12);
+      placement.fontSize = 14;
+      label(diagram, id, "vertex-" + entry[0].toLowerCase(), entry[0], id + "-point-" + entry[0].toLowerCase(), placement);
+    });
     dimensions.forEach(function (entry) {
       label(diagram, id, entry.suffix, entry.text, entry.dimension.id, dimensionPlacement(entry.dimension));
-    });
-    const pointLabels = [["A", a, [0, -20]], ["B", b, [-20, 16]], ["C", c, [20, 16]], ["D", d, [-20, 0]], ["E", e, [20, 0]]];
-    pointLabels.forEach(function (entry) {
-      label(diagram, id, "vertex-" + entry[0].toLowerCase(), entry[0], id + "-point-" + entry[0].toLowerCase(), localPlacement("vertex", entry[1], entry[2], 32));
     });
     return diagram.finish();
   }

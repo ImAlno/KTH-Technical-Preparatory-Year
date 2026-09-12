@@ -1377,6 +1377,67 @@ test("mount reports a controlled Swedish state when subject data is missing", ()
   assert.equal(controls["timer-start"].disabled, true);
 });
 
+test("diagram preflight fails before creating a session and preserves active and history bytes", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+  const activeKey = "ks-practice:v1:recovery-test:active";
+  const historyKey = "ks-practice:v1:recovery-test:history";
+  const activeBytes = "{\"sentinel\":\"active bytes\"}";
+  const historyBytes = "[{\"sentinel\":\"history bytes\"}]";
+  let createCalls = 0;
+  let restoreCalls = 0;
+  let validateCalls = 0;
+
+  harness.values.set(activeKey, activeBytes);
+  harness.values.set(historyKey, historyBytes);
+  harness.subjectData.slots[1][0].sourceData = { diagram: { id: "broken-prompt-diagram" } };
+  harness.window.KS.diagram = {
+    validateManifest() {
+      validateCalls += 1;
+      throw new Error("broken manifest");
+    }
+  };
+  harness.window.KS.exam = Object.assign({}, harness.window.KS.exam, {
+    createSession() { createCalls += 1; throw new Error("must not create"); },
+    restoreSession() { restoreCalls += 1; throw new Error("must not restore"); }
+  });
+
+  assert.deepEqual(app.mount(harness.root, harness.subjectData), { ok: false, reason: "diagram-preflight-failed" });
+  assert.equal(validateCalls, 1);
+  assert.equal(createCalls, 0);
+  assert.equal(restoreCalls, 0);
+  assert.equal(harness.values.get(activeKey), activeBytes);
+  assert.equal(harness.values.get(historyKey), historyBytes);
+  assert.equal(harness.root.textContent, "Diagrammet kunde inte visas korrekt. Dina sparade svar har inte ändrats.");
+  [
+    "timer-start", "timer-pause", "timer-reset", "history-open", "history-confirm",
+    "submit-confirm", "recovery-continue", "recovery-new", "print-exam"
+  ].forEach((id) => assert.equal(harness.nodes[id].disabled, true, id));
+});
+
+test("diagram preflight validates every prompt manifest before creating a new exam", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+  const manifests = [{ id: "diagram-a" }, { id: "diagram-b" }];
+  const validated = [];
+
+  harness.subjectData.subject.questionCount = 2;
+  harness.subjectData.subject.maxPoints = 2;
+  harness.subjectData.slots[1][0].promptHtml = "<svg id=\"diagram-a\"></svg>";
+  harness.subjectData.slots[1][0].sourceData = { diagram: manifests[0] };
+  harness.subjectData.slots[2] = [{
+    id: "q2", slot: 2, title: "Andra", points: 1,
+    promptHtml: "<svg id=\"diagram-b\"></svg>", solutionHtml: "<p>Lösning</p>",
+    fields: [{ id: "b", label: "Svar", kind: "aliases", points: 1, expected: "ja" }],
+    sourceData: { diagram: manifests[1] }, rubric: []
+  }];
+  harness.window.KS.diagram = { validateManifest(manifest) { validated.push(manifest.id); } };
+
+  assert.deepEqual(app.mount(harness.root, harness.subjectData), { ok: true });
+  assert.deepEqual(validated, ["diagram-a", "diagram-b"]);
+  assert.equal(harness.nodes["session-state"].textContent, "Pågående prov");
+});
+
 test("app exports the same public helpers in CommonJS and the browser namespace", () => {
   const source = read("assets/js/app.js");
   const app = require("../assets/js/app.js");

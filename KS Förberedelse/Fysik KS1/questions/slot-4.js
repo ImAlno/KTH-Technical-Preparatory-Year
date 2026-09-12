@@ -180,7 +180,7 @@
       addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-right-cable", a: rightAnchor, b: [body.x + body.width, body.y], role: "rope", strokeWidth: 3 }));
       addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-horizontal-reference", a: [body.x - 90, body.y], b: [body.x, body.y], role: "line", strokeWidth: 1.5 }));
       const angle = addShape(diagram, shapes, "information", diagramKit.angleArc({ id: id + "-cable-angle", vertex: [body.x, body.y], fromRay: [body.x - 60, body.y], toRay: leftAnchor, radius: 45, role: "angle", strokeWidth: 2 }));
-      label({ id: id + "-angle-label", at: angleLabelAt(angle, 135, 13), text: "α = " + clean(p.angleDeg) + "°", anchorId: angle.id, fontSize: 13 }, "angle", { x: 110, y: 215, width: 175, height: 85 });
+      label({ id: id + "-angle-label", at: angleLabelAt(angle, 135, 14), text: "α = " + clean(p.angleDeg) + "°", anchorId: angle.id, fontSize: 14 }, "angle", { x: 110, y: 215, width: 175, height: 85 });
       label({ id: id + "-mass-label", at: [470, 335], text: "m = " + clean(p.massKg) + " kg", anchorId: body.id, textAnchor: "start" }, "given", { x: 460, y: 310, width: 150, height: 40 });
     } else if (family === "missing-fourth-force") {
       addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-x-axis", a: [80, 190], b: [580, 190], role: "axis", strokeWidth: 1.5 }));
@@ -192,7 +192,7 @@
       });
       p.forces.forEach(function (force, index) {
         const vector = vectors[index];
-        label({ id: id + "-given-vector-" + (index + 1) + "-label", at: [455, 78 + index * 42], text: "F" + (index + 1) + " = (" + force.xN + ", " + force.yN + ") N", anchorId: vector.id, textAnchor: "start", fontSize: 13 }, "given-vector", { x: 445, y: 58 + index * 42, width: 185, height: 32 });
+        label({ id: id + "-given-vector-" + (index + 1) + "-label", at: [455, 78 + index * 42], text: "F" + (index + 1) + " = (" + force.xN + ", " + force.yN + ") N", anchorId: vector.id, textAnchor: "start", fontSize: 14 }, "given-vector", { x: 445, y: 58 + index * 42, width: 185, height: 32 });
       });
     } else if (family === "supported-beams") {
       const baseline = { a: [90, 220], b: [570, 220] };
@@ -205,7 +205,7 @@
       const force = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-given-support-force", from: leftContact, to: [190, 70], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
       label({ id: id + "-given-support-force-label", at: [230, 72], text: "F₁ = " + clean(p.knownSupportN) + " N", anchorId: force.id, textAnchor: "start" }, "given-force", { x: 220, y: 50, width: 160, height: 34 });
       label({ id: id + "-mass-label", at: [470, 135], text: "m = " + clean(p.massKg) + " kg", anchorId: body.id, textAnchor: "start" }, "given", { x: 460, y: 112, width: 150, height: 35 });
-      label({ id: id + "-center-of-mass-label", at: [statics.weightX + 17, 197], text: "G", anchorId: centerOfMass.id, fontSize: 13 }, "given", { x: 360, y: 178, width: 40, height: 32 });
+      label({ id: id + "-center-of-mass-label", at: [statics.weightX + 17, 197], text: "G", anchorId: centerOfMass.id, fontSize: 14 }, "given", { x: 360, y: 178, width: 40, height: 32 });
     } else {
       const wallX = 500;
       const centerX = 420;
@@ -222,7 +222,7 @@
       const cable = addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-cable", a: attachment, b: anchor, role: "rope", strokeWidth: 3 }));
       addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-horizontal-reference", a: attachment, b: [630, attachmentY], role: "line", strokeWidth: 1.5 }));
       const arc = addShape(diagram, shapes, "information", diagramKit.angleArc({ id: id + "-cable-angle", vertex: attachment, fromRay: [630, attachmentY], toRay: anchor, radius: 26, role: "angle", strokeWidth: 2 }));
-      label({ id: id + "-angle-label", at: angleLabelAt(arc, 105, 13), text: "α = " + clean(p.cableAngleDeg) + "°", anchorId: arc.id, fontSize: 13 }, "angle", { x: 505, y: 72, width: 125, height: 92 });
+      label({ id: id + "-angle-label", at: angleLabelAt(arc, 105, 14), text: "α = " + clean(p.cableAngleDeg) + "°", anchorId: arc.id, fontSize: 14 }, "angle", { x: 505, y: 72, width: 125, height: 92 });
       label({ id: id + "-mass-label", at: [245, 332], text: "m = " + clean(p.massKg) + " kg", anchorId: sphere.id, textAnchor: "start" }, "given", { x: 235, y: 310, width: 150, height: 36 });
     }
     const result = diagram.finish();

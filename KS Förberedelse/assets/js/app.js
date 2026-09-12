@@ -170,6 +170,49 @@
     return { ok: false, reason: "missing-question-bank" };
   }
 
+  const EXAM_MUTATION_CONTROL_IDS = [
+    "timer-start", "timer-pause", "timer-reset", "history-open", "history-confirm",
+    "submit-confirm", "recovery-continue", "recovery-new", "print-exam"
+  ];
+
+  function disableExamMutationControls(document) {
+    EXAM_MUTATION_CONTROL_IDS.forEach(function (id) {
+      const control = document.getElementById(id);
+      if (control) control.disabled = true;
+    });
+  }
+
+  function renderDiagramFailure(rootElement) {
+    const document = rootElement.ownerDocument;
+    const section = createElement(document, "section", "empty-state");
+    section.append(createElement(document, "p", "", "Diagrammet kunde inte visas korrekt. Dina sparade svar har inte ändrats."));
+    rootElement.replaceChildren(section);
+    const navigation = document.getElementById("question-list");
+    if (navigation) navigation.replaceChildren();
+    disableExamMutationControls(document);
+    return { ok: false, reason: "diagram-preflight-failed" };
+  }
+
+  function validatePromptDiagrams(slots, diagramApi) {
+    const diagrams = [];
+    Object.keys(slots).forEach(function (slot) {
+      slots[slot].forEach(function (question) {
+        if (question && question.sourceData && question.sourceData.diagram) {
+          diagrams.push({ manifest: question.sourceData.diagram, html: question.promptHtml });
+        }
+      });
+    });
+    if (!diagrams.length) return;
+    if (!diagramApi || typeof diagramApi.validateManifest !== "function") throw new Error("diagram-kit validator is unavailable");
+    diagrams.forEach(function (entry) {
+      diagramApi.validateManifest(entry.manifest);
+      const escapedId = String(entry.manifest.id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (typeof entry.html !== "string" || !(new RegExp("<svg\\b[^>]*\\bid=[\"']" + escapedId + "[\"']", "u")).test(entry.html)) {
+        throw new Error("prompt diagram did not render");
+      }
+    });
+  }
+
   function mount(rootElement, subjectData) {
     if (!rootElement || !rootElement.ownerDocument) return { ok: false, reason: "missing-root" };
     const document = rootElement.ownerDocument;
@@ -180,6 +223,12 @@
 
     if (!subject || !slots || !Object.keys(slots).length) return renderMissingBank(rootElement);
     if (!KS || !KS.exam || !KS.storage || !KS.timer || !KS.grading) return renderMissingBank(rootElement);
+
+    try {
+      validatePromptDiagrams(slots, KS.diagram);
+    } catch (error) {
+      return renderDiagramFailure(rootElement);
+    }
 
     const index = questionMap(slots);
     let store;

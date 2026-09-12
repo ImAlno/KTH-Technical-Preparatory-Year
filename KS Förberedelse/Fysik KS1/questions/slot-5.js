@@ -179,8 +179,8 @@
       const motionFrom = body.topLeft;
       const motion = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-motion-arrow", from: motionFrom, to: [motionFrom[0] - 92 * tangent[0], motionFrom[1] - 92 * tangent[1]], role: "motion", strokeWidth: 2.5, headLength: 11, headWidth: 9 }));
       labels.push(
-        { id: id + "-angle-label", at: angleLabelAt(angle, 190, 10), text: clean(p.angleDeg) + "°", anchorId: angle.id, fontSize: 10, type: "angle", zone: { x: 220, y: 230, width: 90, height: 95 } },
-        { id: id + "-motion-label", at: [motion.to[0] + 10 * outward[0], motion.to[1] + 10 * outward[1]], text: "rörelse nedför", anchorId: motion.id, fontSize: 12, type: "motion", zone: { x: 125, y: 55, width: 250, height: 155 } },
+        { id: id + "-angle-label", at: angleLabelAt(angle, 214, 14), text: clean(p.angleDeg) + "°", anchorId: angle.id, fontSize: 14, type: "angle", zone: { x: 220, y: 230, width: 90, height: 95 } },
+        { id: id + "-motion-label", at: [motion.to[0] + 10 * outward[0], motion.to[1] + 10 * outward[1]], text: "rörelse nedför", anchorId: motion.id, fontSize: 14, type: "motion", zone: { x: 125, y: 55, width: 250, height: 155 } },
         { id: id + "-mass-label", at: [vertex[0] + 300 * tangent[0] - 60 * outward[0], vertex[1] + 300 * tangent[1] - 60 * outward[1] + 5.25], text: "m = " + clean(p.massKg) + " kg", anchorId: body.id, type: "given", zone: { x: 300, y: 165, width: 125, height: 190 } },
         { id: id + "-friction-label", at: [vertex[0] + 410 * tangent[0] - 60 * outward[0], vertex[1] + 410 * tangent[1] - 60 * outward[1] + 5.25], text: "Fᶠ = " + clean(p.frictionForceN) + " N", anchorId: plane.id, type: "given", zone: { x: 390, y: 105, width: 165, height: 225 } }
       );
@@ -193,8 +193,8 @@
       const tableMotion = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-table-motion-arrow", from: [tableBody.bottomRight[0], 205], to: [425, 205], role: "motion", strokeWidth: 2.5, headLength: 11, headWidth: 9 }));
       const hangingMotion = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-hanging-motion-arrow", from: [568, hangingBody.y + hangingBody.height], to: [568, 405], role: "motion", strokeWidth: 2.5, headLength: 11, headWidth: 9 }));
       labels.push(
-        { id: id + "-table-motion-label", at: [390, 108], text: "rörelse åt höger", anchorId: tableMotion.id, fontSize: 12, type: "motion", zone: { x: 300, y: 75, width: 180, height: 45 } },
-        { id: id + "-hanging-motion-label", at: [650, 425], text: "rörelse nedåt", anchorId: hangingMotion.id, fontSize: 12, type: "motion", zone: { x: 590, y: 395, width: 110, height: 42 } },
+        { id: id + "-table-motion-label", at: [390, 108], text: "rörelse åt höger", anchorId: tableMotion.id, fontSize: 14, type: "motion", zone: { x: 300, y: 75, width: 180, height: 45 } },
+        { id: id + "-hanging-motion-label", at: [635, 425], text: "rörelse nedåt", anchorId: hangingMotion.id, fontSize: 14, type: "motion", zone: { x: 575, y: 395, width: 120, height: 42 } },
         { id: id + "-table-mass-label", at: [155, 330], text: "m₁ = " + clean(p.tableMassKg) + " kg", anchorId: tableBody.id, type: "given", zone: { x: 75, y: 300, width: 165, height: 45 } },
         { id: id + "-friction-label", at: [350, 330], text: "μₖ = " + clean(p.frictionCoefficient), anchorId: tabletop.id, type: "given", zone: { x: 285, y: 300, width: 135, height: 45 } },
         { id: id + "-hanging-mass-label", at: [635, 260], text: "m₂ = " + clean(p.hangingMassKg) + " kg", anchorId: hangingBody.id, type: "given", zone: { x: 585, y: 225, width: 110, height: 45 } }
@@ -214,7 +214,7 @@
         const motion = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-motion-arrow", from: [300, body.topLeft[1]], to: [430, body.topLeft[1]], role: "motion", strokeWidth: 2.5, headLength: 11, headWidth: 9 }));
         labels.push(
           { id: id + "-drive-force-label", at: [505, 190], text: "Fᴅ = " + clean(p.driveForceN) + " N", anchorId: primaryArrow.id, type: "given-force", zone: { x: 435, y: 155, width: 150, height: 48 } },
-          { id: id + "-motion-label", at: [350, 145], text: "0 → " + clean(p.finalSpeedMps) + " m/s på " + clean(p.elapsedS) + " s", anchorId: motion.id, fontSize: 12, type: "motion", zone: { x: 245, y: 110, width: 220, height: 48 } }
+          { id: id + "-motion-label", at: [350, 145], text: "0 → " + clean(p.finalSpeedMps) + " m/s på " + clean(p.elapsedS) + " s", anchorId: motion.id, fontSize: 14, type: "motion", zone: { x: 245, y: 110, width: 220, height: 48 } }
         );
       }
       labels.push(

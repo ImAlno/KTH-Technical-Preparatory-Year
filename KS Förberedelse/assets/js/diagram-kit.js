@@ -321,11 +321,14 @@
     const normal = opts.normal ? normalize(opts.normal) : [-tangent[1], tangent[0]];
     if (Math.abs(dot(tangent, normal)) > 1e-8) fail("INVALID_NORMAL", "dimension normal must be perpendicular to its anchors");
     const offset = finite(opts.offset === undefined ? 0 : opts.offset, "dimension.offset");
+    const extensionGap = nonnegative(opts.extensionGap === undefined ? 0 : opts.extensionGap, "dimension.extensionGap");
+    if (extensionGap > Math.abs(offset) + EPSILON) fail("INVALID_DIMENSION", "dimension extensionGap cannot exceed the offset");
     const start = add(a, mul(normal, offset));
     const end = add(b, mul(normal, offset));
-    const extension = [{ from: clone(a), to: clone(start) }, { from: clone(b), to: clone(end) }];
-    const path = "M " + start[0] + " " + start[1] + " L " + end[0] + " " + end[1] + " M " + a[0] + " " + a[1] + " L " + start[0] + " " + start[1] + " M " + b[0] + " " + b[1] + " L " + end[0] + " " + end[1];
-    return finalizePrimitive({ kind: "dimension", role: opts.role || "dimension", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "dimension.strokeWidth"), id: opts.id, a, b, tangent, normal, offset, start, end, startAnchor: clone(start), endAnchor: clone(end), anchors: [clone(start), clone(end)], extension, path, length: length(sub(b, a)), labelAt: mul(add(start, end), 0.5) }, false);
+    const gapVector = mul(normal, offset < 0 ? -extensionGap : extensionGap);
+    const extension = [{ from: add(a, gapVector), to: clone(start) }, { from: add(b, gapVector), to: clone(end) }];
+    const path = "M " + start[0] + " " + start[1] + " L " + end[0] + " " + end[1] + " M " + extension[0].from[0] + " " + extension[0].from[1] + " L " + start[0] + " " + start[1] + " M " + extension[1].from[0] + " " + extension[1].from[1] + " L " + end[0] + " " + end[1];
+    return finalizePrimitive({ kind: "dimension", role: opts.role || "dimension", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "dimension.strokeWidth"), id: opts.id, a, b, tangent, normal, offset, extensionGap, start, end, startAnchor: clone(start), endAnchor: clone(end), anchors: [clone(start), clone(end)], extension, path, length: length(sub(b, a)), labelAt: mul(add(start, end), 0.5) }, false);
   }
 
   function arrow(options) {
@@ -520,7 +523,7 @@
     let points = [];
     if (s.kind === "line" || s.kind === "arrow") points = [s.from || s.a, s.to || s.b, ...(s.kind === "arrow" ? [s.left, s.right] : [])];
     else if (s.kind === "body") points = s.corners;
-    else if (s.kind === "dimension") points = [s.a, s.b, s.start, s.end];
+    else if (s.kind === "dimension") points = [s.start, s.end].concat(s.extension.flatMap((segment) => [segment.from, segment.to]));
     else if (s.kind === "angleArc") return arcBounds(s.vertex, s.radius, Math.atan2(s.start[1] - s.vertex[1], s.start[0] - s.vertex[0]), Math.atan2(s.end[1] - s.vertex[1], s.end[0] - s.vertex[0]), s.sweep, s.strokeWidth);
     else if (s.kind === "rope") {
       const lineOne = bboxOf({ kind: "line", a: s.from, b: s.fromTangent, strokeWidth: s.strokeWidth });
@@ -562,7 +565,7 @@
     else if (element.kind === "polyline") shape = polyline({ id: element.id, points: element.points, role: element.role, strokeWidth });
     else if (element.kind === "path") shape = path({ id: element.id, d: element.path, role: element.role, strokeWidth });
     else if (element.kind === "body") shape = bodyOnLine({ id: element.id, bottomCenter: element.bottomCenter, width: element.width, height: element.height, line: element.line, outwardNormal: element.outwardNormal, role: element.role, strokeWidth });
-    else if (element.kind === "dimension") shape = dimension({ id: element.id, a: element.a, b: element.b, normal: element.normal, offset: element.offset, role: element.role, strokeWidth });
+    else if (element.kind === "dimension") shape = dimension({ id: element.id, a: element.a, b: element.b, normal: element.normal, offset: element.offset, extensionGap: element.extensionGap, role: element.role, strokeWidth });
     else if (element.kind === "angleArc") shape = angleArc({ id: element.id, vertex: element.vertex, fromRay: add(element.vertex, element.fromRay), toRay: add(element.vertex, element.toRay), radius: element.radius, role: element.role, strokeWidth });
     else if (element.kind === "rope") shape = ropeAroundCircle({ id: element.id, from: element.from, to: element.to, pulley: element.pulley, side: element.side, role: element.role, strokeWidth });
     else if (element.kind === "label") {
@@ -586,7 +589,7 @@
     if (shape.kind === "polygon" || shape.kind === "polyline") result.geometry = { points: shape.points };
     if (shape.kind === "path") result.geometry = { d: shape.d, commands: pathSignature(shape.d) };
     if (shape.kind === "body") result.geometry = { points: shape.corners, line: shape.line, outwardNormal: shape.outwardNormal, bottomCenter: shape.bottomCenter, width: length(sub(shape.bottomRight, shape.bottomLeft)), height: length(sub(shape.topLeft, shape.bottomLeft)) };
-    if (shape.kind === "dimension") result.geometry = { a: shape.a, b: shape.b, normal: shape.normal, offset: shape.offset, extension: shape.extension };
+    if (shape.kind === "dimension") result.geometry = { a: shape.a, b: shape.b, normal: shape.normal, offset: shape.offset, extensionGap: shape.extensionGap, extension: shape.extension };
     if (shape.kind === "angleArc") result.geometry = { vertex: shape.vertex, fromRay: shape.fromRay, toRay: shape.toRay, radius: shape.radius, sweep: shape.sweep };
     if (shape.kind === "rope") result.geometry = { from: shape.from, to: shape.to, pulley: shape.pulley, side: shape.side, fromTangent: shape.fromTangent, toTangent: shape.toTangent, arc: shape.arc };
     if (["path", "angleArc", "rope", "dimension"].includes(shape.kind)) result.path = shape.d !== undefined ? shape.d : shape.path;
@@ -601,7 +604,7 @@
     if (element.kind === "polygon" || element.kind === "polyline") return { points: element.points };
     if (element.kind === "path") return { d: element.path, commands: element.commands };
     if (element.kind === "body") return { points: element.points, line: element.line, outwardNormal: element.outwardNormal, bottomCenter: element.bottomCenter, width: element.width, height: element.height };
-    if (element.kind === "dimension") return { a: element.a, b: element.b, normal: element.normal, offset: element.offset, extension: element.extension };
+    if (element.kind === "dimension") return { a: element.a, b: element.b, normal: element.normal, offset: element.offset, extensionGap: element.extensionGap, extension: element.extension };
     if (element.kind === "angleArc") return { vertex: element.vertex, fromRay: element.fromRay, toRay: element.toRay, radius: element.radius, sweep: element.sweep };
     if (element.kind === "rope") return { from: element.from, to: element.to, pulley: element.pulley, side: element.side, fromTangent: element.fromTangent, toTangent: element.toTangent, arc: element.arc };
     if (element.kind === "label") return { at: element.at, anchorId: element.anchorId, textAnchor: element.textAnchor, text: element.text, avoid: element.avoid, minClearance: element.minClearance, fontSize: element.fontSize, background: element.background };
@@ -842,7 +845,7 @@
           if (element.kind === "rect") Object.assign(record, { x: element.x, y: element.y, width: element.width, height: element.height, rx: element.attrs.rx });
           if (element.kind === "path" || element.kind === "angleArc" || element.kind === "rope" || element.kind === "dimension") Object.assign(record, { path: element.d || element.path, segments: element.segments || null });
           if (element.kind === "path") record.commands = element.commands.slice();
-          if (element.kind === "dimension") Object.assign(record, { a: clone(element.a), b: clone(element.b), normal: clone(element.normal), offset: element.offset, anchors: element.anchors.map(clone), extension: element.extension });
+          if (element.kind === "dimension") Object.assign(record, { a: clone(element.a), b: clone(element.b), normal: clone(element.normal), offset: element.offset, extensionGap: element.extensionGap, anchors: element.anchors.map(clone), extension: element.extension });
           if (element.kind === "angleArc") Object.assign(record, { vertex: clone(element.vertex), fromRay: clone(element.fromRay), toRay: clone(element.toRay), radius: element.radius, sweep: element.sweep });
           if (element.kind === "rope") Object.assign(record, { from: clone(element.from), to: clone(element.to), pulley: { center: clone(element.pulley.center), radius: element.pulley.radius }, side: element.side, fromTangent: clone(element.fromTangent), toTangent: clone(element.toTangent), arc: Object.assign({}, element.arc) });
           if (element.kind === "label") Object.assign(record, { at: clone(element.at), anchorId: element.anchorId, textAnchor: element.textAnchor, text: element.text, avoid: element.avoid.slice(), minClearance: element.minClearance, fontSize: element.fontSize, background: element.background });

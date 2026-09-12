@@ -130,6 +130,12 @@ test("creates angle arcs, dimensions, arrows, and graph transforms with finite a
   const dim = kit.dimension({ a: [0, 0], b: [4, 0], offset: 2 });
   assert.deepEqual(dim.start, [0, 2]);
   assert.deepEqual(dim.end, [4, 2]);
+  const spacedDim = kit.dimension({ a: [0, 0], b: [4, 0], offset: 10, extensionGap: 5 });
+  assert.deepEqual(spacedDim.extension, [
+    { from: [0, 5], to: [0, 10] },
+    { from: [4, 5], to: [4, 10] }
+  ]);
+  assert.equal(spacedDim.extensionGap, 5);
   const arrow = kit.arrow({ from: [1, 2], to: [5, 2] });
   assert.deepEqual(arrow.from, [1, 2]);
   assert.deepEqual(arrow.to, [5, 2]);
