@@ -5,7 +5,12 @@ const os = require("node:os");
 const path = require("node:path");
 const { EventEmitter } = require("node:events");
 
-const { runAudit, launchChrome } = require("./diagram-audit-browser.js");
+const { runAudit, launchChrome, regressionsPass } = require("./diagram-audit-browser.js");
+
+test("standalone regression status requires every nested check to pass", () => {
+  assert.equal(regressionsPass({ positive: { transform: "pass" }, negative: { marker: "pass" } }), true);
+  assert.equal(regressionsPass({ positive: { transform: "pass" }, negative: { marker: "fail" } }), false);
+});
 
 test("a Chrome startup timeout kills the child and removes its isolated profile", async () => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ks-diagram-startup-test-"));
@@ -47,16 +52,21 @@ test("audits every prompt in four modes and every solution figure in three scree
       accessiblePairs: 215
     });
     assert.deepEqual(audit.regressions, {
-      nestedTransform: "pass",
-      cssWidth: "pass",
-      rejectsNestedOverlap: "pass",
-      rejectsClipping: "pass",
-      rejectsScaledFont: "pass",
-      rejectsExtraRoot: "pass",
-      rejectsTransformedEllipse: "pass",
-      rejectsPolygonContainment: "pass",
-      rejectsOpaqueOwnerCover: "pass",
-      rejectsPaintOverflow: "pass"
+      positive: { nestedTransform: "pass", cssWidth: "pass" },
+      negative: {
+        nestedOverlap: "pass",
+        cssScaledFont: "pass",
+        clipping: "pass",
+        paintOverflow: "pass",
+        extraRoot: "pass",
+        transformedEllipse: "pass",
+        transformedEllipsePaintOverflow: "pass",
+        polygonContainment: "pass",
+        opaqueBackgroundOwner: "pass",
+        transformedPath: "pass",
+        nestedMarker: "pass",
+        spoofedOwner: "pass"
+      }
     });
     assert.equal(audit.preflight.outcome, "pass");
     assert.deepEqual(audit.networkRequests, []);

@@ -262,7 +262,7 @@
 
     function fontScreenScale(node) {
       const matrix = node.getScreenCTM();
-      return Math.max(1e-9, Math.hypot(matrix.c, matrix.d));
+      return Math.hypot(matrix.c, matrix.d);
     }
 
     function pointsAttribute(node) {
@@ -278,6 +278,106 @@
         const local = node.getPointAtLength(length * index / samples);
         return point(matrix, local.x, local.y);
       });
+    }
+
+    function polygonEdgeProbes(polygon) {
+      const probes = [];
+      polygon.forEach(function (start, index) {
+        const end = polygon[(index + 1) % polygon.length];
+        const count = Math.max(1, Math.ceil(Math.hypot(end[0] - start[0], end[1] - start[1])));
+        for (let step = 0; step <= count; step += 1) {
+          probes.push([start[0] + (end[0] - start[0]) * step / count, start[1] + (end[1] - start[1]) * step / count]);
+        }
+      });
+      return probes;
+    }
+
+    function ellipseGeometry(node) {
+      const tag = node.tagName.toLowerCase();
+      const radius = tag === "circle" ? node.r.baseVal.value : null;
+      return {
+        cx: node.cx.baseVal.value,
+        cy: node.cy.baseVal.value,
+        rx: radius === null ? node.rx.baseVal.value : radius,
+        ry: radius === null ? node.ry.baseVal.value : radius
+      };
+    }
+
+    function pointInEllipse(candidate, ellipse) {
+      if (!(ellipse.rx > 0) || !(ellipse.ry > 0)) return false;
+      const x = (candidate[0] - ellipse.cx) / ellipse.rx;
+      const y = (candidate[1] - ellipse.cy) / ellipse.ry;
+      return x * x + y * y <= 1 + 1e-9;
+    }
+
+    function segmentIntersectsEllipse(start, end, ellipse) {
+      if (!(ellipse.rx > 0) || !(ellipse.ry > 0)) return false;
+      const x = (start[0] - ellipse.cx) / ellipse.rx;
+      const y = (start[1] - ellipse.cy) / ellipse.ry;
+      const dx = (end[0] - start[0]) / ellipse.rx;
+      const dy = (end[1] - start[1]) / ellipse.ry;
+      const a = dx * dx + dy * dy;
+      const b = 2 * (x * dx + y * dy);
+      const c = x * x + y * y - 1;
+      if (a <= 1e-15) return Math.abs(c) <= 1e-9;
+      const discriminant = b * b - 4 * a * c;
+      if (discriminant < -1e-9) return false;
+      const root = Math.sqrt(Math.max(0, discriminant));
+      const first = (-b - root) / (2 * a); const second = (-b + root) / (2 * a);
+      return first >= -1e-9 && first <= 1 + 1e-9 || second >= -1e-9 && second <= 1 + 1e-9;
+    }
+
+    function polygonCrossesEllipse(polygon, ellipse) {
+      return polygon.some(function (start, index) {
+        return segmentIntersectsEllipse(start, polygon[(index + 1) % polygon.length], ellipse);
+      });
+    }
+
+    function ellipseBoundarySamples(node, ellipse) {
+      if (!(ellipse.rx > 0) || !(ellipse.ry > 0)) return [];
+      const count = Math.max(16, Math.ceil(2 * Math.PI * Math.max(ellipse.rx, ellipse.ry) * screenScale(node)));
+      const matrix = node.getScreenCTM();
+      return Array.from({ length: count + 1 }, function (_, index) {
+        const angle = 2 * Math.PI * index / count;
+        return point(matrix, ellipse.cx + ellipse.rx * Math.cos(angle), ellipse.cy + ellipse.ry * Math.sin(angle));
+      });
+    }
+
+    function polygonIntersectsEllipsePaint(node, screenPolygon, style) {
+      const inverse = node.getScreenCTM().inverse();
+      const polygon = screenPolygon.map(function (value) { return point(inverse, value[0], value[1]); });
+      const base = ellipseGeometry(node);
+      const halfStroke = style.stroke === "none" ? 0 : (parseFloat(style.strokeWidth) || 0) / 2;
+      const outer = { cx: base.cx, cy: base.cy, rx: base.rx + halfStroke, ry: base.ry + halfStroke };
+      const inner = { cx: base.cx, cy: base.cy, rx: Math.max(0, base.rx - halfStroke), ry: Math.max(0, base.ry - halfStroke) };
+      const filled = style.fill !== "none";
+      if (filled) {
+        if (polygon.some(function (value) { return pointInEllipse(value, outer); }) || pointInPolygon([base.cx, base.cy], polygon) || polygonCrossesEllipse(polygon, outer)) return true;
+      } else if (style.stroke !== "none") {
+        if (polygon.some(function (value) { return pointInEllipse(value, outer) && !pointInEllipse(value, inner); })) return true;
+        if (polygonCrossesEllipse(polygon, outer) || polygonCrossesEllipse(polygon, inner)) return true;
+        const midline = [[base.cx + base.rx, base.cy], [base.cx - base.rx, base.cy], [base.cx, base.cy + base.ry], [base.cx, base.cy - base.ry]];
+        if (midline.some(function (value) { return pointInPolygon(value, polygon); })) return true;
+      }
+      return false;
+    }
+
+    function ellipseDistance(node, screenPolygon, style) {
+      if (polygonIntersectsEllipsePaint(node, screenPolygon, style)) return 0;
+      const base = ellipseGeometry(node);
+      const halfStroke = style.stroke === "none" ? 0 : (parseFloat(style.strokeWidth) || 0) / 2;
+      const boundaries = [{ cx: base.cx, cy: base.cy, rx: base.rx + halfStroke, ry: base.ry + halfStroke }];
+      if (style.fill === "none" && halfStroke > 0 && base.rx > halfStroke && base.ry > halfStroke) {
+        boundaries.push({ cx: base.cx, cy: base.cy, rx: base.rx - halfStroke, ry: base.ry - halfStroke });
+      }
+      let distance = Infinity;
+      boundaries.forEach(function (ellipse) {
+        const samples = ellipseBoundarySamples(node, ellipse);
+        for (let index = 0; index + 1 < samples.length; index += 1) {
+          distance = Math.min(distance, polygonSegmentDistance(screenPolygon, samples[index], samples[index + 1]));
+        }
+      });
+      return distance;
     }
 
     function polygonBoundaryDistance(first, second) {
@@ -301,6 +401,7 @@
       const stroke = style.stroke === "none" ? 0 : (parseFloat(style.strokeWidth) || 0) * screenScale(node) / 2;
       const matrix = node.getScreenCTM();
       const tag = node.tagName.toLowerCase();
+      if (tag === "circle" || tag === "ellipse") return ellipseDistance(node, polygon, style);
       if (tag === "line") {
         return Math.max(0, polygonSegmentDistance(polygon, point(matrix, node.x1.baseVal.value, node.y1.baseVal.value), point(matrix, node.x2.baseVal.value, node.y2.baseVal.value)) - stroke);
       }
@@ -313,16 +414,13 @@
       }
       if (typeof node.getTotalLength === "function" && typeof node.getPointAtLength === "function") {
         const sampled = geometrySamples(node);
-        let distance = Infinity; let previous = null;
+        let distance = Infinity;
         for (const current of sampled) {
           if (pointInPolygon(current, polygon)) return 0;
-          if (previous && Math.hypot(current[0] - previous[0], current[1] - previous[1]) <= 1.5) {
-            distance = Math.min(distance, polygonSegmentDistance(polygon, previous, current));
-          }
-          previous = current;
+          distance = Math.min(distance, pointToPolygonBoundary(current, polygon));
         }
-        for (const vertex of polygon) {
-          const local = localScreenPoint(node, vertex);
+        for (const probe of polygonEdgeProbes(polygon)) {
+          const local = localScreenPoint(node, probe);
           if ((style.fill !== "none" && node.isPointInFill(local)) || (style.stroke !== "none" && node.isPointInStroke(local))) return 0;
         }
         return Math.max(0, distance - stroke);
@@ -335,10 +433,15 @@
       return polygonBoundaryDistance(first, second);
     }
 
-    function arrowheadDistance(rootSvg, element, polygon) {
+    function arrowheadPolygon(node, element) {
+      if (!node || !element || !element.arrowhead || !Array.isArray(element.arrowhead.points)) return [];
+      const matrix = node.getScreenCTM();
+      return element.arrowhead.points.map(function (value) { return point(matrix, value[0], value[1]); });
+    }
+
+    function arrowheadDistance(node, element, polygon) {
       if (!element.arrowhead || !Array.isArray(element.arrowhead.points)) return Infinity;
-      const matrix = rootSvg.getScreenCTM();
-      const head = element.arrowhead.points.map(function (value) { return point(matrix, value[0], value[1]); });
+      const head = arrowheadPolygon(node, element);
       return polygonDistance(polygon, head);
     }
 
@@ -370,6 +473,18 @@
       const rootPolygon = viewBoxPolygonOnScreen(rootSvg);
       const style = getComputedStyle(node);
       const margin = style.stroke === "none" ? 0 : (parseFloat(style.strokeWidth) || 0) * screenScale(node) / 2;
+      const tag = node.tagName.toLowerCase();
+      if (tag === "circle" || tag === "ellipse") {
+        const base = ellipseGeometry(node);
+        const halfStroke = style.stroke === "none" ? 0 : (parseFloat(style.strokeWidth) || 0) / 2;
+        const matrix = relativeMatrix(rootSvg, node);
+        const center = point(matrix, base.cx, base.cy);
+        const extentX = Math.hypot(matrix.a * base.rx, matrix.c * base.ry) + halfStroke * Math.hypot(matrix.a, matrix.c);
+        const extentY = Math.hypot(matrix.b * base.rx, matrix.d * base.ry) + halfStroke * Math.hypot(matrix.b, matrix.d);
+        const viewBox = rootSvg.viewBox.baseVal;
+        return center[0] - extentX >= viewBox.x - 0.01 && center[0] + extentX <= viewBox.x + viewBox.width + 0.01 &&
+          center[1] - extentY >= viewBox.y - 0.01 && center[1] + extentY <= viewBox.y + viewBox.height + 0.01;
+      }
       const samples = geometrySamples(node);
       if (!samples.length) return polygonInsidePolygon(bboxPolygonOnScreen(node), rootPolygon, margin);
       return samples.every(function (candidate) {
@@ -404,6 +519,11 @@
       if (localIds.length !== new Set(localIds).size || localIds.length !== manifest.domIds.length || manifest.domIds.some(function (id) { return !localIds.includes(id); })) {
         failures.push("duplicate or unreconciled fragment ID");
       }
+      visible.forEach(function (node) {
+        if (!node.id || node.getAttribute("data-geometry-id") !== node.id || !byId.has(node.id)) {
+          failures.push((node.id || "anonymous geometry") + ": spoofed geometry identity");
+        }
+      });
 
       labels.forEach(function (label) {
         const localPolygon = bboxPolygonInRoot(rootSvg, label);
@@ -422,14 +542,19 @@
         if (measuredSize + 0.01 < minimum) failures.push(label.id + ": text smaller than required minimum");
         const anchorId = label.getAttribute("data-label-anchor");
         const manifestLabel = byId.get(label.id);
-        if (!manifestLabel || manifestLabel.anchorId !== anchorId || !byId.has(anchorId)) failures.push(label.id + ": unverified label anchor");
+        const anchorElement = byId.get(anchorId);
+        const anchorNode = anchorId ? rootSvg.querySelector("#" + CSS.escape(anchorId)) : null;
+        const verifiedAnchor = Boolean(manifestLabel && manifestLabel.anchorId === anchorId && anchorElement && anchorNode &&
+          anchorNode.id === anchorId && anchorNode.getAttribute("data-geometry-id") === anchorId && anchorElement.collision === true &&
+          ["geometry", "connections", "information"].includes(anchorElement.layer) && !["label", "label-background", "decorative"].includes(anchorElement.role));
+        if (!verifiedAnchor) failures.push(label.id + ": unverified label anchor");
 
         visible.forEach(function (geometry) {
-          const geometryId = geometry.getAttribute("data-geometry-id");
-          if (geometryId === anchorId) return;
+          const geometryId = geometry.id;
+          if (verifiedAnchor && geometry === anchorNode && geometryId === anchorId) return;
           const distance = geometryDistance(geometry, screenPolygon);
           const element = byId.get(geometryId);
-          const markerDistance = element ? arrowheadDistance(rootSvg, element, screenPolygon) : Infinity;
+          const markerDistance = element ? arrowheadDistance(geometry, element, screenPolygon) : Infinity;
           const exactDistance = Math.min(distance, markerDistance);
           if (exactDistance <= 0.1) failures.push(label.id + ": intersects non-anchor " + geometryId);
           else if (roleById.get(geometryId) && exactDistance < 6 - 0.1) {
@@ -446,9 +571,9 @@
             const rootPolygon = viewBoxPolygonOnScreen(rootSvg);
             if (!polygonInsidePolygon(backgroundPolygon, rootPolygon, 0)) failures.push(label.id + ": opaque background outside viewBox");
             visible.forEach(function (geometry) {
-              const geometryId = geometry.getAttribute("data-geometry-id");
+              const geometryId = geometry.id;
               const element = byId.get(geometryId);
-              const distance = Math.min(geometryDistance(geometry, backgroundPolygon), element ? arrowheadDistance(rootSvg, element, backgroundPolygon) : Infinity);
+              const distance = Math.min(geometryDistance(geometry, backgroundPolygon), element ? arrowheadDistance(geometry, element, backgroundPolygon) : Infinity);
               if (distance <= 0.1) failures.push(label.id + ": opaque background covers geometry " + geometryId);
             });
           }
@@ -462,12 +587,10 @@
       }
 
       visible.forEach(function (node) {
-        const id = node.getAttribute("data-geometry-id");
+        const id = node.id;
         const element = byId.get(id);
         if (!geometryPaintInside(rootSvg, node)) failures.push(id + ": painted geometry outside viewBox");
-        if (element && element.arrowhead && !polygonInsidePolygon(element.arrowhead.points.map(function (value) {
-          return point(rootSvg.getScreenCTM(), value[0], value[1]);
-        }), viewBoxPolygonOnScreen(rootSvg), 0)) {
+        if (element && element.arrowhead && !polygonInsidePolygon(arrowheadPolygon(node, element), viewBoxPolygonOnScreen(rootSvg), 0)) {
           failures.push(id + ": painted arrowhead outside viewBox");
         }
       });
@@ -483,6 +606,25 @@
           })).toFixed(3)) : null
         }
       };
+    }
+
+    function auditMarkup(html, manifest, mode, options) {
+      const settings = options || {};
+      let holder = null;
+      try {
+        const markup = parsedDiagram(html, manifest);
+        holder = document.createElement("div");
+        holder.innerHTML = markup;
+        document.getElementById("audit-root").append(holder);
+        const svg = holder.querySelector("svg");
+        svg.style.width = String(settings.cssWidth || manifest.width) + "px";
+        if (typeof settings.mutate === "function") settings.mutate(svg);
+        return auditSvg(svg, manifest, mode || "desktop");
+      } catch (error) {
+        return { failures: ["markup/root audit: " + error.message], metrics: null };
+      } finally {
+        if (holder) holder.remove();
+      }
     }
 
     async function renderGroup(descriptor) {
@@ -605,82 +747,80 @@
       const expected = [[16, 28], [26, 28], [26, 40], [16, 40]];
       const widths = [first.getBoundingClientRect().width, second.getBoundingClientRect().width];
 
-      function regressionFigure(id, blocker, labelAt, fontSize) {
+      function regressionFigure(id, blocker, labelAt, fontSize, background) {
         const diagram = window.KS.diagram.create({ id: id, title: "Regression", description: "Kontrollerad felgeometri", width: 200, height: 120, purpose: "prompt" });
         const owner = window.KS.diagram.line({ id: id + "-owner", a: [15, 108], b: [45, 108], role: "line", strokeWidth: 2 });
         diagram.add("geometry", owner);
         if (blocker) diagram.add("information", blocker);
         diagram.add("labels", window.KS.diagram.label({
           id: id + "-label", at: labelAt || [110, 65], text: "Testetikett", anchorId: owner.id,
-          avoid: blocker ? [blocker.id] : [], minClearance: 6, fontSize: fontSize || 12, textAnchor: "middle", background: true
+          avoid: blocker ? [blocker.id] : [], minClearance: 6, fontSize: fontSize || 12, textAnchor: "middle", background: background !== false
         }));
         return diagram.finish();
       }
 
-      function mountRegression(figure) {
-        const holder = document.createElement("div");
-        holder.innerHTML = figure.html;
-        root.append(holder);
-        const svg = holder.querySelector("svg");
-        svg.style.width = "200px";
-        return svg;
-      }
-
-      function rejected(svg, manifest, pattern) {
-        const result = auditSvg(svg, manifest, "desktop");
+      function rejected(html, manifest, pattern, options) {
+        const result = auditMarkup(html, manifest, "desktop", options);
         return result.failures.some(function (failure) { return pattern.test(failure); });
       }
 
       const nestedFigure = regressionFigure("bad-nested-overlap", window.KS.diagram.line({ id: "bad-nested-overlap-blocker", a: [20, 20], b: [60, 20], role: "line", strokeWidth: 2 }));
-      const nestedSvg = mountRegression(nestedFigure);
-      const nestedBlocker = nestedSvg.querySelector("#bad-nested-overlap-blocker");
-      const outerTransform = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      const innerTransform = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      outerTransform.setAttribute("transform", "translate(80 40)");
-      innerTransform.setAttribute("transform", "scale(1)");
-      nestedBlocker.parentNode.insertBefore(outerTransform, nestedBlocker);
-      outerTransform.append(innerTransform); innerTransform.append(nestedBlocker);
-
       const clippingFigure = regressionFigure("bad-clipping", null, [110, 65]);
-      const clippingSvg = mountRegression(clippingFigure);
-      clippingSvg.querySelector("#bad-clipping-label").setAttribute("transform", "translate(150 0)");
-
       const fontFigure = regressionFigure("bad-font", null, [110, 65], 12);
-      const fontSvg = mountRegression(fontFigure); fontSvg.style.width = "100px";
-
       const ellipseFigure = regressionFigure("bad-ellipse", window.KS.diagram.circle({ id: "bad-ellipse-blocker", center: [40, 30], radius: 18, role: "shape", strokeWidth: 2 }), [132, 65]);
-      const ellipseSvg = mountRegression(ellipseFigure);
-      ellipseSvg.querySelector("#bad-ellipse-blocker").setAttribute("transform", "matrix(1 .5 .8 1 68 15)");
-
+      const ellipseOverflowFigure = regressionFigure("bad-ellipse-overflow", window.KS.diagram.circle({ id: "bad-ellipse-overflow-blocker", center: [40, 30], radius: 18, role: "shape", strokeWidth: 2 }), [50, 65]);
       const polygonFigure = regressionFigure("bad-polygon", window.KS.diagram.polygon({ id: "bad-polygon-blocker", points: [[70, 30], [170, 30], [170, 95], [70, 95]], role: "shape", strokeWidth: 1 }), [120, 65]);
-      const polygonSvg = mountRegression(polygonFigure);
-      polygonSvg.querySelector("#bad-polygon-blocker").setAttribute("fill", "currentColor");
-
       const ownerFigure = regressionFigure("bad-owner-background", null, [50, 112]);
-      const ownerSvg = mountRegression(ownerFigure);
-
       const overflowFigure = regressionFigure("bad-paint-overflow", window.KS.diagram.line({ id: "bad-paint-overflow-blocker", a: [20, 20], b: [80, 20], role: "line", strokeWidth: 4 }), [130, 70]);
-      const overflowSvg = mountRegression(overflowFigure);
-      overflowSvg.querySelector("#bad-paint-overflow-blocker").setAttribute("transform", "translate(0 -20)");
+      const pathFigure = regressionFigure("bad-transformed-path", window.KS.diagram.path({ id: "bad-transformed-path-blocker", d: "M 20 20 H 80 V 34 H 20 Z", role: "shape", strokeWidth: 1 }), [120, 58]);
+      const markerFigure = regressionFigure("bad-nested-marker", window.KS.diagram.arrow({ id: "bad-nested-marker-blocker", from: [20, 30], to: [80, 30], role: "arrow", strokeWidth: 2, headLength: 12, headWidth: 30 }), [128, 39], 12, false);
+      const spoofFigure = regressionFigure("bad-spoofed-owner", window.KS.diagram.line({ id: "bad-spoofed-owner-blocker", a: [80, 65], b: [140, 65], role: "line", strokeWidth: 2 }), [110, 68], 12, false);
 
-      let rejectsExtraRoot = false;
-      try {
-        parsedDiagram('<svg id="first"></svg><svg id="second"></svg>', { id: "first" });
-      } catch (error) {
-        rejectsExtraRoot = /exactly one SVG root/u.test(error.message);
+      function nest(svg, selector, transform) {
+        const element = svg.querySelector(selector);
+        const outer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        const inner = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        outer.setAttribute("transform", transform);
+        inner.setAttribute("transform", "scale(1)");
+        element.parentNode.insertBefore(outer, element);
+        outer.append(inner); inner.append(element);
       }
 
+      const negative = {
+        nestedOverlap: rejected(nestedFigure.html, nestedFigure.manifest, /intersects non-anchor|opaque background covers geometry/u, { mutate: function (svg) { nest(svg, "#bad-nested-overlap-blocker", "translate(80 40)"); } }) ? "pass" : "fail",
+        cssScaledFont: rejected(fontFigure.html, fontFigure.manifest, /text smaller than required minimum/u, { cssWidth: 100 }) ? "pass" : "fail",
+        clipping: rejected(clippingFigure.html, clippingFigure.manifest, /clipped text|label outside viewBox/u, { mutate: function (svg) { svg.querySelector("#bad-clipping-label").setAttribute("transform", "translate(150 0)"); } }) ? "pass" : "fail",
+        paintOverflow: rejected(overflowFigure.html, overflowFigure.manifest, /painted geometry outside viewBox/u, { mutate: function (svg) { svg.querySelector("#bad-paint-overflow-blocker").setAttribute("transform", "translate(0 -20)"); } }) ? "pass" : "fail",
+        extraRoot: rejected(nestedFigure.html + '<svg id="extra-root"></svg>', nestedFigure.manifest, /exactly one SVG root/u) ? "pass" : "fail",
+        transformedEllipse: rejected(ellipseFigure.html, ellipseFigure.manifest, /intersects non-anchor|opaque background covers geometry/u, { mutate: function (svg) {
+          const circle = svg.querySelector("#bad-ellipse-blocker");
+          const ellipse = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
+          ["id", "data-role", "data-geometry-id", "stroke", "stroke-width"].forEach(function (name) { ellipse.setAttribute(name, circle.getAttribute(name)); });
+          ellipse.setAttribute("cx", "40"); ellipse.setAttribute("cy", "30"); ellipse.setAttribute("rx", "24"); ellipse.setAttribute("ry", "10");
+          ellipse.setAttribute("fill", "currentColor"); ellipse.setAttribute("transform", "matrix(1 .5 .8 1 68 15)");
+          circle.replaceWith(ellipse);
+        } }) ? "pass" : "fail",
+        transformedEllipsePaintOverflow: rejected(ellipseOverflowFigure.html, ellipseOverflowFigure.manifest, /painted geometry outside viewBox/u, { mutate: function (svg) {
+          const circle = svg.querySelector("#bad-ellipse-overflow-blocker");
+          const ellipse = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
+          ["id", "data-role", "data-geometry-id"].forEach(function (name) { ellipse.setAttribute(name, circle.getAttribute(name)); });
+          ellipse.setAttribute("cx", "40"); ellipse.setAttribute("cy", "30"); ellipse.setAttribute("rx", "24"); ellipse.setAttribute("ry", "10");
+          ellipse.setAttribute("fill", "none"); ellipse.setAttribute("stroke", "currentColor"); ellipse.setAttribute("stroke-width", "10");
+          ellipse.setAttribute("transform", "matrix(1 0 3 1 16 20)"); circle.replaceWith(ellipse);
+        } }) ? "pass" : "fail",
+        polygonContainment: rejected(polygonFigure.html, polygonFigure.manifest, /intersects non-anchor|opaque background covers geometry/u, { mutate: function (svg) { svg.querySelector("#bad-polygon-blocker").setAttribute("fill", "currentColor"); } }) ? "pass" : "fail",
+        opaqueBackgroundOwner: rejected(ownerFigure.html, ownerFigure.manifest, /opaque background covers geometry bad-owner-background-owner/u) ? "pass" : "fail",
+        transformedPath: rejected(pathFigure.html, pathFigure.manifest, /intersects non-anchor|opaque background covers geometry/u, { mutate: function (svg) { const path = svg.querySelector("#bad-transformed-path-blocker"); path.setAttribute("fill", "currentColor"); path.setAttribute("transform", "matrix(1 .35 .5 1 64 8)"); } }) ? "pass" : "fail",
+        nestedMarker: rejected(markerFigure.html, markerFigure.manifest, /intersects non-anchor/u, { mutate: function (svg) { nest(svg, "#bad-nested-marker-blocker", "translate(60 20)"); } }) ? "pass" : "fail",
+        spoofedOwner: rejected(spoofFigure.html, spoofFigure.manifest, /spoofed geometry identity|intersects non-anchor/u, { mutate: function (svg) { svg.querySelector("#bad-spoofed-owner-blocker").setAttribute("data-geometry-id", "bad-spoofed-owner-owner"); } }) ? "pass" : "fail"
+      };
+
       return {
-        nestedTransform: JSON.stringify(firstPolygon) === JSON.stringify(expected) && JSON.stringify(secondPolygon) === JSON.stringify(expected) ? "pass" : "fail",
-        cssWidth: Math.abs(widths[0] * 2 - widths[1]) < 0.01 && Math.abs(screenScale(document.getElementById("nested-rect-a")) * 2 - screenScale(document.getElementById("nested-rect-b"))) < 0.01 ? "pass" : "fail",
-        rejectsNestedOverlap: rejected(nestedSvg, nestedFigure.manifest, /intersects non-anchor|opaque background covers geometry/u) ? "pass" : "fail",
-        rejectsClipping: rejected(clippingSvg, clippingFigure.manifest, /clipped text|label outside viewBox/u) ? "pass" : "fail",
-        rejectsScaledFont: rejected(fontSvg, fontFigure.manifest, /text smaller than required minimum/u) ? "pass" : "fail",
-        rejectsExtraRoot: rejectsExtraRoot ? "pass" : "fail",
-        rejectsTransformedEllipse: rejected(ellipseSvg, ellipseFigure.manifest, /intersects non-anchor|opaque background covers geometry/u) ? "pass" : "fail",
-        rejectsPolygonContainment: rejected(polygonSvg, polygonFigure.manifest, /intersects non-anchor|opaque background covers geometry/u) ? "pass" : "fail",
-        rejectsOpaqueOwnerCover: rejected(ownerSvg, ownerFigure.manifest, /opaque background covers geometry bad-owner-background-owner/u) ? "pass" : "fail",
-        rejectsPaintOverflow: rejected(overflowSvg, overflowFigure.manifest, /painted geometry outside viewBox/u) ? "pass" : "fail"
+        positive: {
+          nestedTransform: JSON.stringify(firstPolygon) === JSON.stringify(expected) && JSON.stringify(secondPolygon) === JSON.stringify(expected) ? "pass" : "fail",
+          cssWidth: Math.abs(widths[0] * 2 - widths[1]) < 0.01 && Math.abs(screenScale(document.getElementById("nested-rect-a")) * 2 - screenScale(document.getElementById("nested-rect-b"))) < 0.01 ? "pass" : "fail"
+        },
+        negative: negative
       };
     }
 

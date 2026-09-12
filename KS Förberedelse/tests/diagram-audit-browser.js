@@ -112,6 +112,12 @@ function sourceHashes() {
   }));
 }
 
+function regressionsPass(value) {
+  if (!value || typeof value !== "object") return false;
+  const entries = Object.values(value);
+  return entries.length > 0 && entries.every((entry) => entry && typeof entry === "object" ? regressionsPass(entry) : entry === "pass");
+}
+
 function paeth(left, above, upperLeft) {
   const estimate = left + above - upperLeft;
   const leftDistance = Math.abs(estimate - left);
@@ -372,11 +378,11 @@ if (require.main === module) {
       contactSheets: audit.contactSheets.length, printPdfs: audit.printPdfs.length,
       manifest: path.join(DEFAULT_OUTPUT, "manifest.json")
     }, null, 2) + "\n");
-    if (failed.length || audit.networkRequests.length || audit.regressions.nestedTransform !== "pass" || audit.regressions.cssWidth !== "pass" || audit.preflight.outcome !== "pass") process.exitCode = 1;
+    if (failed.length || audit.networkRequests.length || !regressionsPass(audit.regressions) || audit.preflight.outcome !== "pass") process.exitCode = 1;
   }).catch((error) => {
     process.stderr.write(error.stack + "\n");
     process.exitCode = 1;
   });
 }
 
-module.exports = { runAudit, launchChrome, decodedPixelHash, rasterHash, sourceHashes, VIEWPORT_BY_MODE, SOURCE_FILES };
+module.exports = { runAudit, launchChrome, decodedPixelHash, rasterHash, sourceHashes, regressionsPass, VIEWPORT_BY_MODE, SOURCE_FILES };
