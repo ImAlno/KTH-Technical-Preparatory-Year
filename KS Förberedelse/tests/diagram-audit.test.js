@@ -61,11 +61,13 @@ test("audits every prompt in four modes and every solution figure in three scree
         extraRoot: "pass",
         transformedEllipse: "pass",
         transformedEllipsePaintOverflow: "pass",
+        nativeEllipseStroke: "pass",
         polygonContainment: "pass",
         opaqueBackgroundOwner: "pass",
         transformedPath: "pass",
         nestedMarker: "pass",
-        spoofedOwner: "pass"
+        spoofedOwner: "pass",
+        domLayerMutation: "pass"
       }
     });
     assert.equal(audit.preflight.outcome, "pass");

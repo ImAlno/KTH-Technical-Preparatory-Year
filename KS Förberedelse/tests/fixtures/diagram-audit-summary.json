@@ -6,10 +6,13 @@
     "outcome": "pass",
     "contactSheetsInspected": 33,
     "pdfPagesInspected": 150,
-    "fixRound": 2,
+    "fixRound": 3,
     "round2IdenticalContactSheets": 33,
     "round2IdenticalPrintPdfs": 6,
-    "round2AffectedVisualArtifacts": 0
+    "round2AffectedVisualArtifacts": 0,
+    "round3IdenticalContactSheets": 33,
+    "round3IdenticalPrintPdfs": 6,
+    "round3AffectedVisualArtifacts": 0
   },
   "counts": {
     "records": 795,
@@ -54,11 +57,13 @@
       "extraRoot": "pass",
       "transformedEllipse": "pass",
       "transformedEllipsePaintOverflow": "pass",
+      "nativeEllipseStroke": "pass",
       "polygonContainment": "pass",
       "opaqueBackgroundOwner": "pass",
       "transformedPath": "pass",
       "nestedMarker": "pass",
-      "spoofedOwner": "pass"
+      "spoofedOwner": "pass",
+      "domLayerMutation": "pass"
     }
   },
   "preflight": {
@@ -99,10 +104,10 @@
     "physicsSlot4": "70c6f8fc982133660da04da47e8d30438aa3b361c431d044248ac190793a32b7",
     "physicsSlot5": "09838e1466213f268517e899c401b7ce770eeacab285ac2606de03e5a0fe8a6c",
     "physicsQuestions": "a5bcc04ccca1559d2ce1c40593ad167acaeaafa4f4e878c3c00f8a327428b83e",
-    "auditPage": "1a8a64f2d527a47db7bf91bb524c96e1ad136c38c1270b51fb63e7daae11387c",
+    "auditPage": "02eef49119426bd499afe6467da7dcecd0d9f1e9d75d0d5d1dd4c3e54d50a737",
     "auditRunner": "aa610993ae255665b4d06902c08570a368c43f4d0fe66e0319fb4bb7b94a1435",
     "auditVerifier": "7dfa75ccf93619a304c4688b494beb86da42b0dbffac581c8194dc923aba0fa3",
-    "auditTest": "6a7cbd470581324d6462a68a4ec5237551ddbc61499cae143526745fa6d3c0a5",
+    "auditTest": "b67137f905b2f68f6829914e0f97c7ac64a211f5bcfe6c18ad535d0ffbea7692",
     "staticPagesTest": "68ec06134367adaec08615dcd69a3d208325b5ebd71ec6a16f63f1ad59bca48b",
     "diagramKitTest": "e1096cbedd1db5802e5c7771c944771ae5de2fd47ed9fd7db3371dbcf12a2fb9",
     "mathQuestionsTest": "e976e9eccd60d2126268ffe3819c81ebdff77dc9cf1276c26e14ca1026e6cefd",
