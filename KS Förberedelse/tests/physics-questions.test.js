@@ -228,6 +228,36 @@ function attributesForRole(html, tag, role) {
   return Object.fromEntries(Array.from(element[0].matchAll(/([\w-]+)="([^"]*)"/g), (match) => [match[1], match[2]]));
 }
 
+function visiblePromptText(html) {
+  const entities = {
+    nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+    aring: "å", auml: "ä", ouml: "ö", Aring: "Å", Auml: "Ä", Ouml: "Ö"
+  };
+  return String(html)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&(#(?:x[0-9a-f]+|[0-9]+)|[a-z]+);/gi, (match, entity) => {
+      if (entity[0] === "#") {
+        const code = entity[1].toLowerCase() === "x" ? parseInt(entity.slice(2), 16) : Number(entity.slice(1));
+        return Number.isFinite(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : " ";
+      }
+      return entities[entity] || entities[entity.toLowerCase()] || " ";
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function asksForComputerDerivation(html) {
+  const text = visiblePromptText(html);
+  const derivationTerms = "(?:metod|beräkning|uträkning|mellanled|steg|resonemang|förklaring|bevis|härledning|lösningsgång|tankegång|argument)[a-zåäö]*";
+  const forceWorkTerms = "(?:kraftfigur|frilägg(?:ning)?|skiss|vektorfigur|diagram|rit(?:a|ning))";
+  return new RegExp(`\\b(?:redovisa|redogör|beskriv|skriv|ange|visa)\\b[^.?!]{0,120}\\b${derivationTerms}\\b`, "i").test(text) ||
+    /\b(?:bevisa|förklara|motivera)\b/i.test(text) ||
+    /\bvisa\s+(?:hur|varför)\b/i.test(text) ||
+    /\bskriv\b[^.?!]{0,80}\b(?:hur|varför)\s+(?:du|ni|man)\b/i.test(text) ||
+    new RegExp(`\\b(?:redovisa|beskriv|skriv|ange|visa|rita|r\u00e4kna)\\b[^.?!]{0,100}\\b(?:${forceWorkTerms})\\b[^.?!]{0,100}\\b(?:här|i\\s+(?:svarsfältet|rutan|formuläret)|online|på\\s+skärmen)\\b`, "i").test(text) ||
+    new RegExp(`\\b(?:${forceWorkTerms})\\b(?![^.?!]{0,100}\\bräknehäftet\\b)[^.?!]{0,100}\\b(?:digitalt|online|på\\s+skärmen)\\b`, "i").test(text);
+}
+
 function seededRng(seed) {
   let value = seed >>> 0;
   return function () {
@@ -636,6 +666,33 @@ test("paper-work instructions name the method expected by each physics family", 
   ["cylinder", "cone", "sphere", "prism", "liquid-column"].forEach((family) => assert.match(byFamily[family], /enhet|SI|geometri|mått|volym/i));
   ["time-to-apex", "maximum-height", "initial-speed", "impact-speed", "flight-time"].forEach((family) => assert.match(byFamily[family], /positiv riktning|tecken|rot|rörelse/i));
   ["hanging-masses", "cables-at-angles", "missing-fourth-force", "supported-beams", "frictionless-wall-contact", "horizontal-pull", "inclined-plane", "connected-masses", "unknown-pull", "unknown-friction"].forEach((family) => assert.match(byFamily[family], /kraftfigur|frilägg|Newtons|kraft/i));
+});
+
+test("physics prompts keep derivation and method work out of digital answer fields", () => {
+  allPhysicsQuestions().forEach((question) => assert.equal(asksForComputerDerivation(question.promptHtml), false, question.id));
+});
+
+test("physics prompt audit catches wrapped derivation and computer-directed force-work requests", () => {
+  const examples = [
+    ["<p>Redovisa en generell <strong>metod</strong> och visa din <em>beräkning</em>.</p>", true],
+    ["<p>Förklara <span>hur</span> du fick fram svaret.</p>", true],
+    ["<p>Redogör för ditt <strong>resonemang</strong>.</p>", true],
+    ["<p>Redog&ouml;r för ditt <strong>resonemang</strong>.</p>", true],
+    ["<p>Beskriv <em>metoden</em> du använde.</p>", true],
+    ["<p>Skriv <strong>hur</strong> du fick fram svaret.</p>", true],
+    ["<p>Rita en <strong>kraftfigur</strong> i svarsfältet.</p>", true],
+    ["<p>Redovisa din <em>friläggning</em> här.</p>", true],
+    ["<p>Skriv in en <span>skiss</span> i rutan.</p>", true],
+    ["<p>Bestäm alla reella <strong>lösningar</strong>.</p>", false],
+    ["<p>Visa figuren och bestäm vinkeln.</p>", false],
+    ["<p>Skriv endast slutsvaret.</p>", false],
+    ["<p>Ange svaret med rätt enhet.</p>", false],
+    ["<p>Rita kraftfiguren i räknehäftet och skriv endast slutsvaret digitalt.</p>", false],
+    ["<p>Beräkna kraftfiguren i räknehäftet innan du anger slutsvaret.</p>", false],
+    ["<p>Kontrollera <strong>enhet</strong> och avrundning.</p>", false]
+  ];
+  examples.forEach(([html, expected]) => assert.equal(asksForComputerDerivation(html), expected, html));
+  assert.equal(visiblePromptText("<p>Ber&auml;kna&nbsp;endast&nbsp;slutsvaret.</p>"), "Beräkna endast slutsvaret.");
 });
 
 test("vertical solutions define upward-positive signs before substitution", () => {
