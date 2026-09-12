@@ -121,6 +121,37 @@ test("treats empty alias input as incorrect and ignores empty accepted aliases",
   assert.equal(grading.gradeAliases({ expected: "ja", aliases: [""], points: 1 }, "").status, "incorrect");
 });
 
+test("grades only stable values from a valid finite choice", () => {
+  const spec = {
+    kind: "choice", points: 1, expected: "yes",
+    options: [{ value: "yes", label: "Ja" }, { value: "no", label: "Nej" }]
+  };
+
+  assert.equal(grading.gradeChoice(spec, "yes").status, "correct");
+  assert.equal(grading.gradeChoice(spec, "yes").earned, 1);
+  assert.equal(grading.gradeChoice(spec, "no").status, "incorrect");
+  assert.equal(grading.gradeChoice(spec, "no").earned, 0);
+  assert.equal(grading.gradeChoice(spec, "").status, "incorrect");
+  assert.equal(grading.gradeChoice(spec, "").earned, 0);
+  assert.equal(grading.gradeChoice(spec, "maybe").status, "self");
+  assert.equal(grading.gradeChoice(spec, "maybe").earned, 0);
+});
+
+test("returns self review for malformed finite choice specifications", () => {
+  const cases = [
+    { expected: "yes", options: [{ value: "yes", label: "Ja" }, { value: "yes", label: "Ja igen" }] },
+    { expected: "yes", options: [{ value: "", label: "Ja" }] },
+    { expected: "yes", options: [{ value: "yes", label: "" }] },
+    { expected: "yes", options: [{ value: "yes", label: "Ja", extra: true }] },
+    { expected: "yes", options: [] },
+    { expected: "maybe", options: [{ value: "yes", label: "Ja" }] }
+  ];
+
+  cases.forEach((spec) => {
+    assert.equal(grading.gradeChoice(Object.assign({ kind: "choice", points: 1 }, spec), "yes").status, "self");
+  });
+});
+
 test("normalizes aliases with locale-independent lowercasing", () => {
   const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../assets/js/grading.js"), "utf8");
 
@@ -228,6 +259,7 @@ test("algebra graders preserve the existing numeric and alias API", () => {
   assert.equal(typeof grading.parseNumeric, "function");
   assert.equal(typeof grading.gradeNumeric, "function");
   assert.equal(typeof grading.gradeAliases, "function");
+  assert.equal(typeof grading.gradeChoice, "function");
   assert.equal(grading.gradeNumeric({ expected: 10, points: 1, targetUnit: "m" }, "10 m").status, "correct");
   assert.equal(grading.gradeAliases({ expected: "ja", points: 1 }, "ja").status, "correct");
 });
@@ -243,6 +275,7 @@ test("browser scripts resolve expression grading through the KS namespace", () =
     "1+x"
   ).status, "correct");
   assert.equal(typeof context.window.KS.grading.gradeNumeric, "function");
+  assert.equal(typeof context.window.KS.grading.gradeChoice, "function");
 });
 
 test("grades case-sensitive chemical formulas and uncertain formula input", () => {
@@ -306,7 +339,7 @@ test("chemical equation grading distinguishes wrong, uncertain, and malformed sp
 });
 
 test("chemistry graders preserve all existing grading exports", () => {
-  ["parseNumeric", "gradeNumeric", "gradeAliases", "gradeSolutionSet", "gradeExpression", "gradeSimplifiedExpression", "gradeChemicalFormula", "gradeChemicalEquation"].forEach((name) => {
+  ["parseNumeric", "gradeNumeric", "gradeAliases", "gradeChoice", "gradeSolutionSet", "gradeExpression", "gradeSimplifiedExpression", "gradeChemicalFormula", "gradeChemicalEquation"].forEach((name) => {
     assert.equal(typeof grading[name], "function");
   });
   assert.equal(grading.gradeExpression({ expected: "x+1", points: 1 }, "1+x").status, "correct");

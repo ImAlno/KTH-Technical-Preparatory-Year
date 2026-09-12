@@ -154,7 +154,7 @@ test("invalid grader data and self-assessment rubrics are rejected before any si
     { name: "chemical formula", value: { id: "f", label: "Svar", kind: "chemical-formula", points: 1, expected: " " } },
     { name: "chemical equation", value: { id: "f", label: "Svar", kind: "chemical-equation", points: 1 } },
     { name: "chemical equation state points", value: { id: "f", label: "Svar", kind: "chemical-equation", points: 1, expected: "H2->H2", statePoints: 2 } },
-    { name: "self rubric", value: { id: "f", label: "Svar", kind: "self", points: 1 } },
+    { name: "self field lacking its required rubric", value: { id: "f", label: "Svar", kind: "self", points: 1 } },
     { name: "self rubric points", value: { id: "f", label: "Svar", kind: "self", points: 1 }, rubric: [{ points: -1, text: "Delsteg" }] },
     { name: "self rubric text", value: { id: "f", label: "Svar", kind: "self", points: 1 }, rubric: [{ points: 1, text: " " }] },
     { name: "self rubric capacity", value: { id: "f", label: "Svar", kind: "self", points: 1 }, rubric: [{ points: 0.5, text: "Delsteg" }] }
@@ -170,6 +170,38 @@ test("invalid grader data and self-assessment rubrics are rejected before any si
     assert.equal(store.historyWrites, 0, name);
     assert.equal(store.activeWrites, 0, name);
     assert.equal(rngCalls, 0, name);
+  });
+});
+
+test("choice fields and exact work-on-paper metadata are validated before any side effect", () => {
+  const subject = { id: "x", questionCount: 1, maxPoints: 1, passPoints: 1, durationMinutes: 1 };
+  const validChoice = {
+    id: "f", label: "Svar", kind: "choice", points: 1, expected: "yes",
+    options: [{ value: "yes", label: "Ja" }, { value: "no", label: "Nej" }]
+  };
+  const validQuestion = Object.assign(question("q", 1, 1, [validChoice]), {
+    workOnPaper: { title: "Redovisa", instruction: "Visa ditt arbete.", comparison: "Jämför med lösningen." }
+  });
+  const invalidQuestions = [
+    Object.assign(structuredClone(validQuestion), { fields: [Object.assign({}, validChoice, { options: [{ value: "yes", label: "Ja" }, { value: "yes", label: "Ja igen" }] })] }),
+    Object.assign(structuredClone(validQuestion), { fields: [Object.assign({}, validChoice, { options: [{ value: "yes", label: "Ja", extra: true }] })] }),
+    Object.assign(structuredClone(validQuestion), { workOnPaper: { title: "Redovisa", instruction: "Visa ditt arbete." } }),
+    Object.assign(structuredClone(validQuestion), { workOnPaper: { title: "Redovisa", instruction: "Visa ditt arbete.", comparison: "Jämför med lösningen.", extra: true } }),
+    Object.assign(structuredClone(validQuestion), { workOnPaper: { title: " ", instruction: "Visa ditt arbete.", comparison: "Jämför med lösningen." } })
+  ];
+
+  assert.deepEqual(
+    exam.createSession(subject, { 1: [validQuestion] }, memoryStore(), seededRng(1)).snapshot().questionIds,
+    ["q"]
+  );
+  invalidQuestions.forEach((candidate) => {
+    const store = memoryStore();
+    let rngCalls = 0;
+    assert.throws(() => exam.createSession(subject, { 1: [candidate] }, store, () => { rngCalls += 1; return 0.5; }), /invalid exam data/i);
+    assert.equal(store.historyReads, 0);
+    assert.equal(store.historyWrites, 0);
+    assert.equal(store.activeWrites, 0);
+    assert.equal(rngCalls, 0);
   });
 });
 
@@ -200,22 +232,23 @@ test("submit dispatches every automatic field kind and aggregates field points",
     Object.assign(field("s", "solution-set", 1, [1, 2]), { variable: "x" }),
     Object.assign(field("e", "expression", 1, "x+1"), { variables: ["x"] }),
     field("f", "chemical-formula", 1, "H2O"),
-    field("r", "chemical-equation", 1, "2H2+O2->2H2O")
+    field("r", "chemical-equation", 1, "2H2+O2->2H2O"),
+    { id: "c", label: "Val", kind: "choice", points: 1, expected: "yes", options: [{ value: "yes", label: "Ja" }, { value: "no", label: "Nej" }] }
   ];
   const { session } = makeSession({
-    subject: { id: "mixed", questionCount: 1, maxPoints: 6, passPoints: 3, durationMinutes: 1 },
-    slots: { 1: [question("mixed-q", 1, 6, fields)] }
+    subject: { id: "mixed", questionCount: 1, maxPoints: 7, passPoints: 3, durationMinutes: 1 },
+    slots: { 1: [question("mixed-q", 1, 7, fields)] }
   });
-  const answers = { n: "10 m", a: "japp", s: "2; 1", e: "1+x", f: "H₂O", r: "H2+H2+O2->2H2O" };
+  const answers = { n: "10 m", a: "japp", s: "2; 1", e: "1+x", f: "H₂O", r: "H2+H2+O2->2H2O", c: "yes" };
   Object.entries(answers).forEach(([id, raw]) => session.setAnswer("mixed-q", id, raw));
 
   const submitted = session.submit();
   const grade = session.snapshot().grades["mixed-q"];
   assert.equal(submitted.ok, true);
   assert.equal(grade.status, "correct");
-  assert.equal(grade.earned, 6);
-  assert.equal(Object.keys(grade.fieldResults).length, 6);
-  assert.deepEqual(session.snapshot().result, { status: "complete", earned: 6, possible: 6 });
+  assert.equal(grade.earned, 7);
+  assert.equal(Object.keys(grade.fieldResults).length, 7);
+  assert.deepEqual(session.snapshot().result, { status: "complete", earned: 7, possible: 7 });
 });
 
 test("self fields keep automatic points and manual grading sets the question total", () => {

@@ -10,6 +10,7 @@
   const FIELD_GRADERS = {
     numeric: "gradeNumeric",
     aliases: "gradeAliases",
+    choice: "gradeChoice",
     "solution-set": "gradeSolutionSet",
     expression: "gradeExpression",
     "simplified-expression": "gradeSimplifiedExpression",
@@ -94,6 +95,28 @@
     return values.some(nonEmptyString);
   }
 
+  function validChoice(field) {
+    if (typeof field.expected !== "string" || !Array.isArray(field.options) || !field.options.length) return false;
+    const values = new Set();
+    const validOptions = field.options.every(function (option) {
+      if (!option || typeof option !== "object" || Array.isArray(option)) return false;
+      const keys = Object.keys(option).sort();
+      if (keys.length !== 2 || keys[0] !== "label" || keys[1] !== "value" ||
+          !nonEmptyString(option.value) || !nonEmptyString(option.label) || values.has(option.value)) return false;
+      values.add(option.value);
+      return true;
+    });
+    return validOptions && values.has(field.expected);
+  }
+
+  function validWorkOnPaper(value) {
+    if (value === undefined) return true;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const keys = Object.keys(value).sort();
+    return keys.length === 3 && keys[0] === "comparison" && keys[1] === "instruction" && keys[2] === "title" &&
+      nonEmptyString(value.title) && nonEmptyString(value.instruction) && nonEmptyString(value.comparison);
+  }
+
   function validFieldData(field) {
     if (field.kind === "numeric") {
       const validUnit = field.targetUnit === undefined || field.targetUnit === null || nonEmptyString(field.targetUnit);
@@ -102,6 +125,7 @@
       return Number.isFinite(field.expected) && validUnit && validTolerance(field.tolerance) && validAlternativeUnitCredit;
     }
     if (field.kind === "aliases") return validAliases(field);
+    if (field.kind === "choice") return validChoice(field);
     if (field.kind === "solution-set") return Array.isArray(field.expected) && field.expected.every(Number.isFinite);
     if (field.kind === "expression" || field.kind === "simplified-expression" || field.kind === "chemical-formula") return nonEmptyString(field.expected);
     if (field.kind === "chemical-equation") {
@@ -151,7 +175,8 @@
       for (const question of bank) {
         if (!question || !nonEmptyString(question.id) || questionIds.has(question.id) || !Number.isInteger(question.slot) || question.slot !== position ||
             !nonEmptyString(question.title) || !Number.isFinite(question.points) || question.points <= 0 || !nonEmptyString(question.promptHtml) ||
-            !nonEmptyString(question.solutionHtml) || !Array.isArray(question.fields) || !question.fields.length) return false;
+            !nonEmptyString(question.solutionHtml) || !Array.isArray(question.fields) || !question.fields.length ||
+            !validWorkOnPaper(question.workOnPaper)) return false;
         questionIds.add(question.id);
         if (slotPoints === null) slotPoints = question.points;
         if (!close(question.points, slotPoints)) return false;

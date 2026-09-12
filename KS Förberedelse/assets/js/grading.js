@@ -129,6 +129,35 @@
     }
   }
 
+  function validChoiceSpec(spec) {
+    if (!validPoints(spec) || typeof spec.expected !== "string" || !Array.isArray(spec.options) || !spec.options.length) return false;
+    const values = new Set();
+    const validOptions = spec.options.every(function (option) {
+      if (!option || typeof option !== "object" || Array.isArray(option)) return false;
+      const keys = Object.keys(option).sort();
+      if (keys.length !== 2 || keys[0] !== "label" || keys[1] !== "value" ||
+          typeof option.value !== "string" || !option.value.trim() ||
+          typeof option.label !== "string" || !option.label.trim() || values.has(option.value)) return false;
+      values.add(option.value);
+      return true;
+    });
+    return validOptions && values.has(spec.expected);
+  }
+
+  function gradeChoice(spec, raw) {
+    try {
+      if (!validChoiceSpec(spec)) return result("self", spec, 0, null, "Svaret kan inte rättas automatiskt eftersom uppgiften saknar giltiga rättningsuppgifter.");
+      if (raw === spec.expected) return result("correct", spec, spec.points, raw, "Rätt svar.");
+      if (typeof raw === "string" && !raw.trim()) return result("incorrect", spec, 0, raw, "Inget svar angavs.");
+      if (spec.options.some(function (option) { return option.value === raw; })) {
+        return result("incorrect", spec, 0, raw, "Svaret stämmer inte med facit.");
+      }
+      return result("self", spec, 0, raw === undefined ? null : raw, "Svaret kunde inte tolkas säkert.");
+    } catch (error) {
+      return result("self", spec, 0, null, "Svaret kunde inte rättas automatiskt.");
+    }
+  }
+
   function validPoints(spec) {
     return spec && Number.isFinite(spec.points) && spec.points >= 0;
   }
@@ -321,5 +350,5 @@
     }
   }
 
-  return { parseNumeric, gradeNumeric, gradeAliases, gradeSolutionSet, gradeExpression, gradeSimplifiedExpression, gradeChemicalFormula, gradeChemicalEquation };
+  return { parseNumeric, gradeNumeric, gradeAliases, gradeChoice, gradeSolutionSet, gradeExpression, gradeSimplifiedExpression, gradeChemicalFormula, gradeChemicalEquation };
 });
