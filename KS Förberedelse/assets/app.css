@@ -76,10 +76,18 @@ button:focus-visible,
 a:focus-visible,
 input:focus-visible,
 summary:focus-visible,
+.prompt:focus-visible,
+.solution:focus-visible,
 .formula-dialog-content:focus-visible,
 #exam-app:focus-visible {
   outline: 3px solid var(--work);
   outline-offset: -3px;
+}
+
+.primary-button:focus-visible,
+.question-nav button[aria-current="step"]:focus-visible,
+.point-choices button[aria-pressed="true"]:focus-visible {
+  outline-color: var(--paper);
 }
 
 .visually-hidden {
@@ -409,7 +417,7 @@ summary:focus-visible,
   flex: 0 0 auto;
   min-width: 3.25rem;
   padding: 11px 13px;
-  color: var(--muted);
+  color: var(--ink);
   background: var(--ground);
   border: 1px solid var(--muted);
   border-left: 0;

@@ -1,6 +1,6 @@
 # Real Chrome file-flow evidence
 
-- Date: 2026-09-12T17:49:46.271Z
+- Date: 2026-09-12T18:08:32.309Z
 - Chrome: Chrome/152.0.7977.83
 - Revision: @79460ebecaa5625e57a5fb679a735659e73dc687
 - Protocol: 1.3
@@ -23,7 +23,7 @@
 | Hubb | desktop | 1440×900 | 0 | 0 | 0 | 0 |
 | Hubb | tablet | 768×1024 | 0 | 0 | 0 | 0 |
 | Hubb | mobile | 390×844 | 0 | 0 | 0 | 0 |
-| Matematik KS2 | desktop | 1440×900 | 0 | 0 | 0 | 0 |
+| Matematik KS2 | desktop | 1440×900 | 0 | 1 | 0 | 0 |
 | Matematik KS2 | tablet | 768×1024 | 0 | 0 | 0 | 0 |
 | Matematik KS2 | mobile | 390×844 | 0 | 0 | 0 | 0 |
 | Fysik KS1 | desktop | 1440×900 | 0 | 0 | 0 | 0 |
@@ -43,23 +43,71 @@ Native radio/checkbox controls are measured through their associated visible lab
 - Forward (3): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Matematik%20KS2/index.html\"]@0:Starta provet","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Fysik%20KS1/index.html\"]@1:Starta provet","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Kemi%20KS/index.html\"]@2:Starta provet"]`
 - Reverse (3): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Kemi%20KS/index.html\"]@2:Starta provet","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Fysik%20KS1/index.html\"]@1:Starta provet","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Matematik%20KS2/index.html\"]@0:Starta provet"]`
 
+### layout_hub_tablet
+
+- Inventory: `{"link":3,"questionNav":0,"answer":0,"primary":0,"timer":0,"formulaTrigger":0}`
+- Forward (3): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Matematik%20KS2/index.html\"]@0:Starta provet","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Fysik%20KS1/index.html\"]@1:Starta provet","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Kemi%20KS/index.html\"]@2:Starta provet"]`
+- Reverse (3): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Kemi%20KS/index.html\"]@2:Starta provet","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Fysik%20KS1/index.html\"]@1:Starta provet","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Matematik%20KS2/index.html\"]@0:Starta provet"]`
+
+### layout_hub_mobile
+
+- Inventory: `{"link":3,"questionNav":0,"answer":0,"primary":0,"timer":0,"formulaTrigger":0}`
+- Forward (3): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Matematik%20KS2/index.html\"]@0:Starta provet","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Fysik%20KS1/index.html\"]@1:Starta provet","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Kemi%20KS/index.html\"]@2:Starta provet"]`
+- Reverse (3): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Kemi%20KS/index.html\"]@2:Starta provet","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Fysik%20KS1/index.html\"]@1:Starta provet","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/Matematik%20KS2/index.html\"]@0:Starta provet"]`
+
 ### layout_math_desktop
 
 - Inventory: `{"link":1,"questionNav":5,"answer":1,"primary":1,"timer":2,"formulaTrigger":0}`
-- Forward (14): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen","button#timer-start@1:Starta","button#timer-reset@3:Återställ","button#history-open@4:Rensa historik","button#print-exam@6:Skriv ut prov","button@7:Uppgift 1, obesvarad","button@8:Uppgift 2, obesvarad","button@9:Uppgift 3, obesvarad","button@10:Uppgift 4, obesvarad","button@11:Uppgift 5, obesvarad","button@13:Markera","input#answer-math-s1-sqrt-equals-linear-02-roots[name=\"roots\"]@14","button@16:Rätta provet","button@17:Nästa"]`
-- Reverse (14): `["button@17:Nästa","button@16:Rätta provet","input#answer-math-s1-sqrt-equals-linear-02-roots[name=\"roots\"]@14","button@13:Markera","button@11:Uppgift 5, obesvarad","button@10:Uppgift 4, obesvarad","button@9:Uppgift 3, obesvarad","button@8:Uppgift 2, obesvarad","button@7:Uppgift 1, obesvarad","button#print-exam@6:Skriv ut prov","button#history-open@4:Rensa historik","button#timer-reset@3:Återställ","button#timer-start@1:Starta","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen"]`
+- Forward (14): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen","button#timer-start@1:Starta","button#timer-reset@3:Återställ","button#history-open@4:Rensa historik","button#print-exam@6:Skriv ut prov","button@7:Uppgift 1, obesvarad","button@8:Uppgift 2, obesvarad","button@9:Uppgift 3, obesvarad","button@10:Uppgift 4, obesvarad","button@11:Uppgift 5, obesvarad","button@13:Markera","input#answer-math-s1-sqrt-equals-linear-02-roots[name=\"roots\"]@15","button@17:Rätta provet","button@18:Nästa"]`
+- Reverse (14): `["button@18:Nästa","button@17:Rätta provet","input#answer-math-s1-sqrt-equals-linear-02-roots[name=\"roots\"]@15","button@13:Markera","button@11:Uppgift 5, obesvarad","button@10:Uppgift 4, obesvarad","button@9:Uppgift 3, obesvarad","button@8:Uppgift 2, obesvarad","button@7:Uppgift 1, obesvarad","button#print-exam@6:Skriv ut prov","button#history-open@4:Rensa historik","button#timer-reset@3:Återställ","button#timer-start@1:Starta","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen"]`
+
+### layout_math_tablet
+
+- Inventory: `{"link":1,"questionNav":5,"answer":1,"primary":1,"timer":2,"formulaTrigger":0}`
+- Forward (14): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen","button#timer-start@1:Starta","button#timer-reset@3:Återställ","button#history-open@4:Rensa historik","button#print-exam@6:Skriv ut prov","button@7:Uppgift 1, obesvarad","button@8:Uppgift 2, obesvarad","button@9:Uppgift 3, obesvarad","button@10:Uppgift 4, obesvarad","button@11:Uppgift 5, obesvarad","button@13:Markera","input#answer-math-s1-sqrt-equals-linear-02-roots[name=\"roots\"]@15","button@17:Rätta provet","button@18:Nästa"]`
+- Reverse (14): `["button@18:Nästa","button@17:Rätta provet","input#answer-math-s1-sqrt-equals-linear-02-roots[name=\"roots\"]@15","button@13:Markera","button@11:Uppgift 5, obesvarad","button@10:Uppgift 4, obesvarad","button@9:Uppgift 3, obesvarad","button@8:Uppgift 2, obesvarad","button@7:Uppgift 1, obesvarad","button#print-exam@6:Skriv ut prov","button#history-open@4:Rensa historik","button#timer-reset@3:Återställ","button#timer-start@1:Starta","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen"]`
+
+### layout_math_mobile
+
+- Inventory: `{"link":1,"questionNav":5,"answer":1,"primary":1,"timer":2,"formulaTrigger":0}`
+- Forward (14): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen","button#timer-start@1:Starta","button#timer-reset@3:Återställ","button#history-open@4:Rensa historik","button#print-exam@6:Skriv ut prov","button@7:Uppgift 1, obesvarad","button@8:Uppgift 2, obesvarad","button@9:Uppgift 3, obesvarad","button@10:Uppgift 4, obesvarad","button@11:Uppgift 5, obesvarad","button@13:Markera","input#answer-math-s1-sqrt-equals-linear-02-roots[name=\"roots\"]@15","button@17:Rätta provet","button@18:Nästa"]`
+- Reverse (14): `["button@18:Nästa","button@17:Rätta provet","input#answer-math-s1-sqrt-equals-linear-02-roots[name=\"roots\"]@15","button@13:Markera","button@11:Uppgift 5, obesvarad","button@10:Uppgift 4, obesvarad","button@9:Uppgift 3, obesvarad","button@8:Uppgift 2, obesvarad","button@7:Uppgift 1, obesvarad","button#print-exam@6:Skriv ut prov","button#history-open@4:Rensa historik","button#timer-reset@3:Återställ","button#timer-start@1:Starta","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen"]`
 
 ### layout_physics_desktop
 
 - Inventory: `{"link":1,"questionNav":5,"answer":1,"primary":1,"timer":2,"formulaTrigger":0}`
-- Forward (14): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen","button#timer-start@1:Starta","button#timer-reset@3:Återställ","button#history-open@4:Rensa historik","button#print-exam@6:Skriv ut prov","button@7:Uppgift 1, obesvarad","button@8:Uppgift 2, obesvarad","button@9:Uppgift 3, obesvarad","button@10:Uppgift 4, obesvarad","button@11:Uppgift 5, obesvarad","button@13:Markera","input#answer-physics-s1-graph-10-answer[name=\"answer\"]@14","button@16:Rätta provet","button@17:Nästa"]`
-- Reverse (14): `["button@17:Nästa","button@16:Rätta provet","input#answer-physics-s1-graph-10-answer[name=\"answer\"]@14","button@13:Markera","button@11:Uppgift 5, obesvarad","button@10:Uppgift 4, obesvarad","button@9:Uppgift 3, obesvarad","button@8:Uppgift 2, obesvarad","button@7:Uppgift 1, obesvarad","button#print-exam@6:Skriv ut prov","button#history-open@4:Rensa historik","button#timer-reset@3:Återställ","button#timer-start@1:Starta","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen"]`
+- Forward (14): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen","button#timer-start@1:Starta","button#timer-reset@3:Återställ","button#history-open@4:Rensa historik","button#print-exam@6:Skriv ut prov","button@7:Uppgift 1, obesvarad","button@8:Uppgift 2, obesvarad","button@9:Uppgift 3, obesvarad","button@10:Uppgift 4, obesvarad","button@11:Uppgift 5, obesvarad","button@13:Markera","input#answer-physics-s1-graph-10-answer[name=\"answer\"]@15","button@17:Rätta provet","button@18:Nästa"]`
+- Reverse (14): `["button@18:Nästa","button@17:Rätta provet","input#answer-physics-s1-graph-10-answer[name=\"answer\"]@15","button@13:Markera","button@11:Uppgift 5, obesvarad","button@10:Uppgift 4, obesvarad","button@9:Uppgift 3, obesvarad","button@8:Uppgift 2, obesvarad","button@7:Uppgift 1, obesvarad","button#print-exam@6:Skriv ut prov","button#history-open@4:Rensa historik","button#timer-reset@3:Återställ","button#timer-start@1:Starta","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen"]`
+
+### layout_physics_tablet
+
+- Inventory: `{"link":1,"questionNav":5,"answer":1,"primary":1,"timer":2,"formulaTrigger":0}`
+- Forward (15): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen","button#timer-start@1:Starta","button#timer-reset@3:Återställ","button#history-open@4:Rensa historik","button#print-exam@6:Skriv ut prov","button@7:Uppgift 1, obesvarad","button@8:Uppgift 2, obesvarad","button@9:Uppgift 3, obesvarad","button@10:Uppgift 4, obesvarad","button@11:Uppgift 5, obesvarad","button@13:Markera","div@14:Diagrammet visar hastighet v som funktion av tiden för servi","input#answer-physics-s1-graph-10-answer[name=\"answer\"]@15","button@17:Rätta provet","button@18:Nästa"]`
+- Reverse (15): `["button@18:Nästa","button@17:Rätta provet","input#answer-physics-s1-graph-10-answer[name=\"answer\"]@15","div@14:Diagrammet visar hastighet v som funktion av tiden för servi","button@13:Markera","button@11:Uppgift 5, obesvarad","button@10:Uppgift 4, obesvarad","button@9:Uppgift 3, obesvarad","button@8:Uppgift 2, obesvarad","button@7:Uppgift 1, obesvarad","button#print-exam@6:Skriv ut prov","button#history-open@4:Rensa historik","button#timer-reset@3:Återställ","button#timer-start@1:Starta","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen"]`
+
+### layout_physics_mobile
+
+- Inventory: `{"link":1,"questionNav":5,"answer":1,"primary":1,"timer":2,"formulaTrigger":0}`
+- Forward (15): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen","button#timer-start@1:Starta","button#timer-reset@3:Återställ","button#history-open@4:Rensa historik","button#print-exam@6:Skriv ut prov","button@7:Uppgift 1, obesvarad","button@8:Uppgift 2, obesvarad","button@9:Uppgift 3, obesvarad","button@10:Uppgift 4, obesvarad","button@11:Uppgift 5, obesvarad","button@13:Markera","div@14:Diagrammet visar hastighet v som funktion av tiden för servi","input#answer-physics-s1-graph-10-answer[name=\"answer\"]@15","button@17:Rätta provet","button@18:Nästa"]`
+- Reverse (15): `["button@18:Nästa","button@17:Rätta provet","input#answer-physics-s1-graph-10-answer[name=\"answer\"]@15","div@14:Diagrammet visar hastighet v som funktion av tiden för servi","button@13:Markera","button@11:Uppgift 5, obesvarad","button@10:Uppgift 4, obesvarad","button@9:Uppgift 3, obesvarad","button@8:Uppgift 2, obesvarad","button@7:Uppgift 1, obesvarad","button#print-exam@6:Skriv ut prov","button#history-open@4:Rensa historik","button#timer-reset@3:Återställ","button#timer-start@1:Starta","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen"]`
 
 ### layout_chemistry_desktop
 
 - Inventory: `{"link":1,"questionNav":6,"answer":4,"primary":1,"timer":2,"formulaTrigger":1}`
-- Forward (19): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen","button#timer-start@1:Starta","button#timer-reset@3:Återställ","button#history-open@4:Rensa historik","button#formula-open@5:Formelblad","button#print-exam@6:Skriv ut prov","button@7:Uppgift 1, obesvarad","button@8:Uppgift 2, obesvarad","button@9:Uppgift 3, obesvarad","button@10:Uppgift 4, obesvarad","button@11:Uppgift 5, obesvarad","button@12:Uppgift 6, obesvarad","button@14:Markera","input#answer-chemistry-s1-atomic-10-isotope[name=\"isotope\"]@15","input#answer-chemistry-s1-atomic-10-term[name=\"term\"]@16","input#answer-chemistry-s1-atomic-10-shells[name=\"shells\"]@17","input#answer-chemistry-s1-atomic-10-ion[name=\"ion\"]@18","button@20:Rätta provet","button@21:Nästa"]`
-- Reverse (19): `["button@21:Nästa","button@20:Rätta provet","input#answer-chemistry-s1-atomic-10-ion[name=\"ion\"]@18","input#answer-chemistry-s1-atomic-10-shells[name=\"shells\"]@17","input#answer-chemistry-s1-atomic-10-term[name=\"term\"]@16","input#answer-chemistry-s1-atomic-10-isotope[name=\"isotope\"]@15","button@14:Markera","button@12:Uppgift 6, obesvarad","button@11:Uppgift 5, obesvarad","button@10:Uppgift 4, obesvarad","button@9:Uppgift 3, obesvarad","button@8:Uppgift 2, obesvarad","button@7:Uppgift 1, obesvarad","button#print-exam@6:Skriv ut prov","button#formula-open@5:Formelblad","button#history-open@4:Rensa historik","button#timer-reset@3:Återställ","button#timer-start@1:Starta","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen"]`
+- Forward (19): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen","button#timer-start@1:Starta","button#timer-reset@3:Återställ","button#history-open@4:Rensa historik","button#formula-open@5:Formelblad","button#print-exam@6:Skriv ut prov","button@7:Uppgift 1, obesvarad","button@8:Uppgift 2, obesvarad","button@9:Uppgift 3, obesvarad","button@10:Uppgift 4, obesvarad","button@11:Uppgift 5, obesvarad","button@12:Uppgift 6, obesvarad","button@14:Markera","input#answer-chemistry-s1-atomic-10-isotope[name=\"isotope\"]@16","input#answer-chemistry-s1-atomic-10-term[name=\"term\"]@17","input#answer-chemistry-s1-atomic-10-shells[name=\"shells\"]@18","input#answer-chemistry-s1-atomic-10-ion[name=\"ion\"]@19","button@21:Rätta provet","button@22:Nästa"]`
+- Reverse (19): `["button@22:Nästa","button@21:Rätta provet","input#answer-chemistry-s1-atomic-10-ion[name=\"ion\"]@19","input#answer-chemistry-s1-atomic-10-shells[name=\"shells\"]@18","input#answer-chemistry-s1-atomic-10-term[name=\"term\"]@17","input#answer-chemistry-s1-atomic-10-isotope[name=\"isotope\"]@16","button@14:Markera","button@12:Uppgift 6, obesvarad","button@11:Uppgift 5, obesvarad","button@10:Uppgift 4, obesvarad","button@9:Uppgift 3, obesvarad","button@8:Uppgift 2, obesvarad","button@7:Uppgift 1, obesvarad","button#print-exam@6:Skriv ut prov","button#formula-open@5:Formelblad","button#history-open@4:Rensa historik","button#timer-reset@3:Återställ","button#timer-start@1:Starta","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen"]`
+
+### layout_chemistry_tablet
+
+- Inventory: `{"link":1,"questionNav":6,"answer":4,"primary":1,"timer":2,"formulaTrigger":1}`
+- Forward (19): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen","button#timer-start@1:Starta","button#timer-reset@3:Återställ","button#history-open@4:Rensa historik","button#formula-open@5:Formelblad","button#print-exam@6:Skriv ut prov","button@7:Uppgift 1, obesvarad","button@8:Uppgift 2, obesvarad","button@9:Uppgift 3, obesvarad","button@10:Uppgift 4, obesvarad","button@11:Uppgift 5, obesvarad","button@12:Uppgift 6, obesvarad","button@14:Markera","input#answer-chemistry-s1-atomic-10-isotope[name=\"isotope\"]@16","input#answer-chemistry-s1-atomic-10-term[name=\"term\"]@17","input#answer-chemistry-s1-atomic-10-shells[name=\"shells\"]@18","input#answer-chemistry-s1-atomic-10-ion[name=\"ion\"]@19","button@21:Rätta provet","button@22:Nästa"]`
+- Reverse (19): `["button@22:Nästa","button@21:Rätta provet","input#answer-chemistry-s1-atomic-10-ion[name=\"ion\"]@19","input#answer-chemistry-s1-atomic-10-shells[name=\"shells\"]@18","input#answer-chemistry-s1-atomic-10-term[name=\"term\"]@17","input#answer-chemistry-s1-atomic-10-isotope[name=\"isotope\"]@16","button@14:Markera","button@12:Uppgift 6, obesvarad","button@11:Uppgift 5, obesvarad","button@10:Uppgift 4, obesvarad","button@9:Uppgift 3, obesvarad","button@8:Uppgift 2, obesvarad","button@7:Uppgift 1, obesvarad","button#print-exam@6:Skriv ut prov","button#formula-open@5:Formelblad","button#history-open@4:Rensa historik","button#timer-reset@3:Återställ","button#timer-start@1:Starta","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen"]`
+
+### layout_chemistry_mobile
+
+- Inventory: `{"link":1,"questionNav":6,"answer":4,"primary":1,"timer":2,"formulaTrigger":1}`
+- Forward (19): `["a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen","button#timer-start@1:Starta","button#timer-reset@3:Återställ","button#history-open@4:Rensa historik","button#formula-open@5:Formelblad","button#print-exam@6:Skriv ut prov","button@7:Uppgift 1, obesvarad","button@8:Uppgift 2, obesvarad","button@9:Uppgift 3, obesvarad","button@10:Uppgift 4, obesvarad","button@11:Uppgift 5, obesvarad","button@12:Uppgift 6, obesvarad","button@14:Markera","input#answer-chemistry-s1-atomic-10-isotope[name=\"isotope\"]@16","input#answer-chemistry-s1-atomic-10-term[name=\"term\"]@17","input#answer-chemistry-s1-atomic-10-shells[name=\"shells\"]@18","input#answer-chemistry-s1-atomic-10-ion[name=\"ion\"]@19","button@21:Rätta provet","button@22:Nästa"]`
+- Reverse (19): `["button@22:Nästa","button@21:Rätta provet","input#answer-chemistry-s1-atomic-10-ion[name=\"ion\"]@19","input#answer-chemistry-s1-atomic-10-shells[name=\"shells\"]@18","input#answer-chemistry-s1-atomic-10-term[name=\"term\"]@17","input#answer-chemistry-s1-atomic-10-isotope[name=\"isotope\"]@16","button@14:Markera","button@12:Uppgift 6, obesvarad","button@11:Uppgift 5, obesvarad","button@10:Uppgift 4, obesvarad","button@9:Uppgift 3, obesvarad","button@8:Uppgift 2, obesvarad","button@7:Uppgift 1, obesvarad","button#print-exam@6:Skriv ut prov","button#formula-open@5:Formelblad","button#history-open@4:Rensa historik","button#timer-reset@3:Återställ","button#timer-start@1:Starta","a[href=\"file:///Users/alno/Documents/GitHub/KTH-Technical-Preparatory-Year/.worktrees/ks-practice/KS%20F%C3%B6rberedelse/index.html\"]@0:Alla ämnen"]`
 
 ### Formula dialog wrap
 
@@ -72,34 +120,34 @@ Native radio/checkbox controls are measured through their associated visible lab
 
 | State | Radio cases | Touch targets | Touch failures | Focus paints | Focus failures | Contrast samples | Contrast failures |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| state_math_active | 0 | 17 | 0 | 14 | 0 | 53 | 0 |
-| state_math_timer_warning | 0 | 17 | 0 | 14 | 0 | 58 | 0 |
-| state_math_active_flagged | 0 | 17 | 0 | 14 | 0 | 53 | 0 |
-| state_math_flagged_other | 0 | 17 | 0 | 15 | 0 | 58 | 0 |
-| state_math_graded | 0 | 17 | 0 | 12 | 0 | 65 | 0 |
-| state_math_solution | 0 | 17 | 0 | 12 | 0 | 69 | 0 |
-| state_math_override_open | 0 | 22 | 0 | 17 | 0 | 119 | 0 |
-| state_math_override_success | 0 | 22 | 0 | 17 | 0 | 119 | 0 |
-| state_physics_active | 0 | 17 | 0 | 14 | 0 | 53 | 0 |
-| state_physics_active_flagged | 0 | 17 | 0 | 14 | 0 | 53 | 0 |
-| state_physics_flagged_other | 0 | 17 | 0 | 15 | 0 | 58 | 0 |
-| state_physics_graded | 0 | 17 | 0 | 12 | 0 | 65 | 0 |
-| state_physics_solution | 0 | 17 | 0 | 12 | 0 | 69 | 0 |
-| state_physics_override_open | 0 | 22 | 0 | 17 | 0 | 119 | 0 |
-| state_physics_override_success | 0 | 22 | 0 | 17 | 0 | 119 | 0 |
-| state_chemistry_active | 0 | 22 | 0 | 19 | 0 | 69 | 0 |
-| state_chemistry_active_flagged | 0 | 22 | 0 | 19 | 0 | 69 | 0 |
-| state_chemistry_flagged_other | 0 | 21 | 0 | 19 | 0 | 69 | 0 |
-| state_chemistry_choice | 7 | 25 | 0 | 23 | 0 | 71 | 0 |
+| state_math_active | 0 | 18 | 0 | 15 | 0 | 54 | 0 |
+| state_math_timer_warning | 0 | 18 | 0 | 15 | 0 | 59 | 0 |
+| state_math_active_flagged | 0 | 18 | 0 | 15 | 0 | 54 | 0 |
+| state_math_flagged_other | 0 | 18 | 0 | 14 | 0 | 58 | 0 |
+| state_math_graded | 0 | 18 | 0 | 12 | 0 | 65 | 0 |
+| state_math_solution | 0 | 19 | 0 | 12 | 0 | 69 | 0 |
+| state_math_override_open | 0 | 24 | 0 | 17 | 0 | 119 | 0 |
+| state_math_override_success | 0 | 24 | 0 | 17 | 0 | 119 | 0 |
+| state_physics_active | 0 | 18 | 0 | 15 | 0 | 54 | 0 |
+| state_physics_active_flagged | 0 | 18 | 0 | 15 | 0 | 54 | 0 |
+| state_physics_flagged_other | 0 | 18 | 0 | 16 | 0 | 59 | 0 |
+| state_physics_graded | 0 | 18 | 0 | 13 | 0 | 65 | 0 |
+| state_physics_solution | 0 | 19 | 0 | 13 | 0 | 69 | 0 |
+| state_physics_override_open | 0 | 24 | 0 | 18 | 0 | 119 | 0 |
+| state_physics_override_success | 0 | 24 | 0 | 18 | 0 | 119 | 0 |
+| state_chemistry_active | 0 | 22 | 0 | 19 | 0 | 65 | 0 |
+| state_chemistry_active_flagged | 0 | 22 | 0 | 19 | 0 | 65 | 0 |
+| state_chemistry_flagged_other | 7 | 26 | 0 | 23 | 0 | 76 | 0 |
+| state_chemistry_choice | 7 | 26 | 0 | 23 | 0 | 71 | 0 |
 | state_chemistry_formula_open | 0 | 6 | 0 | 6 | 0 | 137 | 0 |
-| state_chemistry_graded | 0 | 19 | 0 | 14 | 0 | 69 | 0 |
-| state_chemistry_solution | 0 | 19 | 0 | 14 | 0 | 73 | 0 |
-| state_chemistry_override_open | 0 | 28 | 0 | 23 | 0 | 163 | 0 |
-| state_chemistry_override_success | 0 | 28 | 0 | 23 | 0 | 163 | 0 |
+| state_chemistry_graded | 0 | 20 | 0 | 14 | 0 | 69 | 0 |
+| state_chemistry_solution | 0 | 21 | 0 | 14 | 0 | 73 | 0 |
+| state_chemistry_override_open | 0 | 30 | 0 | 23 | 0 | 163 | 0 |
+| state_chemistry_override_success | 0 | 30 | 0 | 23 | 0 | 163 | 0 |
 
 Each runtime row also enforced its state-specific nonzero role inventory. Inventories include active text fields, chemistry radios, current/flagged navigation, formula controls, warning/success grades, result, revealed solution/comparison, override disclosure and manual score controls. Focus paint uses computed outline width plus offset and outer box-shadow extents against viewport and clipping ancestors; every visible focus indicator is tested at 3:1.
 
-Runtime contrast inventory totals: `{"body":24,"muted":126,"link":24,"primary":13,"secondary":188,"answer_control":32,"disabled":67,"current_nav":21,"current_flagged_nav":3,"flagged_nav":3,"work":24,"comparison":9,"solution":9,"grade_warning":9,"grade_success":3,"result":12,"status_warning":1,"status_success":12,"radio":14,"formula_control":5,"override_control":50}`. Every visible instance was tested; normal text uses 4.5:1, large text and each required UI boundary side/graphic use 3:1.
+Runtime contrast inventory totals: `{"body":24,"muted":127,"link":24,"primary":13,"secondary":189,"answer_control":34,"answer_unit":8,"disabled":66,"current_nav":21,"current_flagged_nav":3,"flagged_nav":3,"work":24,"comparison":9,"solution":9,"grade_warning":9,"grade_success":3,"result":12,"status_warning":1,"status_success":12,"radio":21,"formula_control":5,"override_control":50}`. Every visible instance was tested; normal text uses 4.5:1, large text and each required UI boundary side/graphic use 3:1.
 
 ## Functional flows
 
@@ -133,14 +181,14 @@ Dialog evidence includes initial focus, Escape/focus return, close-button focus 
 
 ## Check result
 
-- Passed leaves: 288
+- Passed leaves: 316
 - Failed leaves: 0
 - Subject flows: 3
 - Page/viewport combinations: 12
 - Mobile runtime states: 24
-- Radio cases audited: 7
-- Focus paint checks: 526
-- Contrast samples: 2559
+- Radio cases audited: 14
+- Focus paint checks: 541
+- Contrast samples: 2567
 - Print artifacts: 4
 
 ## Limitations

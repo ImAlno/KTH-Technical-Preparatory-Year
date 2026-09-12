@@ -895,6 +895,21 @@ test("every declared active control boundary has at least 3 to 1 non-text contra
   assert.match(css, /button\[disabled\][\s\S]{0,260}opacity:\s*1/s);
 });
 
+test("inside focus paint and answer units retain contrast on their actual surfaces", () => {
+  const css = read("assets/app.css");
+  const tokens = cssTokens(css);
+  const answerUnit = cssDeclarations(css, ".answer-unit");
+
+  assert.ok(contrastRatio(tokens.work, tokens.ink) < 3, "the default work ring is insufficient inside ink controls");
+  assert.ok(contrastRatio(tokens.work, tokens.attention) < 3, "the default work ring is insufficient inside attention controls");
+  assert.match(css, /(?:\.primary-button|button\[aria-current="step"\])[\s\S]{0,360}:focus-visible[\s\S]{0,180}outline-color:\s*var\(--paper\)/s);
+  assert.ok(contrastRatio(tokens.paper, tokens.ink) >= 3);
+  assert.ok(contrastRatio(tokens.paper, tokens.attention) >= 3);
+  assert.equal(answerUnit.background, "var(--ground)");
+  assert.equal(answerUnit.color, "var(--ink)");
+  assert.ok(contrastRatio(tokens.ink, tokens.ground) >= 4.5);
+});
+
 test("disabled primary buttons cannot enter the active hover cascade and stay intentionally distinct", () => {
   const css = read("assets/app.css");
   const tokens = cssTokens(css);

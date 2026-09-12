@@ -8,7 +8,11 @@ const {
   allChecksPass,
   descriptorsAreUnique,
   requiredInventoryPresent,
-  isA4PageBox
+  isA4PageBox,
+  focusContrastPass,
+  completeEvidenceInventory,
+  REQUIRED_KEYBOARD_SECTIONS,
+  REQUIRED_MOBILE_STATE_SECTIONS
 } = require("./browser-flow-browser.js");
 
 test("real file pages satisfy every declared browser-flow check", { timeout: 180_000 }, async () => {
@@ -31,6 +35,13 @@ test("real file pages satisfy every declared browser-flow check", { timeout: 180
   assert.ok(result.summary.contrastSamples > 0);
   assert.equal(result.states.some((entry) => entry.contrast.inventory.status_warning > 0), true);
   assert.equal(result.states.some((entry) => entry.contrast.inventory.flagged_nav > 0), true);
+  assert.equal(result.states.filter((entry) => /_(math|physics|chemistry)_active$/u.test(entry.section)).every((entry) => entry.contrast.inventory.answer_unit > 0), true);
+  assert.deepEqual(result.keyboardResults.map((entry) => entry.section).sort(), REQUIRED_KEYBOARD_SECTIONS.slice().sort());
+  assert.deepEqual(result.states.map((entry) => entry.section).sort(), REQUIRED_MOBILE_STATE_SECTIONS.slice().sort());
+  assert.deepEqual(result.formulaSequences.map((entry) => entry.viewport).sort(), ["desktop", "mobile"]);
+  assert.equal(completeEvidenceInventory(result), true);
+  assert.equal(completeEvidenceInventory(Object.assign({}, result, { states: result.states.slice(1) })), false);
+  assert.equal(completeEvidenceInventory(Object.assign({}, result, { keyboardResults: result.keyboardResults.slice(1) })), false);
   assert.equal(result.prints.every((entry) => entry.a4Pages === entry.pages), true);
   assert.equal(result.checks.recovery.version1_history_after_replace, "pass");
   assert.equal(result.checks.recovery.changed_schema_history_after_replace, "pass");
@@ -56,7 +67,13 @@ test("browser-flow gates reject descriptor, inventory and paper-size vacuity", (
   assert.equal(requiredInventoryPresent({ radio: 0, primary: 2 }, { radio: 1, primary: 1 }), false);
   assert.equal(requiredInventoryPresent({}, { radio: 1 }), false);
 
-  assert.equal(isA4PageBox({ media: { width: 594.96, height: 841.92 }, crop: { width: 594.96, height: 841.92 } }), true);
-  assert.equal(isA4PageBox({ media: { width: 612, height: 792 }, crop: { width: 612, height: 792 } }), false);
-  assert.equal(isA4PageBox({ media: { width: 594.96, height: 841.92 }, crop: { width: 580, height: 820 } }), false);
+  const a4 = { x0: 0, y0: 0, x1: 594.96, y1: 841.92, width: 594.96, height: 841.92 };
+  assert.equal(isA4PageBox({ media: a4, crop: a4 }), true);
+  assert.equal(isA4PageBox({ media: { x0: 0, y0: 0, x1: 612, y1: 792, width: 612, height: 792 }, crop: { x0: 0, y0: 0, x1: 612, y1: 792, width: 612, height: 792 } }), false);
+  assert.equal(isA4PageBox({ media: a4, crop: { x0: 0, y0: 0, x1: 580, y1: 820, width: 580, height: 820 } }), false);
+  assert.equal(isA4PageBox({ media: a4, crop: { x0: 5, y0: 0, x1: 599.96, y1: 841.92, width: 594.96, height: 841.92 } }), false);
+
+  assert.equal(focusContrastPass("#356B59", ["#34202A"]), false, "work against ink is only about 2.45:1");
+  assert.equal(focusContrastPass("#356B59", ["#A94F3B"]), false, "work against attention is only about 1.14:1");
+  assert.equal(focusContrastPass("#FBF8EF", ["#34202A", "#A94F3B"]), true);
 });

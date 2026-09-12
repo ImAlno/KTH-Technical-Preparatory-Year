@@ -33,6 +33,35 @@ const PAGES = {
   physics: { relative: "Fysik KS1/index.html", title: "Fysik KS1", questions: 5 },
   chemistry: { relative: "Kemi KS/index.html", title: "Kemi KS", questions: 6 }
 };
+const REQUIRED_KEYBOARD_SECTIONS = Object.keys(PAGES).flatMap((pageKey) =>
+  Object.keys(VIEWPORTS).map((viewportKey) => `layout_${pageKey}_${viewportKey}`)
+);
+const REQUIRED_MOBILE_STATE_SECTIONS = [
+  "state_math_active",
+  "state_math_timer_warning",
+  "state_math_active_flagged",
+  "state_math_flagged_other",
+  "state_math_graded",
+  "state_math_solution",
+  "state_math_override_open",
+  "state_math_override_success",
+  "state_physics_active",
+  "state_physics_active_flagged",
+  "state_physics_flagged_other",
+  "state_physics_graded",
+  "state_physics_solution",
+  "state_physics_override_open",
+  "state_physics_override_success",
+  "state_chemistry_active",
+  "state_chemistry_active_flagged",
+  "state_chemistry_flagged_other",
+  "state_chemistry_choice",
+  "state_chemistry_formula_open",
+  "state_chemistry_graded",
+  "state_chemistry_solution",
+  "state_chemistry_override_open",
+  "state_chemistry_override_success"
+];
 
 function sha256(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
@@ -71,13 +100,73 @@ function requiredInventoryPresent(actual, required) {
   );
 }
 
-function isA4PageBox(box) {
-  const expected = { width: 595.276, height: 841.89 };
-  const tolerance = 0.75;
-  return [box && box.media, box && box.crop].every((candidate) => candidate &&
-    Math.abs(candidate.width - expected.width) <= tolerance &&
-    Math.abs(candidate.height - expected.height) <= tolerance
+function colorContrastRatio(first, second) {
+  function rgb(hex) {
+    const value = String(hex).replace(/^#/u, "");
+    if (!/^[\da-f]{6}$/iu.test(value)) return null;
+    return { r: parseInt(value.slice(0, 2), 16), g: parseInt(value.slice(2, 4), 16), b: parseInt(value.slice(4, 6), 16) };
+  }
+  function luminance(color) {
+    const channel = (value) => {
+      const normalized = value / 255;
+      return normalized <= 0.04045 ? normalized / 12.92 : Math.pow((normalized + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b);
+  }
+  const colors = [rgb(first), rgb(second)];
+  if (colors.some((color) => !color)) return 0;
+  const values = colors.map(luminance).sort((left, right) => right - left);
+  return (values[0] + 0.05) / (values[1] + 0.05);
+}
+
+function focusContrastPass(color, backgrounds) {
+  return Array.isArray(backgrounds) && backgrounds.length > 0 &&
+    backgrounds.every((background) => colorContrastRatio(color, background) + 0.001 >= 3);
+}
+
+function exactSectionSet(items, property, expected) {
+  if (!Array.isArray(items) || items.length !== expected.length) return false;
+  const actual = items.map((item) => item && item[property]);
+  return actual.every((value) => typeof value === "string") &&
+    new Set(actual).size === actual.length &&
+    JSON.stringify(actual.slice().sort()) === JSON.stringify(expected.slice().sort());
+}
+
+function completeEvidenceInventory(result) {
+  if (!result || !exactSectionSet(result.keyboardResults, "section", REQUIRED_KEYBOARD_SECTIONS)) return false;
+  if (!exactSectionSet(result.states, "section", REQUIRED_MOBILE_STATE_SECTIONS)) return false;
+  if (!exactSectionSet(result.formulaSequences, "viewport", ["desktop", "mobile"])) return false;
+  const keyboardComplete = result.keyboardResults.every((entry) => {
+    const pageKey = entry.section.split("_")[1];
+    const required = pageKey === "hub"
+      ? { link: 3 }
+      : Object.assign({ link: 1, questionNav: PAGES[pageKey].questions, answer: 1, primary: 1, timer: 2 }, pageKey === "chemistry" ? { formulaTrigger: 1 } : {});
+    return requiredInventoryPresent(entry.inventory, required) &&
+      Array.isArray(entry.forward) && entry.forward.length >= 3 &&
+      Array.isArray(entry.reverse) && entry.reverse.length === entry.forward.length;
+  });
+  const statesComplete = result.states.every((entry) =>
+    entry && requiredInventoryPresent(entry.contrast && entry.contrast.inventory, entry.expectedContrast) &&
+    entry.dom && Array.isArray(entry.dom.mobileTargets) && entry.dom.mobileTargets.length > 0 &&
+    entry.focus && Array.isArray(entry.focus.paints) && entry.focus.paints.length > 0 &&
+    entry.contrast && Array.isArray(entry.contrast.samples) && entry.contrast.samples.length > 0
   );
+  const formulaComplete = result.formulaSequences.every((entry) =>
+    Array.isArray(entry.forward) && entry.forward.length >= 3 &&
+    Array.isArray(entry.reverse) && entry.reverse.length === entry.forward.length
+  );
+  return keyboardComplete && statesComplete && formulaComplete;
+}
+
+function isA4PageBox(box) {
+  const expected = { x0: 0, y0: 0, x1: 595.276, y1: 841.89, width: 595.276, height: 841.89 };
+  const tolerance = 0.75;
+  const valid = (candidate) => candidate && Object.entries(expected).every(([name, value]) =>
+    Number.isFinite(candidate[name]) && Math.abs(candidate[name] - value) <= tolerance
+  );
+  return valid(box && box.media) && valid(box && box.crop) &&
+    box.crop.x0 + tolerance >= box.media.x0 && box.crop.y0 + tolerance >= box.media.y0 &&
+    box.crop.x1 <= box.media.x1 + tolerance && box.crop.y1 <= box.media.y1 + tolerance;
 }
 
 function ensureGroup(root, names) {
@@ -206,7 +295,12 @@ const DOM_AUDIT_EXPRESSION = `(() => {
     const rect = element.getBoundingClientRect();
     return !element.hidden && style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
   }
-  const selector = "a[href],button,input,select,textarea,summary,[tabindex]";
+  function nativeScrollTab(element) {
+    const style = getComputedStyle(element);
+    return /(auto|scroll)/.test(style.overflowX + " " + style.overflowY) &&
+      (element.scrollWidth > element.clientWidth || element.scrollHeight > element.clientHeight);
+  }
+  const selector = "a[href],button,input,select,textarea,summary,[tabindex],.prompt,.solution";
   const allControls = Array.from(document.querySelectorAll(selector));
   const modal = document.querySelector("dialog[open]");
   function descriptor(element) {
@@ -220,7 +314,7 @@ const DOM_AUDIT_EXPRESSION = `(() => {
   }
   function tabbables() {
     const candidates = allControls.filter((element) => visible(element) && !element.disabled &&
-      !element.closest("[inert]") && element.tabIndex >= 0 && (!modal || modal.contains(element)));
+      !element.closest("[inert]") && (element.tabIndex >= 0 || nativeScrollTab(element)) && (!modal || modal.contains(element)));
     return candidates.filter((element, index) => {
       if (!(element instanceof HTMLInputElement) || element.type !== "radio" || !element.name) return true;
       const group = candidates.filter((item) => item instanceof HTMLInputElement && item.type === "radio" && item.name === element.name);
@@ -305,29 +399,38 @@ const FOCUS_AUDIT_EXPRESSION = `(() => {
     return !element.hidden && style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
   }
   function descriptor(element) {
-    const all = Array.from(document.querySelectorAll("a[href],button,input,select,textarea,summary,[tabindex]"));
+    const all = Array.from(document.querySelectorAll("a[href],button,input,select,textarea,summary,[tabindex],.prompt,.solution"));
     return element.tagName.toLowerCase() + (element.id ? "#" + element.id : "") + "@" + all.indexOf(element) + ":" + (element.getAttribute("aria-label") || element.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 50);
   }
-  function shadowExtent(value) {
-    if (!value || value === "none") return { left: 0, top: 0, right: 0, bottom: 0, colors: [] };
+  function nativeScrollTab(element) {
+    const style = getComputedStyle(element);
+    return /(auto|scroll)/.test(style.overflowX + " " + style.overflowY) &&
+      (element.scrollWidth > element.clientWidth || element.scrollHeight > element.clientHeight);
+  }
+  function shadowPaint(value) {
+    if (!value || value === "none") return { left: 0, top: 0, right: 0, bottom: 0, entries: [] };
     const shadows = []; let current = ""; let depth = 0;
     for (const character of value) { if (character === "(") depth += 1; if (character === ")") depth -= 1; if (character === "," && depth === 0) { shadows.push(current); current = ""; } else current += character; }
     if (current) shadows.push(current);
-    const result = { left: 0, top: 0, right: 0, bottom: 0, colors: [] };
-    shadows.filter((shadow) => !/\\binset\\b/.test(shadow)).forEach((shadow) => {
+    const result = { left: 0, top: 0, right: 0, bottom: 0, entries: [] };
+    shadows.forEach((shadow) => {
+      const inset = /\\binset\\b/.test(shadow);
       const numbers = Array.from(shadow.matchAll(/(-?\\d*\\.?\\d+)px/g), (match) => +match[1]);
       const x = numbers[0] || 0, y = numbers[1] || 0, blur = numbers[2] || 0, spread = numbers[3] || 0;
-      result.left = Math.max(result.left, Math.max(0, -x + blur + spread));
-      result.right = Math.max(result.right, Math.max(0, x + blur + spread));
-      result.top = Math.max(result.top, Math.max(0, -y + blur + spread));
-      result.bottom = Math.max(result.bottom, Math.max(0, y + blur + spread));
-      const colors = shadow.match(/rgba?\\([^)]*\\)|#[0-9a-f]{3,8}/ig); if (colors) result.colors.push(...colors);
+      if (!inset) {
+        result.left = Math.max(result.left, Math.max(0, -x + blur + spread));
+        result.right = Math.max(result.right, Math.max(0, x + blur + spread));
+        result.top = Math.max(result.top, Math.max(0, -y + blur + spread));
+        result.bottom = Math.max(result.bottom, Math.max(0, y + blur + spread));
+      }
+      const color = (shadow.match(/rgba?\\([^)]*\\)|#[0-9a-f]{3,8}/i) || [])[0];
+      if (color) result.entries.push({ inset, color, x, y, blur, spread });
     });
     return result;
   }
   const modal = document.querySelector("dialog[open]");
-  const controls = Array.from(document.querySelectorAll("a[href],button,input,select,textarea,summary,[tabindex]"))
-    .filter((element) => visible(element) && !element.disabled && !element.closest("[inert]") && element.tabIndex >= 0 && (!modal || modal.contains(element)));
+  const controls = Array.from(document.querySelectorAll("a[href],button,input,select,textarea,summary,[tabindex],.prompt,.solution"))
+    .filter((element) => visible(element) && !element.disabled && !element.closest("[inert]") && (element.tabIndex >= 0 || nativeScrollTab(element)) && (!modal || modal.contains(element)));
   const failures = [];
   const paints = [];
   controls.forEach((element) => {
@@ -337,8 +440,10 @@ const FOCUS_AUDIT_EXPRESSION = `(() => {
     const focusStyle = getComputedStyle(element);
     const outlineWidth = focusStyle.outlineStyle === "none" ? 0 : parseFloat(focusStyle.outlineWidth) || 0;
     const outlineOffset = parseFloat(focusStyle.outlineOffset) || 0;
-    const outlineExtent = Math.max(0, outlineWidth + outlineOffset);
-    const shadow = shadowExtent(focusStyle.boxShadow);
+    const outlineInside = outlineWidth > 0 && outlineOffset < 0 ? Math.min(outlineWidth, -outlineOffset) : 0;
+    const outlineOutside = Math.max(0, outlineWidth - outlineInside);
+    const outlineExtent = outlineOutside > 0 ? Math.max(0, outlineOffset) + outlineOutside : 0;
+    const shadow = shadowPaint(focusStyle.boxShadow);
     const expansion = { left: Math.max(outlineExtent, shadow.left), top: Math.max(outlineExtent, shadow.top), right: Math.max(outlineExtent, shadow.right), bottom: Math.max(outlineExtent, shadow.bottom) };
     const painted = { left: rect.left - expansion.left, top: rect.top - expansion.top, right: rect.right + expansion.right, bottom: rect.bottom + expansion.bottom };
     let left = 0, top = 0, right = innerWidth, bottom = innerHeight;
@@ -350,14 +455,26 @@ const FOCUS_AUDIT_EXPRESSION = `(() => {
         right = Math.min(right, clip.right); bottom = Math.min(bottom, clip.bottom);
       }
     }
-    const adjacent = background(element.parentElement || element);
-    const outlineColor = over(parseColor(focusStyle.outlineColor), adjacent);
-    const outlineRatio = outlineWidth > 0 ? ratio(outlineColor, adjacent) : 0;
-    const shadowRatios = shadow.colors.map((color) => ratio(over(parseColor(color), adjacent), adjacent));
-    const indicatorContrast = outlineWidth > 0 ? outlineRatio : (shadowRatios.length ? Math.min(...shadowRatios) : 0);
+    const insideBackground = background(element);
+    const outsideBackground = background(element.parentElement || element);
+    const outlinePaint = [];
+    if (outlineInside > 0) {
+      const paintedColor = over(parseColor(focusStyle.outlineColor), insideBackground);
+      outlinePaint.push({ surface: "inside", thickness: outlineInside, ratio: ratio(paintedColor, insideBackground), background: insideBackground });
+    }
+    if (outlineOutside > 0) {
+      const paintedColor = over(parseColor(focusStyle.outlineColor), outsideBackground);
+      outlinePaint.push({ surface: "outside", thickness: outlineOutside, ratio: ratio(paintedColor, outsideBackground), background: outsideBackground });
+    }
+    const shadowPaints = shadow.entries.map((entry) => {
+      const adjacent = entry.inset ? insideBackground : outsideBackground;
+      return Object.assign({}, entry, { surface: entry.inset ? "inside" : "outside", ratio: ratio(over(parseColor(entry.color), adjacent), adjacent), background: adjacent });
+    });
+    const paintContrasts = outlinePaint.map((entry) => entry.ratio).concat(shadowPaints.map((entry) => entry.ratio));
+    const indicatorContrast = paintContrasts.length ? Math.min(...paintContrasts) : 0;
     const clipped = painted.left < left - 1 || painted.top < top - 1 || painted.right > right + 1 || painted.bottom > bottom + 1;
-    const indicator = outlineWidth > 0 || shadow.left > 0 || shadow.top > 0 || shadow.right > 0 || shadow.bottom > 0;
-    const paint = { control: descriptor(element), outlineWidth, outlineOffset, boxShadow: focusStyle.boxShadow, expansion, painted, clip: { left, top, right, bottom }, indicatorContrast, focusVisible: element.matches(":focus-visible") };
+    const indicator = paintContrasts.length > 0;
+    const paint = { control: descriptor(element), outlineWidth, outlineOffset, outlineInside, outlineOutside, outlinePaint, boxShadow: focusStyle.boxShadow, shadowPaints, expansion, painted, clip: { left, top, right, bottom }, indicatorContrast, focusVisible: element.matches(":focus-visible") };
     paints.push(paint);
     if (clipped || !indicator || indicatorContrast + 0.001 < 3 || !paint.focusVisible) failures.push(Object.assign({ clipped, indicator }, paint));
   });
@@ -411,7 +528,7 @@ const CONTRAST_AUDIT_EXPRESSION = `(() => {
   const selectors = {
     body: "body", muted: ".subject-structure, #session-state, .field-help, .grade-summary span, .grade-message, .interpreted-answer, .exam-total span, dialog p, .formula-controls output",
     link: "a[href]", primary: ".primary-button:not(:disabled)", secondary: ".neutral-button:not(:disabled), .text-button:not(:disabled), .timer button:not(:disabled)",
-    answer_control: ".answer-area input:not(:disabled), .answer-area select:not(:disabled), .answer-area textarea:not(:disabled)",
+    answer_control: ".answer-area input:not(:disabled), .answer-area select:not(:disabled), .answer-area textarea:not(:disabled)", answer_unit: ".answer-unit",
     disabled: "button:disabled", current_nav: ".question-nav button[aria-current=step]:not([data-flagged=true])",
     current_flagged_nav: ".question-nav button[aria-current=step][data-flagged=true]", flagged_nav: ".question-nav button[data-flagged=true]:not([aria-current=step])",
     work: ".work-on-paper", comparison: ".comparison", solution: ".solution", grade_warning: ".grade[data-tone=warning]", grade_success: ".grade[data-tone=success]",
@@ -542,12 +659,10 @@ async function auditPageViewport(connection, sessionId, pageKey, viewportKey, re
   }
   const focusAudit = await evaluate(connection, sessionId, FOCUS_AUDIT_EXPRESSION);
   record([section, "focus_not_clipped"], focusAudit.controls > 0 && focusAudit.paints.length === focusAudit.controls && focusAudit.failures.length === 0, JSON.stringify(focusAudit.failures));
-  if (viewportKey === "desktop") {
-    const requirements = pageKey === "hub"
-      ? { link: 3 }
-      : Object.assign({ link: 1, questionNav: page.questions, answer: 1, primary: 1, timer: 2 }, pageKey === "chemistry" ? { formulaTrigger: 1 } : {});
-    await browserTabRoundTrip(connection, sessionId, section, record, requirements, keyboardResults);
-  }
+  const requirements = pageKey === "hub"
+    ? { link: 3 }
+    : Object.assign({ link: 1, questionNav: page.questions, answer: 1, primary: 1, timer: 2 }, pageKey === "chemistry" ? { formulaTrigger: 1 } : {});
+  await browserTabRoundTrip(connection, sessionId, section, record, requirements, keyboardResults);
   const contrast = await evaluate(connection, sessionId, CONTRAST_AUDIT_EXPRESSION);
   const requiredContrast = pageKey === "hub"
     ? { body: 1, muted: 3, link: 3 }
@@ -754,13 +869,20 @@ async function auditMobileState(connection, sessionId, section, expectedContrast
   stateResults.push({ section, dom, focus, contrast, expectedContrast });
 }
 
+async function selectUnitQuestion(connection, sessionId) {
+  return evaluate(connection, sessionId, "(() => { const subject = window.KS_SUBJECT_DATA.subject || window.KS_SUBJECT_DATA.config; const active = JSON.parse(localStorage.getItem('ks-practice:v1:' + subject.id + ':active')); const bank = Object.values(window.KS_SUBJECT_DATA.slots).flat(); const position = active.questionIds.findIndex((id) => { const question = bank.find((item) => item.id === id); return question && question.fields.some((field) => field.kind === 'numeric' && field.targetUnit && field.targetUnit !== '1'); }); if (position >= 0) document.querySelectorAll('#question-list button')[position].click(); return { position, units: document.querySelectorAll('.answer-unit').length }; })()");
+}
+
 async function runMobileStateFlows(connection, sessionId, record, stateResults) {
   await setViewport(connection, sessionId, VIEWPORTS.mobile);
   for (const pageKey of ["math", "physics", "chemistry"]) {
     const page = PAGES[pageKey];
     await freshExam(connection, sessionId, page);
     const base = { body: 1, muted: 1, link: 1, primary: 1, secondary: 1, disabled: 1, answer_control: 1, current_nav: 1, work: 1 };
-    await auditMobileState(connection, sessionId, `state_${pageKey}_active`, base, record, stateResults);
+    let unitQuestion = await selectUnitQuestion(connection, sessionId);
+    const unitBase = Object.assign({}, base, { answer_unit: 1 });
+    record([`state_${pageKey}_active`, "answer_unit_nonzero"], unitQuestion.position >= 0 && unitQuestion.units > 0, JSON.stringify(unitQuestion));
+    await auditMobileState(connection, sessionId, `state_${pageKey}_active`, unitBase, record, stateResults);
 
     if (pageKey === "math") {
       const active = await activeSnapshot(connection, sessionId);
@@ -768,17 +890,19 @@ async function runMobileStateFlows(connection, sessionId, record, stateResults) 
       await reload(connection, sessionId);
       await clickSelector(connection, sessionId, "#recovery-continue");
       await waitFor(connection, sessionId, "document.querySelector('#status-region').dataset.tone === 'warning'");
-      await auditMobileState(connection, sessionId, "state_math_timer_warning", Object.assign({}, base, { status_warning: 1 }), record, stateResults);
+      await auditMobileState(connection, sessionId, "state_math_timer_warning", Object.assign({}, unitBase, { status_warning: 1 }), record, stateResults);
       await freshExam(connection, sessionId, page);
+      unitQuestion = await selectUnitQuestion(connection, sessionId);
     }
 
     await clickSelector(connection, sessionId, ".flag-button");
-    const flaggedBase = Object.assign({}, base, { current_flagged_nav: 1 });
+    const flaggedBase = Object.assign({}, unitBase, { current_flagged_nav: 1 });
     delete flaggedBase.current_nav;
     await auditMobileState(connection, sessionId, `state_${pageKey}_active_flagged`, flaggedBase, record, stateResults);
-    await evaluate(connection, sessionId, "document.querySelectorAll('#question-list button')[1].click(); true");
+    const otherPosition = (unitQuestion.position + 1) % page.questions;
+    await evaluate(connection, sessionId, "document.querySelectorAll('#question-list button')[" + otherPosition + "].click(); true");
     await auditMobileState(connection, sessionId, `state_${pageKey}_flagged_other`, Object.assign({}, base, { flagged_nav: 1 }), record, stateResults);
-    await evaluate(connection, sessionId, "document.querySelectorAll('#question-list button')[0].click(); true");
+    await evaluate(connection, sessionId, "document.querySelectorAll('#question-list button')[" + unitQuestion.position + "].click(); true");
     await clickSelector(connection, sessionId, ".flag-button");
 
     if (pageKey === "chemistry") {
@@ -943,7 +1067,8 @@ function pdfInspection(filePath) {
     function box(name) {
       const match = output.match(new RegExp("^Page\\s+" + page + "\\s+" + name + ":\\s+(-?[\\d.]+)\\s+(-?[\\d.]+)\\s+(-?[\\d.]+)\\s+(-?[\\d.]+)", "mu"));
       if (!match) return null;
-      return { width: Number(match[3]) - Number(match[1]), height: Number(match[4]) - Number(match[2]) };
+      const [x0, y0, x1, y1] = match.slice(1).map(Number);
+      return { x0, y0, x1, y1, width: x1 - x0, height: y1 - y0 };
     }
     return { page, media: box("MediaBox"), crop: box("CropBox") };
   });
@@ -1212,6 +1337,11 @@ async function runBrowserFlow(options) {
       }
     };
     record(["environment", "formula_hash"], result.formula.sha256 === FORMULA_SHA256, result.formula.sha256);
+    record(["environment", "complete_evidence_inventory"], completeEvidenceInventory(result), JSON.stringify({
+      keyboard: result.keyboardResults.map((entry) => entry.section),
+      states: result.states.map((entry) => entry.section),
+      formula: result.formulaSequences.map((entry) => entry.viewport)
+    }));
     const finalCounts = leafCounts(checks);
     result.summary.passed = finalCounts.passed;
     result.summary.failed = finalCounts.failed;
@@ -1257,6 +1387,11 @@ module.exports = {
   descriptorsAreUnique,
   requiredInventoryPresent,
   isA4PageBox,
+  colorContrastRatio,
+  focusContrastPass,
+  completeEvidenceInventory,
+  REQUIRED_KEYBOARD_SECTIONS,
+  REQUIRED_MOBILE_STATE_SECTIONS,
   VIEWPORTS,
   PAGES
 };
