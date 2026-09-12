@@ -16,6 +16,43 @@ const SLOT_FAMILIES = {
   5: ["right-triangle", "non-right-triangle-area", "parallel-transversal", "composite-quadrilateral", "symmetric-construction"]
 };
 const SLOT_SKILLS = ["radical-equations", "absolute-value-equations", "rational-simplification", "rational-polynomial-equations", "geometry"];
+const NOTEBOOK_REQUIREMENTS = {
+  1: {
+    "sqrt-equals-linear": [/definitionsvillkor/i, /kvadrering/i, /pröv/i],
+    "linear-plus-sqrt": [/isol/i, /kvadrering/i, /pröv/i],
+    "scaled-sqrt-plus-linear": [/skalfaktor|koefficient/i, /kvadrering/i, /pröv/i],
+    "sqrt-minus-constant": [/konstant/i, /kvadrering/i, /pröv/i],
+    "sqrt-equals-scaled-linear": [/skalfaktor|tecken/i, /kvadrering/i, /pröv/i]
+  },
+  2: {
+    "abs-linear": [/båda.*absolutbeloppsgrenarna/i, /substitution/i],
+    "abs-constant": [/båda.*fall/i, /substitution/i],
+    "scaled-shifted-abs": [/isolera/i, /båda.*grenarna/i, /substitution/i],
+    "abs-equals-abs": [/plus- och minusfall/i, /substitution/i],
+    "contextual-distance": [/två riktning|två grenar/i, /substitution/i]
+  },
+  3: {
+    "factor-cancellation": [/faktoris/i, /förkort/i, /ursprungliga.*definitions/i],
+    "difference-of-squares": [/konjugatregeln/i, /förkort/i, /ursprungliga.*definitions/i],
+    "complex-fraction": [/gemensam nämnare/i, /faktoris/i, /ursprungliga.*definitions/i],
+    "unlike-denominators": [/liknämn/i, /faktoris/i, /ursprungliga.*definitions/i],
+    "sign-handling": [/minusteck/i, /förkort/i, /ursprungliga.*definitions/i]
+  },
+  4: {
+    "rational-one-exclusion": [/definitionsvillkor/i, /multiplicera/i, /validera|insättning/i],
+    "rational-two-exclusions": [/nämnarvillkor/i, /faktoris/i, /kontroll/i],
+    "biquadratic": [/substitution/i, /y = x²/i, /validera/i],
+    "factorable-cubic": [/rot/i, /faktoris/i, /validera/i],
+    "quadratic-substitution": [/substitution/i, /andragradsekvation/i, /validera/i]
+  },
+  5: {
+    "right-triangle": [/trigonometriska.*samband/i, /märkt skiss/i, /beräkning/i],
+    "non-right-triangle-area": [/areasamband/i, /märkt skiss/i, /beräkning/i],
+    "parallel-transversal": [/likformighets.*proportionalitet/i, /märkt skiss/i, /beräkning/i],
+    "composite-quadrilateral": [/märkt skiss/i, /area.samband/i, /beräkning/i],
+    "symmetric-construction": [/märkt skiss/i, /pythagoras samband/i, /beräkning/i]
+  }
+};
 
 function loadSlots() {
   return Object.fromEntries([1, 2, 3, 4, 5].map((slot) => [slot, require(path.join(MATH_ROOT, `questions/slot-${slot}.js`))]));
@@ -30,6 +67,22 @@ function loadSubjectDataFresh() {
 
 function allQuestions() {
   return Object.values(loadSlots()).flat();
+}
+
+function visiblePromptText(html) {
+  return String(html)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;|&amp;|&lt;|&gt;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function asksForComputerDerivation(html) {
+  const text = visiblePromptText(html);
+  const derivationTerms = "(?:metod|beräkning|uträkning|mellanled|steg|resonemang|förklaring|bevis)";
+  return new RegExp(`\\b(?:redovisa|skriv|ange|visa)\\b[^.?!]{0,120}\\b${derivationTerms}\\b`, "i").test(text) ||
+    /\b(?:bevisa|förklara|motivera)\b/i.test(text) ||
+    /\bvisa\s+(?:hur|varför)\b/i.test(text);
 }
 
 function close(left, right, tolerance = 1e-8) {
@@ -251,7 +304,6 @@ test("math has exactly 25 complete, stable and unique questions in every slot", 
 });
 
 test("every math question directs method work to the notebook and accepts only final answers digitally", () => {
-  const derivationPrompt = /(?:redovisa|visa|skriv|ange)[^.<]{0,80}(?:metod|beräkning|uträkning|steg)/i;
   allQuestions().forEach((question) => {
     assert.ok(question.workOnPaper && typeof question.workOnPaper === "object", question.id);
     assert.deepEqual(Object.keys(question.workOnPaper).sort(), ["comparison", "instruction", "title"], question.id);
@@ -260,13 +312,27 @@ test("every math question directs method work to the notebook and accepts only f
       assert.ok(question.workOnPaper[key].trim(), `${question.id}: ${key}`);
     });
     assert.match(question.workOnPaper.instruction, /Här skriver du endast slutsvaret/i, question.id);
+    const requirements = NOTEBOOK_REQUIREMENTS[question.slot][question.sourceData.family];
+    assert.ok(requirements, `${question.id}: missing family audit requirements`);
+    const notebookText = `${question.workOnPaper.instruction} ${question.workOnPaper.comparison}`;
+    requirements.forEach((requirement) => assert.match(notebookText, requirement, `${question.id}: missing family-specific notebook concept`));
     question.fields.forEach((field) => {
       assert.notEqual(field.kind, "self", question.id);
       assert.notEqual(field.kind, "multiline", question.id);
     });
-    assert.doesNotMatch(question.promptHtml, derivationPrompt, question.id);
+    assert.equal(asksForComputerDerivation(question.promptHtml), false, question.id);
     assert.equal(question.fields.reduce((sum, field) => sum + field.points, 0), question.points, question.id);
   });
+});
+
+test("math prompt audit catches derivation requests when HTML wraps the forbidden terms", () => {
+  const examples = [
+    ["<p>Redovisa en generell <strong>metod</strong> och visa din <em>beräkning</em>.</p>", true],
+    ["<p>Förklara <span>hur</span> du fick fram svaret.</p>", true],
+    ["<p>Bestäm alla reella <strong>lösningar</strong>.</p>", false],
+    ["<p>Visa figuren och bestäm vinkeln.</p>", false]
+  ];
+  examples.forEach(([html, expected]) => assert.equal(asksForComputerDerivation(html), expected, html));
 });
 
 test("every slot contains five authored families with five cases and a distinct exam skill", () => {
