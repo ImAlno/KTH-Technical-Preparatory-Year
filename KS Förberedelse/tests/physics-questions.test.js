@@ -257,14 +257,19 @@ function asksForComputerDerivation(html) {
 }
 
 function asksForComputerDrawing(text) {
-  const drawVerb = "(?:rit(?:a|ar|as|ade|ning)|skiss(?:a|ar|as|ade))";
-  const action = `(?:${drawVerb}|redovisa|beskriv|skriv(?:\\s+in)?|ange|visa)`;
-  const forceWork = "(?:kraftfigur(?:en)?|kraftdiagram(?:met)?|frilägg(?:ning|ningen)?|skiss(?:en)?|vektorfigur(?:en)?|diagram(?:met)?)";
-  const drawing = new RegExp(`(?:\\b${action}\\b[^.?!;]{0,80}\\b${forceWork}\\b|\\b${forceWork}\\b[^.?!;]{0,80}\\b${drawVerb}\\b)`, "i");
+  const drawVerb = "(?:rit(?:a|ar|as|ad|ade|at|ades|ning)|skiss(?:a|ar|as|ad|ade|at|ades|ning))";
+  const forceWork = "(?:kraftfigur(?:en|er|erna)?|kraftdiagram(?:met|mer|men)?|frilägg(?:ning|ningen)?|skiss(?:en|ar|arna)?|vektorfigur(?:en|er|erna)?|diagram(?:met|mer|men)?)";
+  const workTerm = new RegExp(`\\b(?:${forceWork}|${drawVerb})\\b`, "i");
   const computerDestination = /\b(?:på\s+(?:skärmen|datorn)|i\s+(?:svarsfältet|svarsrutan|rutan|formuläret)|digitalt|online|här)\b/i;
-  return text.split(/[.!?;]+/).some((rawClause) => {
-    const drawingClause = rawClause.replace(/\b(?:och\s+)?(?:skriv(?:\s+in)?|ange|lämna|svara)\b[^.?!;]*(?:sluts?svaret?|svar(?:et)?|resultatet)\b[^.?!;]*$/i, " ");
-    return drawing.test(drawingClause) && computerDestination.test(drawingClause);
+  const cleanFinalAnswer = /\b(?:sluts?svaret?|svar(?:et)?|resultatet)\b/i;
+  const finalAnswerAction = /\b(?:ange(?:s|r)?|skriv(?:s|er)?(?:\s+in)?|svara(?:s|r)?|besvara(?:s|r)?|lämna(?:s|r)?)\b/i;
+  const segments = text.split(/[.!?;]+/).flatMap((sentence) => sentence.split(/\s+\b(?:och|men|samt|eller|därefter|sedan|så)\b\s*/i)).map((segment) => segment.trim()).filter(Boolean);
+  return segments.some((segment, index) => {
+    if (!workTerm.test(segment)) return false;
+    if (computerDestination.test(segment)) return true;
+    const next = segments[index + 1] || "";
+    const nextIsCleanFinalAnswer = cleanFinalAnswer.test(next) && finalAnswerAction.test(next) && !workTerm.test(next);
+    return computerDestination.test(next) && !nextIsCleanFinalAnswer;
   });
 }
 
@@ -701,11 +706,19 @@ test("physics prompt audit catches wrapped derivation and computer-directed forc
     ["<p>Rita kraftfiguren i räknehäftet och skriv endast slutsvaret digitalt.</p>", false],
     ["<p>Rita kraftfiguren i räknehäftet och ange svaret digitalt.</p>", false],
     ["<p>Rita kraftfiguren i räknehäftet; digitalt skriver du endast slutsvaret.</p>", false],
+    ["<p>I räknehäftet ritas kraftfiguren och endast slutsvaret anges digitalt.</p>", false],
+    ["<p>I räknehäftet ritas kraftfigurerna och endast slutsvaret skrivs digitalt.</p>", false],
+    ["<p>Rita kraftfigurer i räknehäftet; endast slutsvaret besvaras digitalt.</p>", false],
     ["<p>På skärmen ritar du en kraftfigur.</p>", true],
     ["<p>Digitalt: rita en kraftfigur.</p>", true],
     ["<p>Rita en kraftfigur på datorn.</p>", true],
     ["<p>I svarsrutan ritas kraftfiguren.</p>", true],
     ["<p>På datorn ska du rita kraftfiguren.</p>", true],
+    ["<p>Kraftfigurer ritas på skärmen.</p>", true],
+    ["<p>Ritade kraftfigurer i svarsrutan.</p>", true],
+    ["<p>Rita kraftfiguren och skriv svar: kraftfigur i svarsrutan.</p>", true],
+    ["<p>Kraftfigurerna ritas digitalt.</p>", true],
+    ["<p>Ritade kraftfigurer på datorn.</p>", true],
     ["<p>I räknehäftet gör du beräkningen; på skärmen ritar du kraftfiguren.</p>", true],
     ["<p>Digitalt ritar du kraftfiguren; i räknehäftet gör du beräkningen.</p>", true],
     ["<p>Beräkna kraftfiguren i räknehäftet innan du anger slutsvaret.</p>", false],
