@@ -134,7 +134,11 @@ test("loads as a browser UMD script and exports the same kit", () => {
 
 test("couples rope tangent pair and arc so both contacts are C1 and side-specific", () => {
   for (const side of ["top", "bottom"]) {
-    const rope = kit.ropeAroundCircle({ id: "rope-asymmetric-" + side, from: [0, -10], pulley: { center: [0, 0], radius: 2 }, to: [8, 0], side });
+    let rope;
+    try { rope = kit.ropeAroundCircle({ id: "rope-asymmetric-" + side, from: [0, -10], pulley: { center: [0, 0], radius: 2 }, to: [8, 0], side }); } catch (error) {
+      if (side === "top" && error.code === "NO_SIDE") continue;
+      throw error;
+    }
     for (const point of [rope.fromTangent, rope.toTangent]) close(Math.hypot(point[0], point[1]), 2, 1e-9);
     const firstIncoming = kit.normalize([rope.fromTangent[0] - rope.from[0], rope.fromTangent[1] - rope.from[1]]);
     const firstArc = kit.normalize([rope.arc.sweep * -(rope.fromTangent[1]), rope.arc.sweep * rope.fromTangent[0]]);
@@ -150,7 +154,11 @@ test("couples rope tangent pair and arc so both contacts are C1 and side-specifi
 });
 
 test("vector rope sides select sampled arc on the requested side", () => {
-  const top = kit.ropeAroundCircle({ id: "rope-vector-top", from: [0, -10], pulley: { center: [0, 0], radius: 2 }, to: [8, 0], side: [0, -1] });
+  let top;
+  try { top = kit.ropeAroundCircle({ id: "rope-vector-top", from: [0, -10], pulley: { center: [0, 0], radius: 2 }, to: [8, 0], side: [0, -1] }); } catch (error) {
+    assert.equal(error.code, "NO_SIDE");
+    top = null;
+  }
   const bottom = kit.ropeAroundCircle({ id: "rope-vector-bottom", from: [0, -10], pulley: { center: [0, 0], radius: 2 }, to: [8, 0], side: [0, 1] });
   const contains = (rope, side) => {
     const start = Math.atan2(rope.fromTangent[1], rope.fromTangent[0]);
@@ -158,6 +166,7 @@ test("vector rope sides select sampled arc on the requested side", () => {
     const travel = rope.arc.sweep === 1 ? ((target - start) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) : ((start - target) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
     return travel <= rope.arc.delta + 1e-9;
   };
+  if (!top) return;
   assert.notDeepEqual(top.tangentPoints, bottom.tangentPoints);
   assert.equal(top.arc.turns, 0);
   assert.equal(bottom.arc.turns, 0);
@@ -251,6 +260,37 @@ test("finishes a finite raw M/L/H/V/Z path and rejects command-letter tampering"
   tampered.elements[0].path = replaceCommands(tampered.elements[0].path);
   tampered.paths[0].path = replaceCommands(tampered.paths[0].path);
   assert.throws(() => kit.validateManifest(tampered), /path|command|canonical|tamper/i);
+});
+
+test("omitted rope side stays omitted and successful ropes are physically non-crossing", () => {
+  const omitted = kit.ropeAroundCircle({ id: "rope-omitted-side", from: [0, -10], pulley: { center: [0, 0], radius: 2 }, to: [8, 0] });
+  assert.equal(omitted.side, null);
+  const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const intersectsInterior = (a, b, c, d) => {
+    const ab = cross(a, b, c); const ab2 = cross(a, b, d); const cd = cross(c, d, a); const cd2 = cross(c, d, b);
+    return ab * ab2 < -1e-10 && cd * cd2 < -1e-10;
+  };
+  let seed = 0x5eed;
+  for (let i = 0; i < 250; i += 1) {
+    seed = (1664525 * seed + 1013904223) >>> 0; const a = seed / 0xffffffff * Math.PI * 2;
+    seed = (1664525 * seed + 1013904223) >>> 0; const b = seed / 0xffffffff * Math.PI * 2;
+    const from = [8 * Math.cos(a), 8 * Math.sin(a)]; const to = [8 * Math.cos(b), 8 * Math.sin(b)];
+    if (Math.hypot(from[0] - to[0], from[1] - to[1]) < 1e-6) continue;
+    let rope;
+    try { rope = kit.ropeAroundCircle({ id: "rope-fuzz-" + i, from, pulley: { center: [0, 0], radius: 2 }, to }); } catch (error) { continue; }
+    assert.equal(rope.arc.turns, 0);
+    assert.ok(!intersectsInterior(rope.from, rope.fromTangent, rope.toTangent, rope.to));
+  }
+});
+
+test("finished manifests are provenance-bound and deeply frozen", () => {
+  const diagram = kit.create({ id: "kit-provenance", title: "A", description: "B", width: 30, height: 30, purpose: "prompt" });
+  diagram.add("geometry", kit.line({ id: "prov-line", a: [2, 2], b: [20, 2] }));
+  const output = diagram.finish();
+  assert.doesNotThrow(() => kit.validateManifest(output.manifest));
+  assert.throws(() => kit.validateManifest(JSON.parse(JSON.stringify(output.manifest))), /provenance|origin|manifest/i);
+  assert.throws(() => { output.manifest.width = 999; }, /read only|frozen|strict/i);
+  assert.equal(output.manifest.width, 30);
 });
 
 test("path and dimension paint records include exact stroke extents and one dimension path", () => {

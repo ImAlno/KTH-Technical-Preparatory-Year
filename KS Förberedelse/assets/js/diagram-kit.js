@@ -13,6 +13,7 @@
   const PRIMITIVE_BRAND = typeof Symbol === "function" ? Symbol("diagram-kit-primitive") : "__diagramKitPrimitive__";
   const DECORATIVE_TOKEN = typeof Symbol === "function" ? Symbol("diagram-kit-decorative") : "__diagramKitDecorative__";
   const PRIMITIVE_META = new WeakMap();
+  const MANIFEST_META = new WeakMap();
   const USED_FRAGMENT_IDS = new Set();
   const LAYERS = ["geometry", "connections", "information", "labels"];
   const ROLES = new Set([
@@ -68,6 +69,13 @@
     if (decorative) value[DECORATIVE_TOKEN] = true;
     PRIMITIVE_META.set(value, { snapshot: snapshotValue(value), decorative: !!decorative });
     return value;
+  }
+  function deepFreeze(value, seen) {
+    if (!value || typeof value !== "object") return value;
+    const visited = seen || new WeakSet();
+    if (visited.has(value)) return value;
+    visited.add(value); Object.keys(value).forEach((key) => deepFreeze(value[key], visited));
+    return Object.freeze(value);
   }
   function safeVector(value, name) {
     return vector(value, name || "vector");
@@ -192,9 +200,29 @@
     return angle;
   }
 
+  function segmentsIntersectInterior(a, b, c, d) {
+    const ab = sub(b, a); const cd = sub(d, c); const denominator = cross(ab, cd);
+    if (Math.abs(denominator) <= EPSILON) {
+      if (Math.abs(cross(sub(c, a), ab)) > EPSILON) return false;
+      const squaredLength = dot(ab, ab);
+      const t0 = dot(sub(c, a), ab) / squaredLength; const t1 = dot(sub(d, a), ab) / squaredLength;
+      const overlapStart = Math.max(0, Math.min(t0, t1)); const overlapEnd = Math.min(1, Math.max(t0, t1));
+      return overlapEnd - overlapStart > EPSILON && overlapEnd > EPSILON && overlapStart < 1 - EPSILON;
+    }
+    const delta = sub(c, a);
+    const t = cross(delta, cd) / denominator; const u = cross(delta, ab) / denominator;
+    return t > EPSILON && t < 1 - EPSILON && u > EPSILON && u < 1 - EPSILON;
+  }
+  function segmentPenetratesCircle(a, b, center, radius) {
+    const segment = sub(b, a); const squaredLength = dot(segment, segment);
+    const t = Math.max(0, Math.min(1, dot(sub(center, a), segment) / squaredLength));
+    const closest = add(a, mul(segment, t));
+    return length(sub(closest, center)) < radius - 1e-9;
+  }
+
   function ropeAroundCircle(options) {
     const opts = options || {};
-    if (opts.side !== undefined && !["top", "bottom", "left", "right", "short", "long"].includes(opts.side) && !Array.isArray(opts.side)) fail("INVALID_SIDE", "rope side must be top, bottom, left, right, short, long, or a vector");
+    if (opts.side !== undefined && opts.side !== null && !["top", "bottom", "left", "right", "short", "long"].includes(opts.side) && !Array.isArray(opts.side)) fail("INVALID_SIDE", "rope side must be top, bottom, left, right, short, long, or a vector");
     const from = vector(opts.from, "rope.from");
     const to = vector(opts.to, "rope.to");
     const pulley = circle(opts.pulley || opts.circle);
@@ -223,6 +251,7 @@
         const sideScore = dot(sub(midpoint, pulley.center), sideDirection);
         const requestedAngle = Math.atan2(sideDirection[1], sideDirection[0]);
         const directedTravel = candidateSweep === 1 ? normalizeAngle(requestedAngle - startCandidateAngle) : normalizeAngle(startCandidateAngle - requestedAngle);
+        if (segmentsIntersectInterior(from, fromTangentCandidate, toTangentCandidate, to) || segmentPenetratesCircle(from, fromTangentCandidate, pulley.center, r) || segmentPenetratesCircle(toTangentCandidate, to, pulley.center, r)) continue;
         solutions.push({ fromTangent: fromTangentCandidate, toTangent: toTangentCandidate, sweep: candidateSweep, delta: candidateDelta, sideScore, firstContinuity, lastContinuity, containsSide: directedTravel <= candidateDelta + 1e-9 });
       }
     }
@@ -251,7 +280,7 @@
     const path = "M " + from[0] + " " + from[1] + " L " + fromTangent[0] + " " + fromTangent[1] + " A " + r + " " + r + " 0 " + (delta > Math.PI ? 1 : 0) + " " + (sweep === 1 ? 1 : 0) + " " + toTangent[0] + " " + toTangent[1] + " L " + to[0] + " " + to[1];
     return finalizePrimitive({
       kind: "rope", role: opts.role || "rope", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "rope.strokeWidth"),
-      id: opts.id, from, to, pulley: { center: clone(pulley.center), radius: r }, side: opts.side || "top", fromTangent, toTangent,
+      id: opts.id, from, to, pulley: { center: clone(pulley.center), radius: r }, side: opts.side === undefined || opts.side === null ? null : opts.side, fromTangent, toTangent,
       tangentPoints: [clone(fromTangent), clone(toTangent)], start: clone(fromTangent), end: clone(toTangent), segments: [fromSegment, arc, toSegment], arc,
       path, length: length(sub(from, fromTangent)) + r * delta + length(sub(to, toTangent))
     }, false);
@@ -638,8 +667,12 @@
     fail("INVALID_ELEMENT", "cannot serialize unknown element kind");
   }
 
-  function validateManifest(manifest) {
+  function validateManifest(manifest, internal) {
     if (!manifest || typeof manifest !== "object") fail("INVALID_MANIFEST", "manifest is required");
+    if (!internal) {
+      const provenance = MANIFEST_META.get(manifest);
+      if (!provenance || !deepEqual(manifest, provenance.snapshot)) fail("INVALID_MANIFEST", "manifest provenance invalid; accessibility aria/canonical geometry/path tamper detected");
+    }
     id(manifest.id, "manifest.id");
     if (typeof manifest.title !== "string" || !manifest.title.trim() || typeof manifest.description !== "string" || !manifest.description.trim()) fail("MISSING_ACCESSIBILITY", "manifest title and description are required");
     if (manifest.purpose !== "prompt" && manifest.purpose !== "solution") fail("INVALID_PURPOSE", "manifest purpose must be prompt or solution");
@@ -822,7 +855,7 @@
           fragmentIds: Array.from(new Set(fragmentIds))
         };
         manifest.domIds = allDomIds;
-        validateManifest(manifest);
+        validateManifest(manifest, true);
         const body = layers.map((layer) => '<g data-layer="' + layer.name + '">' + layer.elements.map(attrsFor).join("") + "</g>").join("");
         const arrowElements = layers.flatMap((layer) => layer.elements).filter((element) => element.kind === "arrow");
         const marker = arrowElements.length ? '<defs>' + arrowElements.map((arrowElement) => '<marker id="' + escapeAttr(arrowElement._markerId) + '" viewBox="0 0 ' + number(arrowElement.headLength) + ' ' + number(arrowElement.headWidth) + '" markerWidth="' + number(arrowElement.headLength) + '" markerHeight="' + number(arrowElement.headWidth) + '" markerUnits="userSpaceOnUse" refX="' + number(arrowElement.headLength) + '" refY="' + number(arrowElement.headWidth / 2) + '" orient="auto"><path id="' + escapeAttr(arrowElement._markerPathId) + '" d="M0,0 L' + number(arrowElement.headLength) + ',' + number(arrowElement.headWidth / 2) + ' L0,' + number(arrowElement.headWidth) + ' z" fill="currentColor" data-role="marker" data-geometry-id="' + escapeAttr(arrowElement._markerPathId) + '"></path></marker>').join("") + '</defs>' : "";
@@ -839,7 +872,15 @@
         });
         finished = true;
         allDomIds.forEach((fragmentId) => USED_FRAGMENT_IDS.add(fragmentId));
-        return { html, manifest };
+        const canonicalSnapshot = snapshotValue(manifest);
+        deepFreeze(manifest);
+        const frozenManifest = new Proxy(manifest, {
+          set() { fail("FROZEN_MANIFEST", "manifest is read-only and frozen"); },
+          deleteProperty() { fail("FROZEN_MANIFEST", "manifest is read-only and frozen"); },
+          defineProperty() { fail("FROZEN_MANIFEST", "manifest is read-only and frozen"); }
+        });
+        MANIFEST_META.set(frozenManifest, { snapshot: canonicalSnapshot });
+        return { html, manifest: frozenManifest };
       }
     };
     return builder;
