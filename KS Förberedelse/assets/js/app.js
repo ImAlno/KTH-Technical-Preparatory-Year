@@ -226,8 +226,11 @@
 
     if (elements.subjectName) elements.subjectName.textContent = subject.name;
 
-    function announce(message) {
-      if (elements.status) elements.status.textContent = message;
+    function announce(message, tone) {
+      if (!elements.status) return;
+      const semanticTone = ["neutral", "success", "warning"].includes(tone) ? tone : "neutral";
+      elements.status.dataset.tone = semanticTone;
+      elements.status.textContent = semanticTone === "warning" ? `⚠ Varning: ${message}` : message;
     }
 
     function focusRenderedControl(focusKey) {
@@ -263,7 +266,7 @@
       if (elements.timerDisplay) elements.timerDisplay.textContent = formatTime(remaining);
       const expiredWhileAway = previousTimerRemaining === null && snapshot.timer.runningSince !== null && remaining === 0;
       if (snapshot.status === "active" && ((previousTimerRemaining !== null && previousTimerRemaining > 0 && remaining === 0) || expiredWhileAway)) {
-        announce("Tiden har gått ut.");
+        announce("Tiden har gått ut.", "warning");
       }
       previousTimerRemaining = remaining;
       if (elements.timerStart) elements.timerStart.disabled = snapshot.timer.runningSince !== null || snapshot.status === "graded";
@@ -455,7 +458,7 @@
           action(normalized);
           render();
           focusRenderedControl(focusKey);
-          announce(`Poängen för uppgift ${question.slot} uppdaterades.`);
+          announce(`Poängen för uppgift ${question.slot} uppdaterades.`, "success");
         });
         group.append(button);
       }
@@ -465,7 +468,14 @@
     function renderGrade(question, snapshot) {
       const grade = snapshot.grades[question.id];
       const section = createElement(document, "section", "grade");
-      const heading = createElement(document, "h2", "", "Bedömning");
+      const warning = grade.status === "self";
+      const heading = createElement(document, "h2", warning ? "warning-heading" : "", warning ? undefined : "Bedömning");
+      section.dataset.tone = warning ? "warning" : grade.status === "correct" ? "success" : "neutral";
+      if (warning) {
+        const icon = createElement(document, "span", "warning-icon", "⚠");
+        icon.setAttribute("aria-hidden", "true");
+        heading.append(icon, createElement(document, "span", "", "Bedömning: kontroll krävs"));
+      }
       const summary = createElement(document, "div", "grade-summary");
       summary.append(
         createElement(document, "strong", "", `${formatPoints(grade.earned)} av ${formatPoints(grade.possible)} poäng`),
@@ -657,7 +667,7 @@
       }
       closeDialog(elements.recoveryDialog);
       render();
-      if (store.warning) announce(store.warning);
+      if (store.warning) announce(store.warning, "warning");
       return true;
     }
 
@@ -672,7 +682,7 @@
         session = KS.exam.restoreSession(saved, slots, store, subject);
         closeDialog(elements.recoveryDialog);
         render();
-        if (store.warning) announce(store.warning);
+        if (store.warning) announce(store.warning, "warning");
         return true;
       } catch (error) {
         session = null;
@@ -712,21 +722,21 @@
       recoveryReason = reason || "invalid-snapshot";
       resetRecoveryChoice();
       if (elements.sessionState) elements.sessionState.textContent = "Det sparade provet kunde inte öppnas";
-      announce("Det sparade provet kunde inte återställas. Inget sparat prov har skrivits över.");
+      announce("Det sparade provet kunde inte återställas. Inget sparat prov har skrivits över.", "warning");
       showDialog(elements.recoveryDialog);
     }
 
     if (elements.timerStart) elements.timerStart.addEventListener("click", function () {
       updateTimer(function (state) { return KS.timer.start(state, Date.now()); });
-      announce("Tidtagningen startade.");
+      announce("Tidtagningen startade.", "neutral");
     });
     if (elements.timerPause) elements.timerPause.addEventListener("click", function () {
       updateTimer(function (state) { return KS.timer.pause(state, Date.now()); });
-      announce("Tidtagningen pausades.");
+      announce("Tidtagningen pausades.", "neutral");
     });
     if (elements.timerReset) elements.timerReset.addEventListener("click", function () {
       updateTimer(function (state) { return KS.timer.reset(state); });
-      announce("Tidtagningen återställdes.");
+      announce("Tidtagningen återställdes.", "neutral");
     });
 
     if (elements.submitConfirm) elements.submitConfirm.addEventListener("click", function () {
@@ -735,7 +745,7 @@
       closeDialog(elements.submitDialog);
       render();
       rootElement.focus();
-      announce("Provet är rättat och svaren är låsta.");
+      announce("Provet är rättat och svaren är låsta.", "success");
     });
 
     if (elements.historyOpen) elements.historyOpen.addEventListener("click", function () {
@@ -744,7 +754,7 @@
     if (elements.historyConfirm) elements.historyConfirm.addEventListener("click", function () {
       store.clearHistory();
       closeDialog(elements.historyDialog);
-      announce("Frågehistoriken rensades.");
+      announce("Frågehistoriken rensades.", "success");
     });
 
     document.querySelectorAll("[data-dialog-close]").forEach(function (button) {
@@ -820,7 +830,7 @@
         if (formulaZoom === 100) fitFormulaSheet();
       });
     } else if (hasConfiguredFormulaUrl) {
-      announce("Formelbladet kunde inte öppnas eftersom sökvägen inte är en säker lokal resurs.");
+      announce("Formelbladet kunde inte öppnas eftersom sökvägen inte är en säker lokal resurs.", "warning");
     } else {
       const formulaHtml = subjectData.formulaSheetHtml || subjectData.formulaHtml || "";
       if (formulaHtml && elements.formulaOpen && elements.formulaContent) {

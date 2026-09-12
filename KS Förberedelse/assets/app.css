@@ -175,7 +175,7 @@ summary:focus-visible,
 .neutral-button {
   color: var(--ink);
   background: transparent;
-  border: 1px solid var(--rule);
+  border: 1px solid var(--muted);
   border-radius: 4px;
   padding: 8px 12px;
   cursor: pointer;
@@ -188,11 +188,20 @@ summary:focus-visible,
 }
 
 .timer button[disabled],
-.neutral-button[disabled],
+.neutral-button[disabled] {
+  color: var(--muted);
+  background: var(--ground);
+  border-color: var(--rule);
+  cursor: default;
+  opacity: 1;
+}
+
 .primary-button[disabled] {
   color: var(--muted);
+  background: var(--ground);
+  border-color: var(--rule);
   cursor: default;
-  opacity: 0.5;
+  opacity: 1;
 }
 
 .exam-layout {
@@ -242,7 +251,7 @@ summary:focus-visible,
 
 .question-nav button:hover {
   color: var(--ink);
-  border-color: var(--rule);
+  border-color: var(--muted);
 }
 
 .question-nav button[aria-current="step"] {
@@ -363,7 +372,7 @@ summary:focus-visible,
   min-height: 46px;
   color: var(--ink);
   background: var(--paper);
-  border: 1px solid var(--rule);
+  border: 1px solid var(--muted);
   border-radius: 4px;
   padding: 11px 13px;
 }
@@ -394,7 +403,7 @@ summary:focus-visible,
   padding: 11px 13px;
   color: var(--muted);
   background: var(--ground);
-  border: 1px solid var(--rule);
+  border: 1px solid var(--muted);
   border-left: 0;
   border-radius: 0 4px 4px 0;
   font-weight: 600;
@@ -421,7 +430,7 @@ summary:focus-visible,
 
 .choice-option:hover {
   background: rgb(53 107 89 / 6%);
-  border-color: var(--rule);
+  border-color: var(--muted);
 }
 
 .choice-option input {
@@ -430,6 +439,13 @@ summary:focus-visible,
   height: 1.15rem;
   margin: 0;
   accent-color: var(--work);
+  outline: 1px solid var(--muted);
+  outline-offset: 1px;
+}
+
+.choice-option input:focus-visible {
+  outline: 3px solid var(--work);
+  outline-offset: 3px;
 }
 
 .work-on-paper {
@@ -526,6 +542,21 @@ summary:focus-visible,
 
 .grade-message {
   margin: 7px 0 0;
+}
+
+.grade[data-tone="warning"] {
+  padding-left: 14px;
+  border-left: 3px solid var(--attention);
+}
+
+.warning-heading {
+  color: var(--attention);
+}
+
+.warning-icon {
+  display: inline-block;
+  margin-right: 0.5rem;
+  font-family: "Helvetica Neue", Arial, sans-serif;
 }
 
 .field-results {
@@ -641,9 +672,18 @@ summary:focus-visible,
   padding: 11px 14px;
   color: var(--ink);
   background: var(--paper);
-  border: 1px solid var(--attention);
-  border-left-width: 4px;
+  border: 1px solid var(--muted);
   border-radius: 4px;
+}
+
+.status-region[data-tone="success"] {
+  border-color: var(--work);
+  border-left-width: 4px;
+}
+
+.status-region[data-tone="warning"] {
+  border-color: var(--attention);
+  border-left-width: 4px;
 }
 
 .status-region:empty {

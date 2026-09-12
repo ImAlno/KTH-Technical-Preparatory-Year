@@ -36,6 +36,23 @@ function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
 }
 
+function cssTokens(css) {
+  return Object.fromEntries(Array.from(css.matchAll(/--([\w-]+):\s*(#[\da-f]{6})/gi), (match) => [match[1], match[2]]));
+}
+
+function relativeLuminance(hex) {
+  const channels = [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255);
+  const linear = channels.map((channel) => channel <= 0.04045
+    ? channel / 12.92
+    : ((channel + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+}
+
+function contrastRatio(first, second) {
+  const luminances = [relativeLuminance(first), relativeLuminance(second)].sort((left, right) => right - left);
+  return (luminances[0] + 0.05) / (luminances[1] + 0.05);
+}
+
 function pngDimensions(buffer) {
   assert.equal(buffer.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
   assert.equal(buffer.subarray(12, 16).toString("ascii"), "IHDR");
@@ -603,7 +620,15 @@ test("objective uncertainty directs the student to collapsed manual correction",
 
   assert.match(harness.root.textContent, /Rättningen behöver kontrolleras/);
   const correction = harness.root.querySelector(".override-grade");
+  const warningGrade = descendants(harness.root).find((node) => node.className === "grade" && node.dataset.tone === "warning");
+  const warningIcon = descendants(harness.root).find((node) => node.className === "warning-icon");
   assert.ok(correction);
+  assert.ok(warningGrade);
+  assert.ok(warningIcon);
+  assert.equal(warningIcon.textContent, "⚠");
+  assert.equal(warningIcon.attributes["aria-hidden"], "true");
+  assert.match(warningGrade.textContent, /Bedömning: kontroll krävs/);
+  assert.match(warningGrade.textContent, /Ändra poängen manuellt/);
   assert.equal(correction.open, false);
   assert.equal(harness.root.querySelector(".manual-grade"), null);
 });
@@ -674,6 +699,70 @@ test("work, comparison, warnings and manual correction have distinct structural 
   assert.match(css, /\.override-grade\s+summary\s*\{[^}]*color:\s*var\(--muted\)/s);
   assert.match(css, /\.exam-total\s*\{[^}]*border-radius:\s*6px/s);
   assert.match(css, /dialog\s*\{[^}]*border-radius:\s*6px/s);
+});
+
+test("every declared active control boundary has at least 3 to 1 non-text contrast", () => {
+  const css = read("assets/app.css");
+  const tokens = cssTokens(css);
+  const boundaries = [
+    ["neutral button", /\.timer button,\s*\.neutral-button\s*\{[^}]*border:\s*1px\s+solid\s+var\(--muted\)/s, "muted", "paper"],
+    ["neutral button hover", /\.timer button:hover,\s*\.neutral-button:hover\s*\{[^}]*border-color:\s*var\(--muted\)/s, "muted", "paper"],
+    ["answer input", /\.answer-field input\s*\{[^}]*border:\s*1px\s+solid\s+var\(--muted\)/s, "muted", "paper"],
+    ["answer input interaction", /\.answer-field input:hover,\s*\.answer-field input:focus\s*\{[^}]*border-color:\s*var\(--work\)/s, "work", "paper"],
+    ["choice hover", /\.choice-option:hover\s*\{[^}]*border-color:\s*var\(--muted\)/s, "muted", "paper"],
+    ["radio", /\.choice-option input\s*\{[^}]*outline:\s*1px\s+solid\s+var\(--muted\)/s, "muted", "paper"],
+    ["radio focus", /\.choice-option input:focus-visible\s*\{[^}]*outline:\s*3px\s+solid\s+var\(--work\)/s, "work", "paper"],
+    ["current question", /button\[aria-current="step"\]\s*\{[^}]*border-color:\s*var\(--ink\)/s, "ink", "paper"],
+    ["flagged question", /button\[data-flagged="true"\]\s*\{[^}]*border-color:\s*var\(--attention\)/s, "attention", "paper"],
+    ["pressed flag", /\.flag-button\[aria-pressed="true"\]\s*\{[^}]*border-color:\s*var\(--attention\)/s, "attention", "paper"],
+    ["pressed score", /\.point-choices button\[aria-pressed="true"\]\s*\{[^}]*border-color:\s*var\(--ink\)/s, "ink", "paper"],
+    ["primary button", /\.primary-button\s*\{[^}]*border:\s*1px\s+solid\s+var\(--ink\)/s, "ink", "paper"],
+    ["primary button hover", /\.primary-button:hover\s*\{[^}]*border-color:\s*var\(--work\)/s, "work", "paper"],
+    ["keyboard focus", /:focus-visible[\s\S]{0,260}outline:\s*3px\s+solid\s+var\(--work\)/s, "work", "paper"]
+  ];
+
+  boundaries.forEach(([label, declaration, foreground, background]) => {
+    assert.match(css, declaration, label);
+    assert.ok(
+      contrastRatio(tokens[foreground], tokens[background]) >= 3,
+      `${label}: ${foreground} against ${background} must be at least 3:1`
+    );
+  });
+  assert.match(css, /button\[disabled\][\s\S]{0,260}border-color:\s*var\(--rule\)/s);
+  assert.match(css, /button\[disabled\][\s\S]{0,260}opacity:\s*1/s);
+});
+
+test("status announcements transition between neutral, success and warning tones", () => {
+  const app = require("../assets/js/app.js");
+  const harness = recoveryHarness(null);
+
+  app.mount(harness.root, harness.subjectData);
+  harness.nodes["timer-start"].fire("click");
+  assert.equal(harness.nodes["status-region"].dataset.tone, "neutral");
+  assert.equal(harness.nodes["status-region"].textContent, "Tidtagningen startade.");
+
+  harness.nodes["history-confirm"].fire("click");
+  assert.equal(harness.nodes["status-region"].dataset.tone, "success");
+  assert.equal(harness.nodes["status-region"].textContent, "Frågehistoriken rensades.");
+
+  const warningHarness = recoveryHarness(null);
+  warningHarness.subjectData.formulaSheetUrl = "assets/%252e%252e/Underlag/source.pdf";
+  app.mount(warningHarness.root, warningHarness.subjectData);
+  assert.equal(warningHarness.nodes["status-region"].dataset.tone, "warning");
+  assert.match(warningHarness.nodes["status-region"].textContent, /^⚠\s+Varning:/);
+  assert.match(warningHarness.nodes["status-region"].textContent, /Formelbladet kunde inte öppnas/);
+});
+
+test("only warning status and grade states receive rust plus visible warning text and icon", () => {
+  const css = read("assets/app.css");
+
+  assert.match(css, /\.status-region\s*\{[^}]*border:\s*1px\s+solid\s+var\(--muted\)/s);
+  assert.match(css, /\.status-region\[data-tone="success"\]\s*\{[^}]*border-color:\s*var\(--work\)/s);
+  assert.match(css, /\.status-region\[data-tone="warning"\]\s*\{[^}]*border-color:\s*var\(--attention\)/s);
+  assert.match(css, /\.grade\[data-tone="warning"\]\s*\{[^}]*border-left:\s*3px\s+solid\s+var\(--attention\)/s);
+  SUBJECT_PAGES.forEach((page) => {
+    assert.match(read(page), /id="status-region"[^>]*role="status"[^>]*aria-live="polite"/, page);
+  });
 });
 
 test("mobile journal layout contains scrolling to the rail and keeps 44px targets", () => {
@@ -1053,7 +1142,8 @@ test("timer expiry announces the zero transition once without submitting", () =>
   app.mount(harness.root, harness.subjectData);
   harness.window.intervalHandler();
   assert.equal(harness.nodes["timer-display"].textContent, "00:00:00");
-  assert.equal(harness.nodes["status-region"].textContent, "Tiden har gått ut.");
+  assert.equal(harness.nodes["status-region"].dataset.tone, "warning");
+  assert.equal(harness.nodes["status-region"].textContent, "⚠ Varning: Tiden har gått ut.");
   assert.equal(harness.nodes["session-state"].textContent, "Pågående prov");
   assert.ok(descendants(harness.root).some((node) => node.tagName === "INPUT"));
 
@@ -1073,7 +1163,8 @@ test("a timer that expired while the page was closed announces once on restore",
   harness.nodes["recovery-continue"].fire("click");
 
   assert.equal(harness.nodes["timer-display"].textContent, "00:00:00");
-  assert.equal(harness.nodes["status-region"].textContent, "Tiden har gått ut.");
+  assert.equal(harness.nodes["status-region"].dataset.tone, "warning");
+  assert.equal(harness.nodes["status-region"].textContent, "⚠ Varning: Tiden har gått ut.");
   assert.equal(harness.nodes["session-state"].textContent, "Pågående prov");
   assert.ok(descendants(harness.root).some((node) => node.tagName === "INPUT"));
 
