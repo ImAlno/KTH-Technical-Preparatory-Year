@@ -45,6 +45,32 @@
     return raw.replace(/\*/g, "·").replace(/\^2/g, "²").replace(/-/g, "−");
   }
 
+  function workOnPaper(family) {
+    const guidance = {
+      "factor-cancellation": [
+        "Faktorisera täljare och nämnare, visa eventuell förkortning och skriv de ursprungliga definitionsuteslutningarna. Här skriver du endast slutsvaret.",
+        "Jämför faktorerna som förkortas, den förenklade formen och alla ursprungliga uteslutningar med lösningen."
+      ],
+      "difference-of-squares": [
+        "Använd konjugatregeln för att faktorisera differensen av kvadrater, visa förkortningen och bevara den ursprungliga definitionsmängden. Här skriver du endast slutsvaret.",
+        "Jämför konjugatfaktorer, förkortning och de ursprungliga uteslutna värdena med lösningen."
+      ],
+      "complex-fraction": [
+        "Skriv om den komplexa kvoten med gemensam nämnare, faktorisera och förkorta försiktigt; ange alla ursprungliga definitionsuteslutningar. Här skriver du endast slutsvaret.",
+        "Jämför gemensam nämnare, faktorisering, tillåtna förkortningar och ursprungliga uteslutningar med lösningen."
+      ],
+      "unlike-denominators": [
+        "Gör bråken liknämniga, faktorisera den gemensamma nämnaren och förenkla utan att tappa de ursprungliga definitionsuteslutningarna. Här skriver du endast slutsvaret.",
+        "Jämför liknämnighet, faktorisering, förenkling och samtliga ursprungliga uteslutningar med lösningen."
+      ],
+      "sign-handling": [
+        "Faktorisera med särskild kontroll av minustecknet, visa eventuell förkortning och skriv de ursprungliga definitionsuteslutningarna. Här skriver du endast slutsvaret.",
+        "Jämför teckenhantering, förkortning, förenklad kvot och ursprungliga uteslutningar med lösningen."
+      ]
+    }[family];
+    return { title: "Arbeta i räknehäftet", instruction: guidance[0], comparison: guidance[1] };
+  }
+
   function dataFor(family, p) {
     if (family === "factor-cancellation") {
       return {
@@ -94,6 +120,7 @@
       title: "Förenkla rationellt uttryck",
       points: 2,
       promptHtml: "<p>Förenkla uttrycket <strong>" + pretty(values.original) + "</strong> så långt som möjligt. Ange även de värden som inte ingår i uttryckets ursprungliga definitionsmängd.</p>",
+      workOnPaper: workOnPaper(family),
       fields: [{
         id: "expression", label: "Förenklat uttryck", kind: "simplified-expression", points: 1,
         expected: values.expected, variables: ["x"], exclude: values.exclusions,

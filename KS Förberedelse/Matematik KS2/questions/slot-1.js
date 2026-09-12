@@ -32,6 +32,32 @@
     return rendered.replace(".", ",");
   }
 
+  function workOnPaper(family) {
+    const guidance = {
+      "sqrt-equals-linear": [
+        "Skriv definitionsvillkoren för rotuttrycket och högerledet, isolera roten, visa kvadreringen och pröva varje kandidat i ursprungsekvationen. Här skriver du endast slutsvaret.",
+        "Jämför definitionsvillkor, isolering, kvadrering och prövning av varje kandidat med lösningen."
+      ],
+      "linear-plus-sqrt": [
+        "Flytta den linjära termen så att roten isoleras, skriv definitionsvillkoren, visa kvadreringen och pröva varje kandidat i ursprungsekvationen. Här skriver du endast slutsvaret.",
+        "Jämför hur rottermen isoleras, vilka villkor som gäller efter flytten, kvadreringen och prövningen med lösningen."
+      ],
+      "scaled-sqrt-plus-linear": [
+        "Hantera koefficienten framför roten, skriv definitionsvillkoren, isolera roten, visa kvadreringen och pröva varje kandidat i ursprungsekvationen. Här skriver du endast slutsvaret.",
+        "Jämför skalfaktorn, isoleringen, definitionsvillkoren, kvadreringen och kandidatprövningen med lösningen."
+      ],
+      "sqrt-minus-constant": [
+        "Flytta konstanten och isolera roten, skriv definitionsvillkoren, visa kvadreringen och pröva varje kandidat i ursprungsekvationen. Här skriver du endast slutsvaret.",
+        "Jämför konstantflytten, definitionsvillkoren, kvadreringen och prövningen i den ursprungliga ekvationen med lösningen."
+      ],
+      "sqrt-equals-scaled-linear": [
+        "Beakta skalfaktorn och tecknet i det linjära högerledet, skriv definitionsvillkoren, visa kvadreringen och pröva varje kandidat i ursprungsekvationen. Här skriver du endast slutsvaret.",
+        "Jämför tecken- och skalfaktorhantering, definitionsvillkor, kvadrering och prövning med lösningen."
+      ]
+    }[family];
+    return { title: "Arbeta i räknehäftet", instruction: guidance[0], comparison: guidance[1] };
+  }
+
   function linear(a, b) {
     let value = a === 1 ? "x" : a === -1 ? "-x" : clean(a) + "x";
     if (b > 0) value += " + " + clean(b);
@@ -130,6 +156,7 @@
       title: "Rotekvation",
       points: 2,
       promptHtml: "<p>Lös ekvationen <strong>" + parts.equation + "</strong>. Svara med samtliga reella lösningar.</p>",
+      workOnPaper: workOnPaper(family),
       fields: [{
         id: "roots",
         label: "Lösningsmängd",

@@ -250,6 +250,25 @@ test("math has exactly 25 complete, stable and unique questions in every slot", 
   });
 });
 
+test("every math question directs method work to the notebook and accepts only final answers digitally", () => {
+  const derivationPrompt = /(?:redovisa|visa|skriv|ange)[^.<]{0,80}(?:metod|beräkning|uträkning|steg)/i;
+  allQuestions().forEach((question) => {
+    assert.ok(question.workOnPaper && typeof question.workOnPaper === "object", question.id);
+    assert.deepEqual(Object.keys(question.workOnPaper).sort(), ["comparison", "instruction", "title"], question.id);
+    ["title", "instruction", "comparison"].forEach((key) => {
+      assert.equal(typeof question.workOnPaper[key], "string", `${question.id}: ${key}`);
+      assert.ok(question.workOnPaper[key].trim(), `${question.id}: ${key}`);
+    });
+    assert.match(question.workOnPaper.instruction, /Här skriver du endast slutsvaret/i, question.id);
+    question.fields.forEach((field) => {
+      assert.notEqual(field.kind, "self", question.id);
+      assert.notEqual(field.kind, "multiline", question.id);
+    });
+    assert.doesNotMatch(question.promptHtml, derivationPrompt, question.id);
+    assert.equal(question.fields.reduce((sum, field) => sum + field.points, 0), question.points, question.id);
+  });
+});
+
 test("every slot contains five authored families with five cases and a distinct exam skill", () => {
   const slots = loadSlots();
   Object.entries(slots).forEach(([slot, questions]) => {

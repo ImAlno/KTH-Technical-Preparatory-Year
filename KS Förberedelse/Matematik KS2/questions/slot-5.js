@@ -58,6 +58,32 @@
     return decimals === 1 ? "en decimal" : "två decimaler";
   }
 
+  function workOnPaper(family) {
+    const guidance = {
+      "right-triangle": [
+        "Skriv det trigonometriska sambandet, rita en märkt skiss med vinkel och kateter och visa beräkningen med rätt enhet. Här skriver du endast slutsvaret.",
+        "Jämför det trigonometriska sambandet, den märkta skissen, insättningen, enheten och avrundningen med lösningen."
+      ],
+      "non-right-triangle-area": [
+        "Skriv areasambandet med sinus, rita en märkt skiss över de två sidorna och mellanliggande vinkel och visa beräkningen med areaenhet. Här skriver du endast slutsvaret.",
+        "Jämför areasamband, märkt skiss, vinkelplacering, beräkning, areaenhet och avrundning med lösningen."
+      ],
+      "parallel-transversal": [
+        "Skriv likformighets- och proportionalitetssambandet, rita en märkt skiss med parallella segment och visa beräkningen av den sökta sträckan. Här skriver du endast slutsvaret.",
+        "Jämför likformighetsrelation, parallellmarkering i skissen, proportion, beräkning och enhet med lösningen."
+      ],
+      "composite-quadrilateral": [
+        "Rita en märkt skiss av ytterrektangeln och urtagningen, skriv area-sambandet och visa beräkningen med rätt areaenhet. Här skriver du endast slutsvaret.",
+        "Jämför den märkta skissen, uppdelningen i ytterarea minus urtagning, beräkningen, enheten och avrundningen med lösningen."
+      ],
+      "symmetric-construction": [
+        "Rita en märkt skiss med symmetriaxel och halverad bas, skriv Pythagoras samband och visa beräkningen av höjden. Här skriver du endast slutsvaret.",
+        "Jämför den märkta skissen, basens halvering, Pythagoras samband, beräkningen och enheten med lösningen."
+      ]
+    }[family];
+    return { title: "Arbeta i räknehäftet", instruction: guidance[0], comparison: guidance[1] };
+  }
+
   function round(value, decimals) {
     const factor = Math.pow(10, decimals);
     return Math.round((value + Number.EPSILON) * factor) / factor;
@@ -176,6 +202,7 @@
       title: area ? "Geometrisk area" : "Geometrisk längd",
       points: 2,
       promptHtml: "<p>" + shown.prompt + "</p>" + shown.figure + "<p class=\"figure-note\">Figuren är schematisk och inte skalenlig; använd endast de angivna måtten.</p>",
+      workOnPaper: workOnPaper(family),
       fields: [{
         id: "value", label: area ? "Svar i " + p.unit + " (skriv endast talet)" : "Svar i " + p.unit,
         kind: "numeric", points: 2, expected: expected, targetUnit: p.unit,

@@ -94,6 +94,32 @@
     return r < 0 ? "(x + " + clean(-r) + ")" : "(x − " + clean(r) + ")";
   }
 
+  function workOnPaper(family) {
+    const guidance = {
+      "rational-one-exclusion": [
+        "Skriv nämnarens definitionsvillkor, multiplicera med den tillåtna nämnaren, lös ekvationen och validera rötterna i originalet. Här skriver du endast slutsvaret.",
+        "Jämför definitionsbegränsningen, multiplikationen, kandidaternas insättning och rotvalideringen med lösningen."
+      ],
+      "rational-two-exclusions": [
+        "Skriv båda nämnarvillkoren, faktorisera täljaren, lös kandidaterna och kontrollera varje rot mot de ursprungliga nämnarna. Här skriver du endast slutsvaret.",
+        "Jämför nämnarrestriktioner, nollproduktmetod, substitutionskontroll och förkastade rötter med lösningen."
+      ],
+      "biquadratic": [
+        "Skriv definitionsvillkoren, använd substitutionen y = x², lös i y och validera de återfunna rötterna i originalekvationen. Här skriver du endast slutsvaret.",
+        "Jämför substitutionen, återgången från y till x, kandidatinsättningen och rotvalideringen med lösningen."
+      ],
+      "factorable-cubic": [
+        "Sök och kontrollera en rot, faktorisera polynomet och validera alla återfunna rötter i originalekvationen. Här skriver du endast slutsvaret.",
+        "Jämför rotprövning, polynomdivision, fortsatt faktorisering och validering av hela lösningsmängden med lösningen."
+      ],
+      "quadratic-substitution": [
+        "Använd den angivna substitutionen, lös först den resulterande andragradsekvationen och validera sedan varje x-rot i originalekvationen. Här skriver du endast slutsvaret.",
+        "Jämför substitution, de två nivåerna av andragradsekvationer, insättning och slutlig rotvalidering med lösningen."
+      ]
+    }[family];
+    return { title: "Arbeta i räknehäftet", instruction: guidance[0], comparison: guidance[1] };
+  }
+
   function details(family, input) {
     if (family === "rational-one-exclusion") {
       const p = Object.assign({}, input);
@@ -185,7 +211,8 @@
       slot: 4,
       title: family.indexOf("rational") === 0 ? "Rationell ekvation" : "Polynomekvation",
       points: 2,
-      promptHtml: "<p>Lös ekvationen <strong>" + data.prompt + "</strong>. Redovisa en generell algebraisk metod och ange alla reella lösningar.</p>",
+      promptHtml: "<p>Lös ekvationen <strong>" + data.prompt + "</strong>. Ange alla reella lösningar.</p>",
+      workOnPaper: workOnPaper(family),
       fields: [{
         id: "roots", label: "Lösningsmängd", kind: "solution-set", points: 2, expected: data.expected,
         variable: "x", tolerance: { absolute: 1e-8, relative: 1e-9 }, help: "Skilj flera lösningar åt med semikolon."

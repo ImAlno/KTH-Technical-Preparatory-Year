@@ -39,6 +39,32 @@
     return rendered.replace(".", ",");
   }
 
+  function workOnPaper(family) {
+    const guidance = {
+      "abs-linear": [
+        "Skriv båda absolutbeloppsgrenarna, lös dem var för sig och gör substitutionskontroll av varje kandidat. Här skriver du endast slutsvaret.",
+        "Jämför de två grenarna, kandidaternas insättning och vilka lösningar som godtas med lösningen."
+      ],
+      "abs-constant": [
+        "Skriv båda fallen för absolutbeloppet lika med konstanten, lös dem och kontrollera varje kandidat genom substitution. Här skriver du endast slutsvaret.",
+        "Jämför de två teckenfallen, substitutionskontrollerna och den fullständiga lösningsmängden med lösningen."
+      ],
+      "scaled-shifted-abs": [
+        "Isolera det förskjutna absolutbeloppet, skriv båda grenarna, lös dem och kontrollera varje kandidat genom substitution. Här skriver du endast slutsvaret.",
+        "Jämför isoleringen, absolutbeloppets två grenar, insättningen och godkända kandidater med lösningen."
+      ],
+      "abs-equals-abs": [
+        "Skriv båda grenarna med plus- och minusfall för absolutbeloppen, lös dem och kontrollera varje kandidat genom substitution. Här skriver du endast slutsvaret.",
+        "Jämför plus- och minusfallen, kandidaternas substitutionskontroll och den fullständiga lösningen med lösningen."
+      ],
+      "contextual-distance": [
+        "Skriv de två riktningarna från referenspunkten, lös båda fallen och kontrollera varje kandidat genom substitution i avståndsvillkoret. Här skriver du endast slutsvaret.",
+        "Jämför tallinjens två grenar, avståndstolkningen, substitutionskontrollerna och svaret med lösningen."
+      ]
+    }[family];
+    return { title: "Arbeta i räknehäftet", instruction: guidance[0], comparison: guidance[1] };
+  }
+
   function linear(a, b) {
     let value = a === 1 ? "x" : a === -1 ? "−x" : clean(a) + "x";
     if (b > 0) value += " + " + clean(b);
@@ -109,6 +135,7 @@
       title: family === "contextual-distance" ? "Avstånd på tallinjen" : "Absolutbeloppsekvation",
       points: 2,
       promptHtml: contextualLead,
+      workOnPaper: workOnPaper(family),
       fields: [{
         id: "roots", label: "Lösningsmängd", kind: "solution-set", points: 2, expected: expected, variable: "x",
         tolerance: { absolute: 1e-8, relative: 1e-9 }, help: "Skilj flera värden åt med semikolon."
