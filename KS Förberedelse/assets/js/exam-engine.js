@@ -356,14 +356,35 @@
       (value.runningSince === null || (Number.isFinite(value.runningSince) && value.runningSince >= 0));
   }
 
-  function validateSnapshot(snapshot, questionSource, subject) {
-    if (!validateExamData(subject, questionSource) || !isRecord(snapshot) || snapshot.schemaVersion !== 1 ||
+  function questionFieldSchema(question) {
+    return question.fields.map(function (field) {
+      return {
+        id: field.id,
+        kind: field.kind,
+        options: field.kind === "choice" ? field.options.map(function (option) { return option.value; }) : null
+      };
+    });
+  }
+
+  function validFieldSchema(value, selectedIds) {
+    if (!isRecord(value) || !sameKeys(value, Array.from(selectedIds))) return false;
+    return Array.from(selectedIds).every(function (questionId) {
+      const fields = value[questionId];
+      return Array.isArray(fields) && fields.every(function (field) {
+        return sameKeys(field, ["id", "kind", "options"]) && nonEmptyString(field.id) && nonEmptyString(field.kind) &&
+          (field.options === null || (Array.isArray(field.options) && field.options.every(nonEmptyString)));
+      });
+    });
+  }
+
+  function inspectSnapshot(snapshot, questionSource, subject) {
+    if (!validateExamData(subject, questionSource) || !isRecord(snapshot) ||
         snapshot.subjectId !== subject.id || !nonEmptyString(snapshot.examId) ||
         !Array.isArray(snapshot.questionIds) || snapshot.questionIds.length !== subject.questionCount ||
         new Set(snapshot.questionIds).size !== snapshot.questionIds.length ||
         !Number.isInteger(snapshot.currentIndex) || snapshot.currentIndex < 0 || snapshot.currentIndex >= subject.questionCount ||
         !["active", "graded"].includes(snapshot.status) || !isRecord(snapshot.answers) || !isRecord(snapshot.grades) ||
-        !validTimerSnapshot(snapshot.timer, subject)) return false;
+        !validTimerSnapshot(snapshot.timer, subject)) return { ok: false, reason: "invalid-snapshot" };
 
     const index = makeQuestionIndex(questionSource);
     const selectedIds = new Set(snapshot.questionIds);
@@ -371,33 +392,53 @@
     for (let position = 0; position < snapshot.questionIds.length; position += 1) {
       const id = snapshot.questionIds[position];
       const question = typeof id === "string" ? index[id] : null;
-      if (!question || question.slot !== position + 1) return false;
+      if (!question || question.slot !== position + 1) return { ok: false, reason: "invalid-snapshot" };
       selectedPoints += question.points;
     }
     if (!close(selectedPoints, subject.maxPoints) || !validIdCollection(snapshot.flags, selectedIds) ||
-        !validIdCollection(snapshot.expandedSolutions, selectedIds)) return false;
+        !validIdCollection(snapshot.expandedSolutions, selectedIds)) return { ok: false, reason: "invalid-snapshot" };
 
     for (const questionId of Object.keys(snapshot.answers)) {
       const question = selectedIds.has(questionId) ? index[questionId] : null;
       const answers = snapshot.answers[questionId];
-      if (!question || !isRecord(answers)) return false;
+      if (!question || !isRecord(answers)) return { ok: false, reason: "invalid-snapshot" };
       const fieldIds = new Set(question.fields.map(function (field) { return field.id; }));
-      if (Object.keys(answers).some(function (fieldId) { return !fieldIds.has(fieldId) || typeof answers[fieldId] !== "string"; })) return false;
+      if (Object.keys(answers).some(function (fieldId) { return !fieldIds.has(fieldId) || typeof answers[fieldId] !== "string"; })) return { ok: false, reason: "invalid-snapshot" };
     }
 
     if (snapshot.status === "active") {
-      return Object.keys(snapshot.grades).length === 0 && snapshot.expandedSolutions.length === 0 && snapshot.result === undefined;
-    }
-    if (!sameKeys(snapshot.grades, snapshot.questionIds) || !hasOnlyKeys(snapshot.result, ["status", "earned", "possible"]) ||
-        !["preliminary", "complete"].includes(snapshot.result.status) ||
-        !Number.isFinite(snapshot.result.earned) || !Number.isFinite(snapshot.result.possible)) return false;
+      if (!(Object.keys(snapshot.grades).length === 0 && snapshot.expandedSolutions.length === 0 && snapshot.result === undefined)) {
+        return { ok: false, reason: "invalid-snapshot" };
+      }
+    } else {
+      if (!sameKeys(snapshot.grades, snapshot.questionIds) || !hasOnlyKeys(snapshot.result, ["status", "earned", "possible"]) ||
+          !["preliminary", "complete"].includes(snapshot.result.status) ||
+          !Number.isFinite(snapshot.result.earned) || !Number.isFinite(snapshot.result.possible)) return { ok: false, reason: "invalid-snapshot" };
 
-    for (const questionId of snapshot.questionIds) {
-      if (!validQuestionGrade(snapshot.grades[questionId], index[questionId], snapshot.answers[questionId] || {})) return false;
+      for (const questionId of snapshot.questionIds) {
+        if (!validQuestionGrade(snapshot.grades[questionId], index[questionId], snapshot.answers[questionId] || {})) return { ok: false, reason: "invalid-snapshot" };
+      }
+      const expectedResult = createOverallResult(snapshot);
+      if (!(snapshot.result.status === expectedResult.status && close(snapshot.result.earned, expectedResult.earned) &&
+          close(snapshot.result.possible, expectedResult.possible) && close(snapshot.result.possible, subject.maxPoints))) {
+        return { ok: false, reason: "invalid-snapshot" };
+      }
     }
-    const expectedResult = createOverallResult(snapshot);
-    return snapshot.result.status === expectedResult.status && close(snapshot.result.earned, expectedResult.earned) &&
-      close(snapshot.result.possible, expectedResult.possible) && close(snapshot.result.possible, subject.maxPoints);
+
+    if (snapshot.schemaVersion === 1) return { ok: false, reason: "field-schema-mismatch" };
+    if (snapshot.schemaVersion !== 2 || !validFieldSchema(snapshot.fieldSchema, selectedIds)) {
+      return { ok: false, reason: "invalid-snapshot" };
+    }
+    for (const questionId of snapshot.questionIds) {
+      if (!sameJsonValue(snapshot.fieldSchema[questionId], questionFieldSchema(index[questionId]))) {
+        return { ok: false, reason: "field-schema-mismatch" };
+      }
+    }
+    return { ok: true, reason: null };
+  }
+
+  function validateSnapshot(snapshot, questionSource, subject) {
+    return inspectSnapshot(snapshot, questionSource, subject).ok;
   }
 
   function createOverallResult(state) {
@@ -526,10 +567,13 @@
       store.saveHistory(copy(history));
     });
     const state = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       subjectId: subject.id,
       examId: createExamId(),
       questionIds: questionIds,
+      fieldSchema: Object.fromEntries(questionIds.map(function (questionId) {
+        return [questionId, questionFieldSchema(index[questionId])];
+      })),
       currentIndex: 0,
       answers: {},
       flags: [],
@@ -549,5 +593,12 @@
     return makeSession(snapshot, index, store);
   }
 
-  return { createShuffleBag: createShuffleBag, createSession: createSession, validateSnapshot: validateSnapshot, restoreSession: restoreSession };
+  return {
+    createShuffleBag: createShuffleBag,
+    createSession: createSession,
+    questionFieldSchema: questionFieldSchema,
+    inspectSnapshot: inspectSnapshot,
+    validateSnapshot: validateSnapshot,
+    restoreSession: restoreSession
+  };
 });

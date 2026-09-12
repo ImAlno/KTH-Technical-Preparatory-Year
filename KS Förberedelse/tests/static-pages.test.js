@@ -193,10 +193,11 @@ function recoveryHarness(savedSnapshot, options) {
 
 function validRecoverySnapshot(status) {
   const active = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     subjectId: "recovery-test",
     examId: "saved-exam",
     questionIds: ["q1"],
+    fieldSchema: { q1: [{ id: "a", kind: "aliases", options: null }] },
     currentIndex: 0,
     answers: {},
     flags: [],
@@ -529,6 +530,44 @@ test("failed recovery behavior preserves storage through cancel and first replac
   assert.equal(JSON.parse(harness.values.get(key)).questionIds[0], "q1");
 });
 
+test("version-1 recovery names changed answer types and leaves active and history storage untouched until replacement is confirmed", () => {
+  const app = require("../assets/js/app.js");
+  const key = "ks-practice:v1:recovery-test:active";
+  const historyKey = "ks-practice:v1:recovery-test:history";
+  const saved = validRecoverySnapshot("active");
+  saved.schemaVersion = 1;
+  delete saved.fieldSchema;
+  const harness = recoveryHarness(saved);
+  harness.values.set(historyKey, JSON.stringify({ schemaVersion: 1, slots: { 1: { queue: ["q1"], lastId: "q1" } } }));
+  const original = harness.values.get(key);
+  const originalHistory = harness.values.get(historyKey);
+
+  assert.deepEqual(app.mount(harness.root, harness.subjectData), { ok: true });
+  assert.equal(harness.nodes["recovery-dialog"].open, true);
+  assert.equal(harness.nodes["recovery-message"].textContent, "Provets svarstyp har uppdaterats. Starta ett nytt prov för att fortsätta.");
+  assert.equal(harness.values.get(key), original);
+  assert.equal(harness.values.get(historyKey), originalHistory);
+
+  harness.nodes["recovery-new"].fire("click");
+  assert.equal(harness.nodes["recovery-dialog"].dataset.confirming, "true");
+  assert.equal(harness.values.get(key), original);
+  assert.equal(harness.values.get(historyKey), originalHistory);
+
+  harness.nodes["recovery-new"].fire("click");
+  assert.notEqual(harness.values.get(key), original);
+});
+
+test("changed saved field schemas use the answer-type recovery copy", () => {
+  const app = require("../assets/js/app.js");
+  const saved = validRecoverySnapshot("active");
+  saved.fieldSchema.q1[0].id = "changed";
+  const harness = recoveryHarness(saved);
+
+  assert.deepEqual(app.mount(harness.root, harness.subjectData), { ok: true });
+  assert.equal(harness.nodes["recovery-dialog"].open, true);
+  assert.equal(harness.nodes["recovery-message"].textContent, "Provets svarstyp har uppdaterats. Starta ett nytt prov för att fortsätta.");
+});
+
 test("a render failure after restore clears the session and keeps recovery modal", () => {
   const app = require("../assets/js/app.js");
   const key = "ks-practice:v1:recovery-test:active";
@@ -620,10 +659,14 @@ test("mounted recovery identifies semantic snapshot corruption without overwriti
 test("mounted recovery rejects known ids saved in the wrong slot order", () => {
   const app = require("../assets/js/app.js");
   const saved = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     subjectId: "recovery-test",
     examId: "wrong-order",
     questionIds: ["q2", "q1"],
+    fieldSchema: {
+      q2: [{ id: "b", kind: "aliases", options: null }],
+      q1: [{ id: "a", kind: "aliases", options: null }]
+    },
     currentIndex: 0,
     answers: {},
     flags: [],

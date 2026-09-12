@@ -205,6 +205,51 @@ test("choice fields and exact work-on-paper metadata are validated before any si
   });
 });
 
+test("snapshots bind every selected answer field to its id, kind, and choice values", () => {
+  const subject = { id: "schema-test", questionCount: 1, maxPoints: 1, passPoints: 1, durationMinutes: 1 };
+  const choice = {
+    id: "polarity", label: "Polaritetsval", kind: "choice", points: 1, expected: "yes",
+    options: [{ value: "yes", label: "Ja" }, { value: "no", label: "Nej" }]
+  };
+  const slots = { 1: [question("q1", 1, 1, [choice])] };
+  const session = exam.createSession(subject, slots, memoryStore(), seededRng(1));
+  const snapshot = session.snapshot();
+
+  assert.equal(snapshot.schemaVersion, 2);
+  assert.deepEqual(snapshot.fieldSchema.q1, [
+    { id: "polarity", kind: "choice", options: ["yes", "no"] }
+  ]);
+  assert.deepEqual(exam.questionFieldSchema(slots[1][0]), snapshot.fieldSchema.q1);
+  assert.equal(Object.hasOwn(snapshot.fieldSchema.q1[0], "label"), false);
+  assert.equal(Object.hasOwn(snapshot.fieldSchema.q1[0], "points"), false);
+  assert.equal(Object.hasOwn(snapshot.fieldSchema.q1[0], "expected"), false);
+  assert.deepEqual(exam.questionFieldSchema({ fields: [{ id: "work", kind: "self" }] }), [
+    { id: "work", kind: "self", options: null }
+  ]);
+});
+
+test("restoring a snapshot rejects changed field ids, kinds, order, and choice options before answers exist", () => {
+  const subject = { id: "schema-test", questionCount: 1, maxPoints: 2, passPoints: 1, durationMinutes: 1 };
+  const first = { id: "polarity", label: "Polaritetsval", kind: "choice", points: 1, expected: "yes", options: [{ value: "yes", label: "Ja" }, { value: "no", label: "Nej" }] };
+  const second = field("explanation", "aliases", 1, "förklaring");
+  const slots = { 1: [question("q1", 1, 2, [first, second])] };
+  const valid = exam.createSession(subject, slots, memoryStore(), seededRng(1)).snapshot();
+  const cases = [
+    ["field id", (value) => { value.fieldSchema.q1[0].id = "changed"; }],
+    ["field kind", (value) => { value.fieldSchema.q1[0].kind = "aliases"; }],
+    ["field order", (value) => { value.fieldSchema.q1.reverse(); }],
+    ["choice options", (value) => { value.fieldSchema.q1[0].options.reverse(); }]
+  ];
+
+  cases.forEach(([name, mutate]) => {
+    const candidate = structuredClone(valid);
+    mutate(candidate);
+    assert.deepEqual(exam.inspectSnapshot(candidate, slots, subject), { ok: false, reason: "field-schema-mismatch" }, name);
+    assert.equal(exam.validateSnapshot(candidate, slots, subject), false, name);
+    assert.throws(() => exam.restoreSession(candidate, slots, undefined, subject), /invalid exam snapshot/i, name);
+  });
+});
+
 test("dimensionless numeric fields may explicitly use a null target unit", () => {
   const subject = { id: "math", questionCount: 1, maxPoints: 1, passPoints: 1, durationMinutes: 1 };
   const numeric = { id: "f", label: "Svar", kind: "numeric", points: 1, expected: 2, targetUnit: null };
@@ -421,4 +466,6 @@ test("browser build resolves grading through KS and exports the public API", () 
 
   assert.equal(typeof context.window.KS.exam.createSession, "function");
   assert.equal(typeof context.window.KS.exam.createShuffleBag, "function");
+  assert.equal(typeof context.window.KS.exam.questionFieldSchema, "function");
+  assert.equal(typeof context.window.KS.exam.inspectSnapshot, "function");
 });

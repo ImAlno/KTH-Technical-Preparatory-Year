@@ -593,6 +593,12 @@
     }
 
     function restoreSavedSession(saved) {
+      const inspection = KS.exam.inspectSnapshot(saved, slots, subject);
+      if (!inspection.ok) {
+        session = null;
+        showRestoreFailure(inspection.reason);
+        return false;
+      }
       try {
         session = KS.exam.restoreSession(saved, slots, store, subject);
         closeDialog(elements.recoveryDialog);
@@ -601,17 +607,20 @@
         return true;
       } catch (error) {
         session = null;
-        showRestoreFailure();
+        showRestoreFailure("invalid-snapshot");
         return false;
       }
     }
 
     let recoveryProblem = false;
+    let recoveryReason = "invalid-snapshot";
 
     function resetRecoveryChoice() {
       elements.recoveryDialog.dataset.confirming = "false";
       elements.recoveryMessage.textContent = recoveryProblem
-        ? "Det sparade provet kunde inte återställas. Försök igen eller starta ett nytt prov."
+        ? recoveryReason === "field-schema-mismatch"
+          ? "Provets svarstyp har uppdaterats. Starta ett nytt prov för att fortsätta."
+          : "Det sparade provet kunde inte återställas. Försök igen eller starta ett nytt prov."
         : "Fortsätt där du slutade eller starta ett nytt prov.";
       elements.recoveryContinue.hidden = false;
       elements.recoveryContinue.textContent = recoveryProblem ? "Försök igen" : "Fortsätt provet";
@@ -629,8 +638,9 @@
       elements.recoveryNew.className = "primary-button";
     }
 
-    function showRestoreFailure() {
+    function showRestoreFailure(reason) {
       recoveryProblem = true;
+      recoveryReason = reason || "invalid-snapshot";
       resetRecoveryChoice();
       if (elements.sessionState) elements.sessionState.textContent = "Det sparade provet kunde inte öppnas";
       announce("Det sparade provet kunde inte återställas. Inget sparat prov har skrivits över.");
@@ -785,10 +795,11 @@
 
     const saved = store.loadActive();
     if (store.activeReadStatus === "corrupt") {
-      showRestoreFailure();
+      showRestoreFailure("invalid-snapshot");
     } else if (saved) {
-      if (!KS.exam.validateSnapshot(saved, slots, subject)) {
-        showRestoreFailure();
+      const inspection = KS.exam.inspectSnapshot(saved, slots, subject);
+      if (!inspection.ok) {
+        showRestoreFailure(inspection.reason);
       } else {
         showDialog(elements.recoveryDialog);
         if (elements.sessionState) elements.sessionState.textContent = "Sparat prov hittades";
