@@ -90,7 +90,7 @@
     }
   },
   "sourceHashes": {
-    "appCss": "bd7e2792e7a5b38272cdfb9214094387133b57f48ef5adaa2b078f20b2e8b06b",
+    "appCss": "7dbaf41d3ede4548525b9424c44036b67bd61bfde433e6889a2f55aeb52a13cc",
     "subjectConfig": "7da26540ea8e9e567b0cadb372fbfdfa6d386a19d03ca858b23150193549e3f1",
     "units": "c718ac6e90a15aa4e3c4e5dbee338350d59d6463bf8049404979455f71a17b87",
     "expressionParser": "d4ae481cc171828a5917a8a30ae161927cb093e988cd27363bb863b4385830e4",
@@ -111,7 +111,7 @@
     "auditRunner": "aa610993ae255665b4d06902c08570a368c43f4d0fe66e0319fb4bb7b94a1435",
     "auditVerifier": "7dfa75ccf93619a304c4688b494beb86da42b0dbffac581c8194dc923aba0fa3",
     "auditTest": "b67137f905b2f68f6829914e0f97c7ac64a211f5bcfe6c18ad535d0ffbea7692",
-    "staticPagesTest": "431e93969c2c38c985117f741b6eb0e85ea8369bbe2ffb185fdeb776f4ef906b",
+    "staticPagesTest": "18edf316d8ed004ae6c71134013896bbbcc294655adb0acc37ff7fe1b7cda4cd",
     "diagramKitTest": "e1096cbedd1db5802e5c7771c944771ae5de2fd47ed9fd7db3371dbcf12a2fb9",
     "mathQuestionsTest": "e976e9eccd60d2126268ffe3819c81ebdff77dc9cf1276c26e14ca1026e6cefd",
     "physicsQuestionsTest": "661254906fa034eb5e9cd3f67a008ae3ce5ea83b11d92c2b7f1d9539747f284b"

@@ -79,7 +79,7 @@ summary:focus-visible,
 .formula-dialog-content:focus-visible,
 #exam-app:focus-visible {
   outline: 3px solid var(--work);
-  outline-offset: 3px;
+  outline-offset: -3px;
 }
 
 .visually-hidden {
@@ -189,9 +189,9 @@ summary:focus-visible,
 
 .timer button[disabled],
 .neutral-button[disabled] {
-  color: var(--muted);
+  color: var(--ink);
   background: var(--ground);
-  border-color: var(--rule);
+  border-color: var(--muted);
   cursor: default;
   opacity: 1;
 }
@@ -453,7 +453,7 @@ summary:focus-visible,
 
 .choice-option input:focus-visible {
   outline: 3px solid var(--work);
-  outline-offset: 3px;
+  outline-offset: -3px;
 }
 
 .work-on-paper {
@@ -604,6 +604,10 @@ summary:focus-visible,
   border-color: var(--ink);
 }
 
+.point-choices button {
+  min-width: 44px;
+}
+
 .override-grade {
   margin-top: 14px;
   border-top: 1px solid var(--rule);
@@ -632,7 +636,7 @@ summary:focus-visible,
   margin: 28px 0;
   padding: 18px;
   background: rgb(255 255 255 / 38%);
-  border: 1px solid var(--rule);
+  border: 1px solid var(--muted);
   border-radius: 6px;
 }
 
@@ -681,9 +685,9 @@ summary:focus-visible,
 }
 
 .primary-button[disabled] {
-  color: var(--muted);
+  color: var(--ink);
   background: var(--ground);
-  border-color: var(--rule);
+  border-color: var(--muted);
   cursor: default;
   opacity: 1;
 }

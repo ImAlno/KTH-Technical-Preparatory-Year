@@ -891,7 +891,7 @@ test("every declared active control boundary has at least 3 to 1 non-text contra
       `${label}: ${foreground} against ${background} must be at least 3:1`
     );
   });
-  assert.match(css, /button\[disabled\][\s\S]{0,260}border-color:\s*var\(--rule\)/s);
+  assert.match(css, /button\[disabled\][\s\S]{0,260}border-color:\s*var\(--muted\)/s);
   assert.match(css, /button\[disabled\][\s\S]{0,260}opacity:\s*1/s);
 });
 
@@ -905,13 +905,14 @@ test("disabled primary buttons cannot enter the active hover cascade and stay in
   assert.doesNotMatch(css, /\.primary-button:hover\s*\{/);
   assert.ok(css.indexOf(".primary-button[disabled]") > css.indexOf(".primary-button:hover:not([disabled])"), "disabled rule follows active states");
   assert.equal(disabled.background, "var(--ground)");
-  assert.equal(disabled.color, "var(--muted)");
-  assert.equal(disabled["border-color"], "var(--rule)");
+  assert.equal(disabled.color, "var(--ink)");
+  assert.equal(disabled["border-color"], "var(--muted)");
   assert.equal(disabled.cursor, "default");
   assert.equal(disabled.opacity, "1");
   assert.notEqual(disabled.background, base.background);
   assert.notEqual(disabled.background, hover.background);
-  assert.ok(contrastRatio(tokens.muted, tokens.ground) >= 3, "disabled label remains intentionally legible");
+  assert.ok(contrastRatio(tokens.ink, tokens.ground) >= 4.5, "disabled label remains AA-legible");
+  assert.ok(contrastRatio(tokens.muted, tokens.ground) >= 3, "disabled boundary remains distinguishable");
 });
 
 test("status announcements transition between neutral, success and warning tones", () => {
