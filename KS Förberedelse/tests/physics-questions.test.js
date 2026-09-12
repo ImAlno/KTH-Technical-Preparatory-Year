@@ -249,13 +249,23 @@ function visiblePromptText(html) {
 function asksForComputerDerivation(html) {
   const text = visiblePromptText(html);
   const derivationTerms = "(?:metod|beräkning|uträkning|mellanled|steg|resonemang|förklaring|bevis|härledning|lösningsgång|tankegång|argument)[a-zåäö]*";
-  const forceWorkTerms = "(?:kraftfigur|frilägg(?:ning)?|skiss|vektorfigur|diagram|rit(?:a|ning))";
   return new RegExp(`\\b(?:redovisa|redogör|beskriv|skriv|ange|visa)\\b[^.?!]{0,120}\\b${derivationTerms}\\b`, "i").test(text) ||
     /\b(?:bevisa|förklara|motivera)\b/i.test(text) ||
     /\bvisa\s+(?:hur|varför)\b/i.test(text) ||
     /\bskriv\b[^.?!]{0,80}\b(?:hur|varför)\s+(?:du|ni|man)\b/i.test(text) ||
-    new RegExp(`\\b(?:redovisa|beskriv|skriv|ange|visa|rita|r\u00e4kna)\\b[^.?!]{0,100}\\b(?:${forceWorkTerms})\\b[^.?!]{0,100}\\b(?:här|i\\s+(?:svarsfältet|rutan|formuläret)|online|på\\s+skärmen)\\b`, "i").test(text) ||
-    new RegExp(`\\b(?:${forceWorkTerms})\\b(?![^.?!]{0,100}\\bräknehäftet\\b)[^.?!]{0,100}\\b(?:digitalt|online|på\\s+skärmen)\\b`, "i").test(text);
+    asksForComputerDrawing(text);
+}
+
+function asksForComputerDrawing(text) {
+  const drawVerb = "(?:rit(?:a|ar|as|ade|ning)|skiss(?:a|ar|as|ade))";
+  const action = `(?:${drawVerb}|redovisa|beskriv|skriv(?:\\s+in)?|ange|visa)`;
+  const forceWork = "(?:kraftfigur(?:en)?|kraftdiagram(?:met)?|frilägg(?:ning|ningen)?|skiss(?:en)?|vektorfigur(?:en)?|diagram(?:met)?)";
+  const drawing = new RegExp(`(?:\\b${action}\\b[^.?!;]{0,80}\\b${forceWork}\\b|\\b${forceWork}\\b[^.?!;]{0,80}\\b${drawVerb}\\b)`, "i");
+  const computerDestination = /\b(?:på\s+(?:skärmen|datorn)|i\s+(?:svarsfältet|svarsrutan|rutan|formuläret)|digitalt|online|här)\b/i;
+  return text.split(/[.!?;]+/).some((rawClause) => {
+    const drawingClause = rawClause.replace(/\b(?:och\s+)?(?:skriv(?:\s+in)?|ange|lämna|svara)\b[^.?!;]*(?:sluts?svaret?|svar(?:et)?|resultatet)\b[^.?!;]*$/i, " ");
+    return drawing.test(drawingClause) && computerDestination.test(drawingClause);
+  });
 }
 
 function seededRng(seed) {
@@ -687,7 +697,17 @@ test("physics prompt audit catches wrapped derivation and computer-directed forc
     ["<p>Visa figuren och bestäm vinkeln.</p>", false],
     ["<p>Skriv endast slutsvaret.</p>", false],
     ["<p>Ange svaret med rätt enhet.</p>", false],
+    ["<p>I räknehäftet rita kraftfiguren och skriv endast slutsvaret digitalt.</p>", false],
     ["<p>Rita kraftfiguren i räknehäftet och skriv endast slutsvaret digitalt.</p>", false],
+    ["<p>Rita kraftfiguren i räknehäftet och ange svaret digitalt.</p>", false],
+    ["<p>Rita kraftfiguren i räknehäftet; digitalt skriver du endast slutsvaret.</p>", false],
+    ["<p>På skärmen ritar du en kraftfigur.</p>", true],
+    ["<p>Digitalt: rita en kraftfigur.</p>", true],
+    ["<p>Rita en kraftfigur på datorn.</p>", true],
+    ["<p>I svarsrutan ritas kraftfiguren.</p>", true],
+    ["<p>På datorn ska du rita kraftfiguren.</p>", true],
+    ["<p>I räknehäftet gör du beräkningen; på skärmen ritar du kraftfiguren.</p>", true],
+    ["<p>Digitalt ritar du kraftfiguren; i räknehäftet gör du beräkningen.</p>", true],
     ["<p>Beräkna kraftfiguren i räknehäftet innan du anger slutsvaret.</p>", false],
     ["<p>Kontrollera <strong>enhet</strong> och avrundning.</p>", false]
   ];
