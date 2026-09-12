@@ -3,19 +3,20 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) {
     root.KS = root.KS || {};
-    root.KS.diagramKit = api;
+    root.KS.diagram = api;
   }
 })(typeof window !== "undefined" ? window : null, function () {
   "use strict";
 
   const EPSILON = 1e-12;
   const ORIGIN = [0, 0];
+  const PRIMITIVE_BRAND = typeof Symbol === "function" ? Symbol("diagram-kit-primitive") : "__diagramKitPrimitive__";
   const USED_FRAGMENT_IDS = new Set();
   const LAYERS = ["geometry", "connections", "information", "labels"];
   const ROLES = new Set([
     "line", "support", "ground", "wall", "contact", "body", "circle", "pulley", "rope", "connection",
     "force", "motion", "arrow", "dimension", "measure", "angle", "arc", "axis", "grid", "point", "marker",
-    "shape", "label", "decorative"
+    "shape", "label", "label-background", "decorative"
   ]);
 
   function fail(code, message) {
@@ -27,6 +28,11 @@
 
   function finite(value, name) {
     if (typeof value !== "number" || !Number.isFinite(value)) fail("NONFINITE", (name || "value") + " must be finite");
+    return value;
+  }
+  function nonnegative(value, name) {
+    finite(value, name);
+    if (value < 0) fail("NEGATIVE", (name || "value") + " must be non-negative");
     return value;
   }
 
@@ -43,12 +49,15 @@
   }
 
   function clone(v) { return [v[0], v[1]]; }
-  function add(a, b) { return [a[0] + b[0], a[1] + b[1]]; }
-  function sub(a, b) { return [a[0] - b[0], a[1] - b[1]]; }
-  function mul(a, scalar) { finite(scalar, "scalar"); return [a[0] * scalar, a[1] * scalar]; }
-  function dot(a, b) { return a[0] * b[0] + a[1] * b[1]; }
-  function cross(a, b) { return a[0] * b[1] - a[1] * b[0]; }
-  function length(v) { return Math.hypot(v[0], v[1]); }
+  function safeVector(value, name) {
+    return vector(value, name || "vector");
+  }
+  function add(a, b) { return safeVector([a[0] + b[0], a[1] + b[1]], "addition result"); }
+  function sub(a, b) { return safeVector([a[0] - b[0], a[1] - b[1]], "subtraction result"); }
+  function mul(a, scalar) { finite(scalar, "scalar"); return safeVector([a[0] * scalar, a[1] * scalar], "scale result"); }
+  function dot(a, b) { const result = a[0] * b[0] + a[1] * b[1]; return finite(result, "dot product"); }
+  function cross(a, b) { const result = a[0] * b[1] - a[1] * b[0]; return finite(result, "cross product"); }
+  function length(v) { return finite(Math.hypot(v[0], v[1]), "vector magnitude"); }
 
   function normalize(value) {
     const v = vector(value);
@@ -112,12 +121,14 @@
     const topRight = add(bottomRight, mul(outward, bodyHeight));
     const topLeft = add(bottomLeft, mul(outward, bodyHeight));
     return {
-      kind: "body", role: opts.role || "body", semantic: true,
+      [PRIMITIVE_BRAND]: true,
+      kind: "body", role: opts.role || "body", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "body.strokeWidth"),
       id: opts.id,
       line: actualLine,
       tangent,
       outwardNormal: outward,
       bottomCenter: lineUnit,
+      center: add(lineUnit, mul(outward, bodyHeight / 2)),
       bottomLeft,
       bottomRight,
       bottomCorners: [clone(bottomLeft), clone(bottomRight)],
@@ -169,19 +180,39 @@
     const to = vector(opts.to, "rope.to");
     const pulley = circle(opts.pulley || opts.circle);
     const r = positiveRadius(pulley.radius);
-    const fromTangent = chooseTangent(tangentPointsFromExternalPoint(from, pulley), pulley.center, opts.side);
-    const toTangent = chooseTangent(tangentPointsFromExternalPoint(to, pulley), pulley.center, opts.side);
-    const startAngle = Math.atan2(fromTangent[1] - pulley.center[1], fromTangent[0] - pulley.center[0]);
-    const endAngle = Math.atan2(toTangent[1] - pulley.center[1], toTangent[0] - pulley.center[0]);
-    let delta = normalizeAngle(endAngle - startAngle);
-    let sweep = 1;
-    if (opts.side === "bottom") { sweep = -1; delta = normalizeAngle(startAngle - endAngle); }
-    else if (opts.side === "left") { sweep = -1; delta = normalizeAngle(startAngle - endAngle); }
-    else if (opts.side === "short") {
-      if (delta > Math.PI) { sweep = -1; delta = Math.PI * 2 - delta; }
-    } else if (opts.side === "long") {
-      if (delta < Math.PI) { sweep = -1; delta = Math.PI * 2 - delta; }
-    } else if (delta > Math.PI) { sweep = -1; delta = Math.PI * 2 - delta; }
+    const fromCandidates = tangentPointsFromExternalPoint(from, pulley);
+    const toCandidates = tangentPointsFromExternalPoint(to, pulley);
+    const sideDirection = sideVector(opts.side);
+    const requestedSide = opts.side === "top" || opts.side === "bottom" || opts.side === "left" || opts.side === "right";
+    const solutions = [];
+    for (let i = 0; i < fromCandidates.length; i += 1) for (let j = 0; j < toCandidates.length; j += 1) {
+      const fromTangentCandidate = fromCandidates[i]; const toTangentCandidate = toCandidates[j];
+      for (const candidateSweep of [1, -1]) {
+        const firstIncoming = normalize(sub(fromTangentCandidate, from));
+        const firstArc = normalize([candidateSweep * -(fromTangentCandidate[1] - pulley.center[1]), candidateSweep * (fromTangentCandidate[0] - pulley.center[0])]);
+        const lastArc = normalize([candidateSweep * -(toTangentCandidate[1] - pulley.center[1]), candidateSweep * (toTangentCandidate[0] - pulley.center[0])]);
+        const lastOutgoing = normalize(sub(to, toTangentCandidate));
+        const firstContinuity = dot(firstIncoming, firstArc);
+        const lastContinuity = dot(lastArc, lastOutgoing);
+        if (firstContinuity < 1 - 1e-7 || lastContinuity < 1 - 1e-7) continue;
+        const startCandidateAngle = Math.atan2(fromTangentCandidate[1] - pulley.center[1], fromTangentCandidate[0] - pulley.center[0]);
+        const endCandidateAngle = Math.atan2(toTangentCandidate[1] - pulley.center[1], toTangentCandidate[0] - pulley.center[0]);
+        const candidateDelta = candidateSweep === 1 ? normalizeAngle(endCandidateAngle - startCandidateAngle) : normalizeAngle(startCandidateAngle - endCandidateAngle);
+        if (candidateDelta <= EPSILON) continue;
+        const midpointAngle = startCandidateAngle + candidateSweep * candidateDelta / 2;
+        const midpoint = add(pulley.center, [r * Math.cos(midpointAngle), r * Math.sin(midpointAngle)]);
+        const sideScore = dot(sub(midpoint, pulley.center), sideDirection);
+        solutions.push({ fromTangent: fromTangentCandidate, toTangent: toTangentCandidate, sweep: candidateSweep, delta: candidateDelta, sideScore, firstContinuity, lastContinuity });
+      }
+    }
+    if (!solutions.length) fail("INVARIANT", "no continuous tangent rope path exists for the supplied endpoints");
+    solutions.sort((a, b) => {
+      if (requestedSide && Math.abs(b.sideScore - a.sideScore) > 1e-9) return b.sideScore - a.sideScore;
+      if (opts.side === "long" || opts.side === "bottom" || opts.side === "left") return b.delta - a.delta;
+      return a.delta - b.delta;
+    });
+    const selected = solutions[0];
+    const fromTangent = selected.fromTangent; const toTangent = selected.toTangent; const sweep = selected.sweep; const delta = selected.delta;
     const arc = { kind: "arc", from: clone(fromTangent), to: clone(toTangent), center: clone(pulley.center), radius: r, sweep, largeArc: delta > Math.PI };
     const fromSegment = { kind: "segment", from: clone(from), to: clone(fromTangent) };
     const toSegment = { kind: "segment", from: clone(toTangent), to: clone(to) };
@@ -189,11 +220,14 @@
       const external = index ? to : from;
       if (Math.abs(dot(sub(point, pulley.center), sub(external, point))) > 1e-6) fail("INVARIANT", "rope tangent is not orthogonal to its radius");
     });
+    if (selected.firstContinuity < 1 - 1e-6 || selected.lastContinuity < 1 - 1e-6) fail("INVARIANT", "rope contacts are not C1 continuous");
+    const path = "M " + from[0] + " " + from[1] + " L " + fromTangent[0] + " " + fromTangent[1] + " A " + r + " " + r + " 0 " + (delta > Math.PI ? 1 : 0) + " " + (sweep === 1 ? 1 : 0) + " " + toTangent[0] + " " + toTangent[1] + " L " + to[0] + " " + to[1];
     return {
-      kind: "rope", role: opts.role || "rope", semantic: true,
+      [PRIMITIVE_BRAND]: true,
+      kind: "rope", role: opts.role || "rope", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "rope.strokeWidth"),
       id: opts.id, from, to, pulley: { center: clone(pulley.center), radius: r }, fromTangent, toTangent,
       tangentPoints: [clone(fromTangent), clone(toTangent)], start: clone(fromTangent), end: clone(toTangent), segments: [fromSegment, arc, toSegment], arc,
-      length: length(sub(from, fromTangent)) + r * delta + length(sub(to, toTangent))
+      path, length: length(sub(from, fromTangent)) + r * delta + length(sub(to, toTangent))
     };
   }
 
@@ -211,9 +245,10 @@
     const end = add(vertex, mul(toRay, radius));
     const radians = Math.acos(dotValue);
     return {
-      kind: "angleArc", role: opts.role || "angle", semantic: true,
+      [PRIMITIVE_BRAND]: true,
+      kind: "angleArc", role: opts.role || "angle", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "angle.strokeWidth"),
       id: opts.id, vertex, fromRay, toRay, radius, start, end, radians,
-      startPoint: clone(start), endPoint: clone(end), degrees: radians * 180 / Math.PI, sweep: crossValue >= 0 ? 1 : 0, largeArc: radians > Math.PI,
+      startPoint: clone(start), endPoint: clone(end), degrees: radians * 180 / Math.PI, sweep: crossValue >= 0 ? 1 : -1, largeArc: radians > Math.PI,
       path: "M " + start[0] + " " + start[1] + " A " + radius + " " + radius + " 0 " + (radians > Math.PI ? 1 : 0) + " " + (crossValue >= 0 ? 1 : 0) + " " + end[0] + " " + end[1]
     };
   }
@@ -228,7 +263,7 @@
     const offset = finite(opts.offset === undefined ? 0 : opts.offset, "dimension.offset");
     const start = add(a, mul(normal, offset));
     const end = add(b, mul(normal, offset));
-    return { kind: "dimension", role: opts.role || "dimension", semantic: true, id: opts.id, a, b, tangent, normal, offset, start, end, startAnchor: clone(start), endAnchor: clone(end), anchors: [clone(start), clone(end)], extension: [{ from: clone(a), to: clone(start) }, { from: clone(b), to: clone(end) }], length: length(sub(b, a)), labelAt: mul(add(start, end), 0.5) };
+    return { [PRIMITIVE_BRAND]: true, kind: "dimension", role: opts.role || "dimension", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "dimension.strokeWidth"), id: opts.id, a, b, tangent, normal, offset, start, end, startAnchor: clone(start), endAnchor: clone(end), anchors: [clone(start), clone(end)], extension: [{ from: clone(a), to: clone(start) }, { from: clone(b), to: clone(end) }], length: length(sub(b, a)), labelAt: mul(add(start, end), 0.5) };
   }
 
   function arrow(options) {
@@ -243,7 +278,7 @@
     const normal = [-tangent[1], tangent[0]];
     const left = add(base, mul(normal, headWidth / 2));
     const right = sub(base, mul(normal, headWidth / 2));
-    return { kind: "arrow", id: opts.id, role: opts.role || "arrow", from, to, tangent, base, left, right, head: [clone(left), clone(to), clone(right)], path: "M " + from[0] + " " + from[1] + " L " + to[0] + " " + to[1], headLength, headWidth };
+    return { [PRIMITIVE_BRAND]: true, kind: "arrow", id: opts.id, role: opts.role || "arrow", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 2 : opts.strokeWidth, "arrow.strokeWidth"), from, to, tangent, base, left, right, head: [clone(left), clone(to), clone(right)], path: "M " + from[0] + " " + from[1] + " L " + to[0] + " " + to[1], headLength, headWidth };
   }
 
   function graphTransform(options) {
@@ -255,10 +290,11 @@
     const y0 = finite(yDomain[0], "yDomain[0]"); const y1 = finite(yDomain[1], "yDomain[1]");
     const px = finite(plot.x, "plot.x"); const py = finite(plot.y, "plot.y");
     const pw = finite(plot.width, "plot.width"); const ph = finite(plot.height, "plot.height");
-    if (!(x1 > x0) || !(y1 > y0) || !(pw > 0) || !(ph > 0)) fail("DEGENERATE", "graph domains and plot dimensions must increase");
-    function toScreen(point) { const p = vector(point, "graph point"); return [px + (p[0] - x0) / (x1 - x0) * pw, py + ph - (p[1] - y0) / (y1 - y0) * ph]; }
-    function fromScreen(point) { const p = vector(point, "screen point"); return [x0 + (p[0] - px) / pw * (x1 - x0), y0 + (py + ph - p[1]) / ph * (y1 - y0)]; }
-    const result = { xDomain: [x0, x1], yDomain: [y0, y1], plot: { x: px, y: py, width: pw, height: ph }, xScale: pw / (x1 - x0), yScale: ph / (y1 - y0), toScreen, fromScreen };
+    if (!(x1 - x0 > EPSILON) || !(y1 - y0 > EPSILON) || !(pw > EPSILON) || !(ph > EPSILON)) fail("DEGENERATE", "graph domains and plot dimensions must increase; zero or near-degenerate span");
+    function toScreen(point) { const p = vector(point, "graph point"); return safeVector([px + (p[0] - x0) / (x1 - x0) * pw, py + ph - (p[1] - y0) / (y1 - y0) * ph], "screen point"); }
+    function fromScreen(point) { const p = vector(point, "screen point"); return safeVector([x0 + (p[0] - px) / pw * (x1 - x0), y0 + (py + ph - p[1]) / ph * (y1 - y0)], "graph point"); }
+    const xScale = finite(pw / (x1 - x0), "graph x scale"); const yScale = finite(ph / (y1 - y0), "graph y scale");
+    const result = { xDomain: [x0, x1], yDomain: [y0, y1], plot: { x: px, y: py, width: pw, height: ph }, xScale, yScale, toScreen, fromScreen };
     if (opts.point !== undefined) result.point = toScreen(opts.point);
     if (opts.xValue !== undefined && opts.yValue !== undefined) result.point = toScreen([opts.xValue, opts.yValue]);
     result.xToScreen = (value) => toScreen([finite(value, "graph x"), y0])[0];
@@ -274,18 +310,22 @@
     if (selectedRole === "decorative") {
       if (kind !== "rect" || opts.decorative !== true || opts.semanticGeometry === true) fail("DECORATIVE_SEMANTIC", "decorative exemption is limited to explicit background rectangles");
     }
-    return { kind, id: shapeId, role: selectedRole, semantic: selectedRole !== "decorative", attrs: opts };
+    const result = { kind, id: shapeId, role: selectedRole, semantic: selectedRole !== "decorative", attrs: opts };
+    result[PRIMITIVE_BRAND] = true;
+    return result;
   }
 
   function line(options) {
     const s = shapeBase(options, "line", "line");
-    s.a = vector(options.a, "line.a"); s.b = vector(options.b, "line.b"); s.strokeWidth = finite(options.strokeWidth === undefined ? 1 : options.strokeWidth, "line.strokeWidth");
+    s.a = vector(options.a, "line.a"); s.b = vector(options.b, "line.b");
+    if (length(sub(s.b, s.a)) <= EPSILON) fail("DEGENERATE", "line endpoints form a zero-length segment");
+    s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "line.strokeWidth");
     return s;
   }
 
   function circleShape(options) {
     const s = shapeBase(options, "circle", "circle");
-    s.center = vector(options.center, "circle.center"); s.radius = positiveRadius(finite(options.radius, "circle.radius")); s.strokeWidth = finite(options.strokeWidth === undefined ? 1 : options.strokeWidth, "circle.strokeWidth");
+    s.center = vector(options.center, "circle.center"); s.radius = positiveRadius(finite(options.radius, "circle.radius")); s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "circle.strokeWidth");
     return s;
   }
 
@@ -293,29 +333,69 @@
     const s = shapeBase(options, "rect", options && options.decorative ? "decorative" : "shape");
     s.x = finite(options.x, "rect.x"); s.y = finite(options.y, "rect.y"); s.width = finite(options.width, "rect.width"); s.height = finite(options.height, "rect.height");
     if (!(s.width >= 0) || !(s.height >= 0)) fail("DEGENERATE", "rectangle dimensions must be non-negative");
-    s.strokeWidth = finite(options.strokeWidth === undefined ? 1 : options.strokeWidth, "rect.strokeWidth");
+    s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "rect.strokeWidth");
     return s;
   }
 
   function polygon(options) {
     const s = shapeBase(options, "polygon", "shape");
     if (!Array.isArray(options.points) || options.points.length < 3) fail("DEGENERATE", "polygon requires at least three points");
-    s.points = options.points.map((p) => vector(p, "polygon.point")); s.strokeWidth = finite(options.strokeWidth === undefined ? 1 : options.strokeWidth, "polygon.strokeWidth");
+    s.points = options.points.map((p) => vector(p, "polygon.point"));
+    for (let i = 0; i < s.points.length; i += 1) if (length(sub(s.points[(i + 1) % s.points.length], s.points[i])) <= EPSILON) fail("DEGENERATE", "polygon has a zero-length edge");
+    let area = 0; for (let i = 0; i < s.points.length; i += 1) area += cross(s.points[i], s.points[(i + 1) % s.points.length]);
+    if (Math.abs(area) <= EPSILON) fail("DEGENERATE", "polygon has zero area");
+    s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "polygon.strokeWidth");
     return s;
   }
 
   function polyline(options) {
     const s = shapeBase(options, "polyline", "line");
     if (!Array.isArray(options.points) || options.points.length < 2) fail("DEGENERATE", "polyline requires at least two points");
-    s.points = options.points.map((p) => vector(p, "polyline.point")); s.strokeWidth = finite(options.strokeWidth === undefined ? 1 : options.strokeWidth, "polyline.strokeWidth");
+    s.points = options.points.map((p) => vector(p, "polyline.point"));
+    for (let i = 1; i < s.points.length; i += 1) if (length(sub(s.points[i], s.points[i - 1])) <= EPSILON) fail("DEGENERATE", "polyline has a zero-length segment");
+    s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "polyline.strokeWidth");
     return s;
+  }
+
+  function parsePathBounds(source) {
+    const tokens = [];
+    const tokenPattern = /([a-zA-Z])|([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)/giu;
+    let cursor = 0; let match;
+    while ((match = tokenPattern.exec(source))) {
+      if (source.slice(cursor, match.index).trim().replace(/,/gu, "")) fail("INVALID_PATH", "path contains unsupported syntax");
+      tokens.push(match[1] ? match[1] : finite(Number(match[2]), "path coordinate")); cursor = tokenPattern.lastIndex;
+    }
+    if (source.slice(cursor).trim().replace(/,/gu, "") || !tokens.length) fail("INVALID_PATH", "path contains unsupported syntax");
+    const points = []; let index = 0; let command = null; let current = [0, 0]; let subpath = [0, 0];
+    function coordinate(relative, x, y) { return relative ? add(current, [x, y]) : [x, y]; }
+    while (index < tokens.length) {
+      if (typeof tokens[index] === "string") command = tokens[index++];
+      if (!command || !/^[MmLlHhVvZz]$/u.test(command)) fail("INVALID_PATH", "only finite M/L/H/V/Z path commands are supported");
+      const relative = command === command.toLowerCase(); const upper = command.toUpperCase();
+      if (upper === "Z") { current = clone(subpath); points.push(clone(current)); command = null; continue; }
+      const needs = upper === "H" || upper === "V" ? 1 : 2;
+      if (index + needs > tokens.length || typeof tokens[index] === "string") fail("INVALID_PATH", "path command has missing coordinates");
+      const first = tokens[index++]; const second = needs === 2 ? tokens[index++] : null;
+      if (typeof first === "string" || (second !== null && typeof second === "string")) fail("INVALID_PATH", "path command has invalid coordinates");
+      let next;
+      if (upper === "H") next = relative ? [current[0] + first, current[1]] : [first, current[1]];
+      else if (upper === "V") next = relative ? [current[0], current[1] + first] : [current[0], first];
+      else next = coordinate(relative, first, second);
+      if (upper === "M") subpath = clone(next);
+      current = next; points.push(clone(current));
+      if (upper === "M") command = relative ? "l" : "L";
+    }
+    if (points.length < 2) fail("DEGENERATE", "path has no painted segment");
+    let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
+    points.forEach((point) => { minX = Math.min(minX, point[0]); minY = Math.min(minY, point[1]); maxX = Math.max(maxX, point[0]); maxY = Math.max(maxY, point[1]); });
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
 
   function path(options) {
     const s = shapeBase(options, "path", "line");
     if (typeof options.d !== "string" || !options.d.trim() || /(?:NaN|Infinity)/u.test(options.d)) fail("INVALID_PATH", "path requires finite numeric geometry");
-    s.d = options.d; s.bbox = options.bbox ? { x: finite(options.bbox.x, "path.bbox.x"), y: finite(options.bbox.y, "path.bbox.y"), width: finite(options.bbox.width, "path.bbox.width"), height: finite(options.bbox.height, "path.bbox.height") } : null;
-    s.strokeWidth = finite(options.strokeWidth === undefined ? 1 : options.strokeWidth, "path.strokeWidth");
+    s.d = options.d; s.bbox = parsePathBounds(options.d);
+    s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "path.strokeWidth");
     return s;
   }
 
@@ -323,8 +403,12 @@
     const opts = options || {};
     const s = shapeBase(Object.assign({}, opts, { role: "label" }), "label", "label");
     if (typeof opts.text !== "string" || !opts.text.trim()) fail("MISSING_ACCESSIBILITY", "label text is required");
-    s.at = vector(opts.at, "label.at"); s.text = opts.text; s.anchor = opts.anchor || "start";
-    if (!["start", "middle", "end"].includes(s.anchor)) fail("INVALID_LABEL", "label anchor must be start, middle, or end");
+    s.at = vector(opts.at, "label.at"); s.text = opts.text;
+    s.anchorId = opts.anchorId || opts.ownerId;
+    if (!s.anchorId || typeof s.anchorId !== "string") fail("INVALID_LABEL", "label anchorId must name an owning geometry");
+    s.anchorId = id(s.anchorId, "label.anchorId");
+    s.textAnchor = opts.textAnchor || (opts.anchor && ["start", "middle", "end"].includes(opts.anchor) ? opts.anchor : "start");
+    if (!["start", "middle", "end"].includes(s.textAnchor)) fail("INVALID_LABEL", "label textAnchor must be start, middle, or end");
     s.avoid = (opts.avoid || []).map((value) => id(value, "label.avoid"));
     s.minClearance = finite(opts.minClearance === undefined ? 0 : opts.minClearance, "label.minClearance");
     if (s.minClearance < 0) fail("INVALID_LABEL", "label minClearance must be non-negative");
@@ -336,7 +420,7 @@
 
   function primitiveFromGeometry(geometry, options) {
     const opts = options || {};
-    if (geometry && geometry.kind) {
+    if (geometry && geometry.kind && geometry[PRIMITIVE_BRAND] === true) {
       const s = Object.assign({}, geometry);
       if (opts.id && !s.id) s.id = id(opts.id, "element.id");
       if (!s.id) s.id = id("geometry-" + geometry.kind, "element.id");
@@ -347,7 +431,7 @@
       s.id = id(s.id, "element.id");
       return s;
     }
-    fail("INVALID_ELEMENT", "diagram elements must be kit primitives");
+    fail("INVALID_ELEMENT", "diagram elements must be branded kit primitives");
   }
 
   function bboxOf(s) {
@@ -355,14 +439,19 @@
     if (s.kind === "line" || s.kind === "arrow") points = [s.from || s.a, s.to || s.b, ...(s.kind === "arrow" ? [s.left, s.right] : [])];
     else if (s.kind === "body") points = s.corners;
     else if (s.kind === "dimension") points = [s.a, s.b, s.start, s.end];
-    else if (s.kind === "angleArc") points = [s.start, s.end, s.vertex];
-    else if (s.kind === "rope") points = [s.from, s.to, s.fromTangent, s.toTangent, s.pulley.center];
+    else if (s.kind === "angleArc") return arcBounds(s.vertex, s.radius, Math.atan2(s.start[1] - s.vertex[1], s.start[0] - s.vertex[0]), Math.atan2(s.end[1] - s.vertex[1], s.end[0] - s.vertex[0]), s.sweep, 1);
+    else if (s.kind === "rope") {
+      const lineOne = bboxOf({ kind: "line", a: s.from, b: s.fromTangent, strokeWidth: s.strokeWidth });
+      const lineTwo = bboxOf({ kind: "line", a: s.toTangent, b: s.to, strokeWidth: s.strokeWidth });
+      const arcBox = arcBounds(s.pulley.center, s.pulley.radius, Math.atan2(s.fromTangent[1] - s.pulley.center[1], s.fromTangent[0] - s.pulley.center[0]), Math.atan2(s.toTangent[1] - s.pulley.center[1], s.toTangent[0] - s.pulley.center[0]), s.arc.sweep, s.strokeWidth);
+      return unionBounds(unionBounds(lineOne, arcBox), lineTwo);
+    }
     else if (s.kind === "circle") return { x: s.center[0] - s.radius - s.strokeWidth / 2, y: s.center[1] - s.radius - s.strokeWidth / 2, width: 2 * s.radius + s.strokeWidth, height: 2 * s.radius + s.strokeWidth };
     else if (s.kind === "rect") return { x: s.x - s.strokeWidth / 2, y: s.y - s.strokeWidth / 2, width: s.width + s.strokeWidth, height: s.height + s.strokeWidth };
     else if (s.kind === "polygon" || s.kind === "polyline") points = s.points;
     else if (s.kind === "label") {
       const width = Math.max(1, s.text.length * s.fontSize * 0.58);
-      const x = s.anchor === "middle" ? s.at[0] - width / 2 : s.anchor === "end" ? s.at[0] - width : s.at[0];
+      const x = s.textAnchor === "middle" ? s.at[0] - width / 2 : s.textAnchor === "end" ? s.at[0] - width : s.at[0];
       const extra = s.background === "opaque" ? 2 : 0;
       return { x: x - extra, y: s.at[1] - s.fontSize - extra, width: width + extra * 2, height: s.fontSize * 1.25 + extra * 2 };
     } else if (s.bbox) return Object.assign({}, s.bbox);
@@ -380,25 +469,41 @@
   function number(value) { finite(value); return String(Number(value.toFixed(12))); }
   function pointList(points) { return points.map((p) => number(p[0]) + "," + number(p[1])).join(" "); }
 
+  function angleOnArc(angle, start, delta, sweep) {
+    const travelled = sweep === 1 ? normalizeAngle(angle - start) : normalizeAngle(start - angle);
+    return travelled <= delta + 1e-9;
+  }
+  function arcBounds(center, radius, start, end, sweep, strokeWidth) {
+    const delta = sweep === 1 ? normalizeAngle(end - start) : normalizeAngle(start - end);
+    const angles = [start, end, 0, Math.PI / 2, Math.PI, Math.PI * 1.5].filter((angle) => angleOnArc(angle, start, delta, sweep));
+    const points = angles.map((angle) => add(center, [radius * Math.cos(angle), radius * Math.sin(angle)]));
+    const xs = points.map((point) => point[0]); const ys = points.map((point) => point[1]); const stroke = (strokeWidth || 0) / 2;
+    return { x: Math.min(...xs) - stroke, y: Math.min(...ys) - stroke, width: Math.max(...xs) - Math.min(...xs) + stroke * 2, height: Math.max(...ys) - Math.min(...ys) + stroke * 2 };
+  }
+  function unionBounds(first, second) {
+    const minX = Math.min(first.x, second.x); const minY = Math.min(first.y, second.y);
+    return { x: minX, y: minY, width: Math.max(first.x + first.width, second.x + second.width) - minX, height: Math.max(first.y + first.height, second.y + second.height) - minY };
+  }
+
   function attrsFor(s) {
     const data = ' data-role="' + escapeAttr(s.role) + '" data-geometry-id="' + escapeAttr(s.id) + '"';
     if (s.kind === "line") return '<line x1="' + number(s.a[0]) + '" y1="' + number(s.a[1]) + '" x2="' + number(s.b[0]) + '" y2="' + number(s.b[1]) + '" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></line>';
     if (s.kind === "circle") return '<circle cx="' + number(s.center[0]) + '" cy="' + number(s.center[1]) + '" r="' + number(s.radius) + '" stroke="currentColor" fill="none" stroke-width="' + number(s.strokeWidth) + '"' + data + '></circle>';
-    if (s.kind === "rect") return '<rect x="' + number(s.x) + '" y="' + number(s.y) + '" width="' + number(s.width) + '" height="' + number(s.height) + '"' + (s.attrs.rx ? ' rx="' + number(finite(s.attrs.rx, "rect.rx")) + '"' : "") + ' fill="' + (s.role === "decorative" ? "currentColor" : "none") + '" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></rect>';
+    if (s.kind === "rect") return '<rect x="' + number(s.x) + '" y="' + number(s.y) + '" width="' + number(s.width) + '" height="' + number(s.height) + '"' + (s.attrs.rx !== undefined ? ' rx="' + number(nonnegative(s.attrs.rx, "rect.rx")) + '"' : "") + ' fill="' + (s.role === "decorative" ? "#FBF8EF" : "none") + '" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></rect>';
     if (s.kind === "polygon") return '<polygon points="' + pointList(s.points) + '" fill="none" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></polygon>';
     if (s.kind === "polyline") return '<polyline points="' + pointList(s.points) + '" fill="none" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></polyline>';
     if (s.kind === "path") return '<path d="' + escapeAttr(s.d) + '" fill="none" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></path>';
-    if (s.kind === "arrow") return '<line x1="' + number(s.from[0]) + '" y1="' + number(s.from[1]) + '" x2="' + number(s.to[0]) + '" y2="' + number(s.to[1]) + '" stroke="currentColor" stroke-width="2" marker-end="url(#' + escapeAttr(s._markerId) + ')"' + data + '></line>';
-    if (s.kind === "body") return '<polygon points="' + pointList(s.corners) + '" fill="none" stroke="currentColor" stroke-width="1"' + data + '></polygon>';
-    if (s.kind === "angleArc") return '<path d="' + escapeAttr(s.path) + '" fill="none" stroke="currentColor" stroke-width="1"' + data + '></path>';
-    if (s.kind === "dimension") return '<line x1="' + number(s.start[0]) + '" y1="' + number(s.start[1]) + '" x2="' + number(s.end[0]) + '" y2="' + number(s.end[1]) + '" stroke="currentColor" stroke-width="1"' + data + '></line>';
-    if (s.kind === "rope") return '<path d="M ' + number(s.from[0]) + ' ' + number(s.from[1]) + ' L ' + number(s.fromTangent[0]) + ' ' + number(s.fromTangent[1]) + ' A ' + number(s.pulley.radius) + ' ' + number(s.pulley.radius) + ' 0 ' + (s.arc.largeArc ? 1 : 0) + ' ' + s.arc.sweep + ' ' + number(s.toTangent[0]) + ' ' + number(s.toTangent[1]) + ' L ' + number(s.to[0]) + ' ' + number(s.to[1]) + '" fill="none" stroke="currentColor" stroke-width="1"' + data + '></path>';
+    if (s.kind === "arrow") return '<line x1="' + number(s.from[0]) + '" y1="' + number(s.from[1]) + '" x2="' + number(s.to[0]) + '" y2="' + number(s.to[1]) + '" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '" marker-end="url(#' + escapeAttr(s._markerId) + ')"' + data + '></line>';
+    if (s.kind === "body") return '<polygon points="' + pointList(s.corners) + '" fill="none" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></polygon>';
+    if (s.kind === "angleArc") return '<path d="' + escapeAttr(s.path) + '" fill="none" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></path>';
+    if (s.kind === "dimension") return '<g' + data + '><line x1="' + number(s.start[0]) + '" y1="' + number(s.start[1]) + '" x2="' + number(s.end[0]) + '" y2="' + number(s.end[1]) + '" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"></line><line x1="' + number(s.extension[0].from[0]) + '" y1="' + number(s.extension[0].from[1]) + '" x2="' + number(s.extension[0].to[0]) + '" y2="' + number(s.extension[0].to[1]) + '" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '" data-role="dimension" data-geometry-id="' + escapeAttr(s.id + "-extension-a") + '"></line><line x1="' + number(s.extension[1].from[0]) + '" y1="' + number(s.extension[1].from[1]) + '" x2="' + number(s.extension[1].to[0]) + '" y2="' + number(s.extension[1].to[1]) + '" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '" data-role="dimension" data-geometry-id="' + escapeAttr(s.id + "-extension-b") + '"></line></g>';
+    if (s.kind === "rope") return '<path d="' + escapeAttr(s.path) + '" fill="none" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></path>';
     if (s.kind === "label") {
       const bg = s.background === "opaque" ? ' data-label-background="opaque"' : ' data-label-background="none"';
       const labelBox = bboxOf(s);
       const backgroundId = s._backgroundId || s.id + "-background";
-      const background = s.background === "opaque" ? '<rect id="' + escapeAttr(backgroundId) + '" x="' + number(labelBox.x) + '" y="' + number(labelBox.y) + '" width="' + number(labelBox.width) + '" height="' + number(labelBox.height) + '" fill="currentColor" stroke="none" data-role="decorative" data-geometry-id="' + escapeAttr(backgroundId) + '" data-label-background="opaque"></rect>' : "";
-      return background + '<text x="' + number(s.at[0]) + '" y="' + number(s.at[1]) + '" text-anchor="' + escapeAttr(s.anchor) + '" font-size="' + number(s.fontSize) + '" data-label="' + escapeAttr(s.text) + '" data-label-anchor="' + escapeAttr(s.anchor) + '" data-label-avoid="' + escapeAttr(s.avoid.join(",")) + '" data-label-min-clearance="' + number(s.minClearance) + '"' + bg + data + '>' + escapeText(s.text) + '</text>';
+      const background = s.background === "opaque" ? '<rect id="' + escapeAttr(backgroundId) + '" x="' + number(labelBox.x) + '" y="' + number(labelBox.y) + '" width="' + number(labelBox.width) + '" height="' + number(labelBox.height) + '" fill="#FBF8EF" stroke="none" data-role="label-background" data-geometry-id="' + escapeAttr(backgroundId) + '" data-label-background="opaque"></rect>' : "";
+      return background + '<text x="' + number(s.at[0]) + '" y="' + number(s.at[1]) + '" text-anchor="' + escapeAttr(s.textAnchor) + '" font-size="' + number(s.fontSize) + '" data-label="' + escapeAttr(s.text) + '" data-label-anchor="' + escapeAttr(s.anchorId) + '" data-label-avoid="' + escapeAttr(s.avoid.join(",")) + '" data-label-min-clearance="' + number(s.minClearance) + '"' + bg + data + '>' + escapeText(s.text) + '</text>';
     }
     fail("INVALID_ELEMENT", "cannot serialize unknown element kind");
   }
@@ -408,25 +513,82 @@
     id(manifest.id, "manifest.id");
     if (typeof manifest.title !== "string" || !manifest.title.trim() || typeof manifest.description !== "string" || !manifest.description.trim()) fail("MISSING_ACCESSIBILITY", "manifest title and description are required");
     if (manifest.purpose !== "prompt" && manifest.purpose !== "solution") fail("INVALID_PURPOSE", "manifest purpose must be prompt or solution");
+    const titleId = manifest.id + "-title"; const descriptionId = manifest.id + "-desc"; const aria = titleId + " " + descriptionId;
+    if (manifest.titleId !== titleId || manifest.descriptionId !== descriptionId || manifest.ariaLabelledby !== aria) fail("MISSING_ACCESSIBILITY", "manifest accessibility IDs must reference its own title and description");
     [manifest.width, manifest.height].forEach((v) => finite(v, "manifest dimension"));
     if (!(manifest.width > 0) || !(manifest.height > 0)) fail("DEGENERATE", "manifest dimensions must be positive");
     if (!Array.isArray(manifest.viewBox) || manifest.viewBox.length !== 4) fail("INVALID_MANIFEST", "manifest viewBox must be four finite numbers");
     manifest.viewBox.forEach((v) => finite(v, "manifest viewBox"));
+    if (manifest.viewBox[0] !== 0 || manifest.viewBox[1] !== 0 || manifest.viewBox[2] !== manifest.width || manifest.viewBox[3] !== manifest.height) fail("INVALID_MANIFEST", "manifest viewBox must match declared dimensions");
     if (!manifest.bounds || typeof manifest.bounds !== "object") fail("INVALID_MANIFEST", "manifest bounds are required");
-    [manifest.bounds.x, manifest.bounds.y, manifest.bounds.width, manifest.bounds.height].forEach((v) => finite(v, "manifest bounds"));
+    [manifest.bounds.x, manifest.bounds.y, manifest.bounds.width, manifest.bounds.height].forEach((v) => nonnegative(v, "manifest bounds"));
+    if (manifest.bounds.x !== manifest.viewBox[0] || manifest.bounds.y !== manifest.viewBox[1] || manifest.bounds.width !== manifest.width || manifest.bounds.height !== manifest.height) fail("INVALID_MANIFEST", "manifest bounds must match viewBox");
     if (!Array.isArray(manifest.layers) || manifest.layers.map((layer) => layer.name).join(",") !== LAYERS.join(",")) fail("INVALID_LAYERS", "manifest layers must be geometry, connections, information, labels");
     const seen = new Set();
     const bounds = { x: 0, y: 0, width: manifest.width, height: manifest.height };
-    manifest.layers.forEach((layer) => (layer.elements || []).forEach((element) => {
+    const layerElements = [];
+    manifest.layers.forEach((layer) => {
+      if (!layer || !Array.isArray(layer.elements)) fail("INVALID_MANIFEST", "each layer requires an element array");
+      layer.elements.forEach((element) => {
       id(element.id, "element.id");
       if (seen.has(element.id)) fail("DUPLICATE_ID", "duplicate element ID: " + element.id);
       seen.add(element.id);
       if (!element.bbox || typeof element.bbox !== "object") fail("INVALID_MANIFEST", "element requires a bounding box");
-      [element.bbox.x, element.bbox.y, element.bbox.width, element.bbox.height].forEach((v) => finite(v, "element bbox"));
+      [element.bbox.x, element.bbox.y, element.bbox.width, element.bbox.height].forEach((v) => nonnegative(v, "element bbox"));
+      finite(element.strokeWidth, "element stroke width");
+      if (element.bbox.width < 0 || element.bbox.height < 0 || element.strokeWidth < 0) fail("NEGATIVE", "manifest extents and strokes must be non-negative");
       if (element.bbox.x < bounds.x - EPSILON || element.bbox.y < bounds.y - EPSILON || element.bbox.x + element.bbox.width > bounds.width + EPSILON || element.bbox.y + element.bbox.height > bounds.height + EPSILON) fail("VIEWBOX_OVERFLOW", "element overflows the declared viewBox: " + element.id);
       if (!element.role || !ROLES.has(element.role)) fail("INVALID_ROLE", "element has no validated semantic role");
-      if (element.role !== "decorative" && element.collision !== true) fail("INVALID_COLLISION", "semantic geometry must remain a collision object");
-    }));
+      if (element.collision !== true) fail("INVALID_COLLISION", "every painted element must remain a collision object");
+      if (element.kind === "label") {
+        if (!element.anchorId || typeof element.anchorId !== "string") fail("INVALID_LABEL", "label anchorId is required");
+        if (!element.avoid || !Array.isArray(element.avoid)) fail("INVALID_LABEL", "label avoid IDs are required");
+      }
+      layerElements.push(Object.assign({ layer: layer.name }, element));
+    });
+    });
+    if (!Array.isArray(manifest.elements)) fail("INVALID_MANIFEST", "manifest elements are required");
+    const expectedElements = layerElements.concat((manifest.backgrounds || []).map((background) => Object.assign({ layer: "labels", kind: "rect", collision: true, strokeWidth: 0 }, background)));
+    if (manifest.elements.length !== expectedElements.length) fail("INVALID_MANIFEST", "manifest elements do not reconcile with painted layers");
+    const byId = new Map(manifest.elements.map((element) => [element.id, element]));
+    expectedElements.forEach((element) => {
+      const actual = byId.get(element.id);
+      if (!actual || actual.kind !== element.kind || actual.layer !== element.layer || actual.collision !== true) fail("INVALID_MANIFEST", "manifest painted element reconciliation failed: " + element.id);
+    });
+    const elementIds = new Set(manifest.elements.map((element) => element.id));
+    manifest.elements.forEach((element) => {
+      if (!element.bbox || typeof element.bbox !== "object") fail("INVALID_MANIFEST", "painted element bbox is invalid");
+      [element.bbox.x, element.bbox.y, element.bbox.width, element.bbox.height].forEach((value) => nonnegative(value, "painted element bbox"));
+      finite(element.strokeWidth, "painted element stroke width");
+      if (element.bbox.x + element.bbox.width > manifest.width + EPSILON || element.bbox.y + element.bbox.height > manifest.height + EPSILON) fail("VIEWBOX_OVERFLOW", "painted element overflows the viewBox: " + element.id);
+    });
+    manifest.elements.filter((element) => element.kind === "label").forEach((element) => {
+      if (!elementIds.has(element.anchorId)) fail("INVALID_LABEL", "label anchorId does not reference geometry: " + element.id);
+      element.avoid.forEach((avoidId) => { if (!elementIds.has(avoidId)) fail("INVALID_LABEL", "label avoid ID does not reference geometry: " + avoidId); });
+    });
+    const exactIds = (items, name) => {
+      if (!Array.isArray(items)) fail("INVALID_MANIFEST", name + " must be an array");
+      items.forEach((item) => { if (!item || !elementIds.has(item.id)) fail("INVALID_MANIFEST", name + " references an unrelated ID"); });
+    };
+    exactIds(manifest.collisions, "collisions");
+    if (new Set(manifest.collisions.map((item) => item.id)).size !== manifest.elements.length) fail("INVALID_COLLISION", "every painted element needs exactly one collision record");
+    exactIds(manifest.paths, "paths"); exactIds(manifest.strokes, "strokes"); exactIds(manifest.arrowheads, "arrowheads");
+    exactIds(manifest.backgrounds, "backgrounds");
+    manifest.paths.forEach((item) => { if (typeof item.path !== "string" || !item.path.trim()) fail("INVALID_MANIFEST", "painted path is missing its path data"); });
+    manifest.strokes.forEach((item) => nonnegative(item.width, "stroke width"));
+    manifest.backgrounds.forEach((item) => { if (item.fill !== "#FBF8EF") fail("INVALID_MANIFEST", "opaque label background must use paper fill"); });
+    const pathIds = new Set(manifest.elements.filter((element) => element.path).map((element) => element.id));
+    const strokeIds = new Set(manifest.elements.filter((element) => element.strokeWidth > 0).map((element) => element.id));
+    const arrowIds = new Set(manifest.elements.filter((element) => element.arrowhead).map((element) => element.id));
+    const backgroundIds = new Set(manifest.elements.filter((element) => element.role === "label-background").map((element) => element.id));
+    if (new Set(manifest.paths.map((item) => item.id)).size !== pathIds.size || manifest.paths.some((item) => !pathIds.has(item.id))) fail("INVALID_MANIFEST", "paths do not reconcile with painted paths");
+    if (new Set(manifest.strokes.map((item) => item.id)).size !== strokeIds.size || manifest.strokes.some((item) => !strokeIds.has(item.id))) fail("INVALID_MANIFEST", "strokes do not reconcile with painted strokes");
+    if (new Set(manifest.arrowheads.map((item) => item.id)).size !== arrowIds.size || manifest.arrowheads.some((item) => !arrowIds.has(item.id))) fail("INVALID_MANIFEST", "arrowheads do not reconcile with painted arrows");
+    if (new Set(manifest.backgrounds.map((item) => item.id)).size !== backgroundIds.size || manifest.backgrounds.some((item) => !backgroundIds.has(item.id))) fail("INVALID_MANIFEST", "backgrounds do not reconcile with painted backgrounds");
+    if (!Array.isArray(manifest.domIds)) fail("INVALID_MANIFEST", "domIds are required");
+    if (manifest.arrowheads.some((item) => !item.markerId || !(manifest.fragmentIds || []).includes(item.markerId))) fail("INVALID_MANIFEST", "arrowhead marker ID is not declared");
+    const domIds = new Set(manifest.domIds); const declaredIds = new Set([manifest.id, titleId, descriptionId].concat(manifest.elements.map((element) => element.id), manifest.fragmentIds || []));
+    if (domIds.size !== manifest.domIds.length || domIds.size !== declaredIds.size || !manifest.domIds.every((fragmentId) => declaredIds.has(fragmentId)) || !domIds.has(manifest.id) || !domIds.has(titleId) || !domIds.has(descriptionId)) fail("DUPLICATE_ID", "manifest DOM IDs are not unique or complete");
     if (manifest.fragmentIds !== undefined && !Array.isArray(manifest.fragmentIds)) fail("INVALID_MANIFEST", "fragmentIds must be an array");
     if (manifest.fragmentIds) {
       manifest.fragmentIds.forEach((fragmentId) => {
@@ -435,19 +597,23 @@
         seen.add(fragmentId);
       });
     }
+    const expectedFragments = new Set(manifest.elements.filter((element) => element.role === "label-background").map((element) => element.id).concat(manifest.arrowheads.map((item) => item.markerId)));
+    if (expectedFragments.size !== (manifest.fragmentIds || []).length || (manifest.fragmentIds || []).some((fragmentId) => !expectedFragments.has(fragmentId))) fail("INVALID_MANIFEST", "fragment IDs do not reconcile with painted marker/background fragments");
     return true;
   }
 
   function create(options) {
     const opts = options || {};
     const diagramId = id(opts.id, "diagram.id");
-    if (USED_FRAGMENT_IDS.has(diagramId)) fail("DUPLICATE_ID", "duplicate diagram ID: " + diagramId);
     const title = opts.title; const description = opts.description;
     if (typeof title !== "string" || !title.trim() || typeof description !== "string" || !description.trim()) fail("MISSING_ACCESSIBILITY", "diagram title and description are required");
     const width = finite(opts.width, "diagram.width"); const height = finite(opts.height, "diagram.height");
     if (!(width > 0) || !(height > 0)) fail("DEGENERATE", "diagram dimensions must be positive");
-    const purpose = opts.purpose || "prompt";
+    const purpose = opts.purpose;
     if (purpose !== "prompt" && purpose !== "solution") fail("INVALID_PURPOSE", "diagram purpose must be prompt or solution");
+    const rootIds = [diagramId, diagramId + "-title", diagramId + "-desc"];
+    rootIds.forEach((fragmentId) => { if (USED_FRAGMENT_IDS.has(fragmentId)) fail("DUPLICATE_ID", "duplicate fragment ID: " + fragmentId); });
+    rootIds.forEach((fragmentId) => USED_FRAGMENT_IDS.add(fragmentId));
     const layers = LAYERS.map((name) => ({ name, elements: [] }));
     const elementIds = new Set(); let finished = false;
     const builder = {
@@ -460,42 +626,53 @@
       },
       finish() {
         if (finished) fail("FINISHED", "diagram has already been finished");
-        finished = true;
-        if (USED_FRAGMENT_IDS.has(diagramId)) fail("DUPLICATE_ID", "duplicate diagram ID: " + diagramId);
         const fragmentIds = [];
         layers.forEach((layer) => layer.elements.forEach((element) => {
           if (element.kind === "arrow") { element._markerId = diagramId + "-marker-arrow"; fragmentIds.push(element._markerId); }
           if (element.kind === "label" && element.background === "opaque") { element._backgroundId = diagramId + "-" + element.id + "-background"; fragmentIds.push(element._backgroundId); }
         }));
+        const allDomIds = rootIds.concat(layers.flatMap((layer) => layer.elements.map((element) => element.id)), fragmentIds);
+        const localIds = new Set();
+        allDomIds.forEach((fragmentId) => {
+          id(fragmentId, "fragment.id");
+          if (localIds.has(fragmentId)) fail("DUPLICATE_ID", "duplicate emitted DOM ID: " + fragmentId);
+          if (!rootIds.includes(fragmentId) && USED_FRAGMENT_IDS.has(fragmentId)) fail("DUPLICATE_ID", "duplicate fragment ID: " + fragmentId);
+          localIds.add(fragmentId);
+        });
         const manifestLayers = layers.map((layer) => ({ name: layer.name, elements: layer.elements.map((element) => {
           const record = { id: element.id, kind: element.kind, role: element.role, bbox: bboxOf(element), collision: element.semantic !== false, strokeWidth: element.strokeWidth || 0 };
           if (element.kind === "line" || element.kind === "arrow") Object.assign(record, { from: clone(element.from || element.a), to: clone(element.to || element.b) });
-          if (element.kind === "arrow") Object.assign(record, { arrowhead: { points: element.head.map(clone), headLength: element.headLength, headWidth: element.headWidth } });
+          if (element.kind === "arrow") Object.assign(record, { arrowhead: { points: element.head.map(clone), headLength: element.headLength, headWidth: element.headWidth, markerId: element._markerId } });
           if (element.kind === "circle") Object.assign(record, { center: clone(element.center), radius: element.radius });
           if (element.kind === "body") Object.assign(record, { points: element.corners.map(clone) });
           if (element.kind === "polygon" || element.kind === "polyline") Object.assign(record, { points: element.points.map(clone) });
           if (element.kind === "path" || element.kind === "angleArc" || element.kind === "rope") Object.assign(record, { path: element.d || element.path, segments: element.segments || null });
           if (element.kind === "dimension") Object.assign(record, { anchors: element.anchors.map(clone), extension: element.extension });
-          if (element.kind === "label") Object.assign(record, { at: clone(element.at), anchor: element.anchor, text: element.text, avoid: element.avoid.slice(), minClearance: element.minClearance, background: element.background });
+          if (element.kind === "label") Object.assign(record, { at: clone(element.at), anchorId: element.anchorId, textAnchor: element.textAnchor, text: element.text, avoid: element.avoid.slice(), minClearance: element.minClearance, background: element.background });
           return record;
         }) }));
+        const backgroundRecords = manifestLayers[3].elements.filter((element) => element.background === "opaque").map((element) => ({ id: element._backgroundId || diagramId + "-" + element.id + "-background", kind: "rect", role: "label-background", bbox: element.bbox, collision: true, strokeWidth: 0, fill: "#FBF8EF", labelId: element.id }));
+        const paintedElements = manifestLayers.flatMap((layer) => layer.elements.map((element) => Object.assign({ layer: layer.name }, element))).concat(backgroundRecords.map((element) => Object.assign({ layer: "labels" }, element)));
         const manifest = {
           id: diagramId, title, description, purpose, width, height, viewBox: [0, 0, width, height],
           titleId: diagramId + "-title", descriptionId: diagramId + "-desc", ariaLabelledby: diagramId + "-title " + diagramId + "-desc",
           bounds: { x: 0, y: 0, width, height }, layers: manifestLayers,
           geometry: manifestLayers[0].elements, connections: manifestLayers[1].elements, information: manifestLayers[2].elements, labels: manifestLayers[3].elements,
-          elements: manifestLayers.flatMap((layer) => layer.elements.map((element) => Object.assign({ layer: layer.name }, element))),
+          elements: paintedElements,
           strokes: manifestLayers.flatMap((layer) => layer.elements.filter((element) => element.strokeWidth > 0).map((element) => ({ id: element.id, layer: layer.name, width: element.strokeWidth }))),
           paths: manifestLayers.flatMap((layer) => layer.elements.filter((element) => element.path).map((element) => ({ id: element.id, layer: layer.name, path: element.path }))),
           arrowheads: manifestLayers.flatMap((layer) => layer.elements.filter((element) => element.arrowhead).map((element) => Object.assign({ id: element.id, layer: layer.name }, element.arrowhead))),
-          backgrounds: manifestLayers[3].elements.filter((element) => element.background === "opaque").map((element) => ({ id: diagramId + "-" + element.id + "-background", labelId: element.id, bbox: element.bbox, role: "decorative" })),
-          collisions: manifestLayers.flatMap((layer) => layer.elements.filter((element) => element.collision).map((element) => ({ id: element.id, role: element.role, bbox: element.bbox, layer: layer.name }))),
+          backgrounds: backgroundRecords.map((element) => ({ id: element.id, labelId: element.labelId, bbox: element.bbox, role: element.role, collision: true, fill: element.fill })),
+          collisions: paintedElements.filter((element) => element.collision).map((element) => ({ id: element.id, role: element.role, bbox: element.bbox, layer: element.layer, minClearance: element.minClearance || 0 })),
           fragmentIds: Array.from(new Set(fragmentIds))
         };
+        manifest.domIds = allDomIds;
         validateManifest(manifest);
-        USED_FRAGMENT_IDS.add(diagramId); manifest.fragmentIds.forEach((fragmentId) => USED_FRAGMENT_IDS.add(fragmentId));
+        finished = true;
+        allDomIds.forEach((fragmentId) => USED_FRAGMENT_IDS.add(fragmentId));
         const body = layers.map((layer) => '<g data-layer="' + layer.name + '">' + layer.elements.map(attrsFor).join("") + "</g>").join("");
-        const marker = fragmentIds.length ? '<defs><marker id="' + escapeAttr(fragmentIds[0]) + '" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="currentColor"></path></marker></defs>' : "";
+        const markerId = layers.flatMap((layer) => layer.elements).find((element) => element.kind === "arrow");
+        const marker = markerId ? '<defs><marker id="' + escapeAttr(markerId._markerId) + '" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="currentColor" data-role="marker" data-geometry-id="' + escapeAttr(markerId._markerId) + '"></path></marker></defs>' : "";
         const html = '<svg id="' + escapeAttr(diagramId) + '" viewBox="0 0 ' + number(width) + ' ' + number(height) + '" role="img" aria-labelledby="' + escapeAttr(diagramId + "-title " + diagramId + "-desc") + '"><title id="' + escapeAttr(diagramId + "-title") + '">' + escapeText(title) + '</title><desc id="' + escapeAttr(diagramId + "-desc") + '">' + escapeText(description) + '</desc>' + marker + body + '</svg>';
         return { html, manifest };
       }

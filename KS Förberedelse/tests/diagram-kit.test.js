@@ -85,16 +85,17 @@ test("serializes ordered semantic layers, labels, collision metadata, and access
   diagram.add("geometry", kit.line({ id: "base", a: [5, 10], b: [115, 10], role: "support" }));
   diagram.add("connections", kit.circle({ id: "pulley", center: [60, 40], radius: 12, role: "pulley" }));
   diagram.add("information", kit.arrow({ id: "force", from: [60, 40], to: [60, 20], role: "force" }));
-  diagram.add("labels", kit.label({ id: "label", at: [60, 70], text: "F < 2", anchor: "middle", avoid: ["pulley"], minClearance: 6, background: true }));
+  diagram.add("labels", kit.label({ id: "label", at: [60, 70], text: "F < 2", anchorId: "pulley", textAnchor: "middle", avoid: ["pulley"], minClearance: 6, background: true }));
   const result = diagram.finish();
   assert.match(result.html, /<svg[^>]+role="img"/);
   assert.match(result.html, /aria-labelledby="kit-order-title kit-order-desc"/);
   assert.match(result.html, /&lt;Titel&gt;/);
   assert.match(result.html, /F &lt; 2/);
   assert.deepEqual(result.manifest.layers.map((layer) => layer.name), ["geometry", "connections", "information", "labels"]);
-  assert.equal(result.manifest.collisions.length, 4);
+  assert.equal(result.manifest.collisions.length, 5);
   assert.equal(result.manifest.labels[0].minClearance, 6);
-  assert.match(result.html, /data-label-anchor="middle"/);
+  assert.match(result.html, /data-label-anchor="pulley"/);
+  assert.match(result.html, /text-anchor="middle"/);
   assert.match(result.html, /data-label-background="opaque"/);
 });
 
@@ -111,21 +112,82 @@ test("serializes geometry objects returned by the higher-level primitives", () =
 });
 
 test("rejects duplicate IDs, overflow, missing accessibility, unsafe decorations, and non-finite attributes", () => {
-  const duplicate = kit.create({ id: "kit-duplicate", title: "A", description: "B", width: 20, height: 20 });
+  const duplicate = kit.create({ id: "kit-duplicate", title: "A", description: "B", width: 20, height: 20, purpose: "prompt" });
   duplicate.add("geometry", kit.line({ id: "same", a: [1, 1], b: [2, 2], role: "line" }));
   assert.throws(() => duplicate.add("geometry", kit.line({ id: "same", a: [1, 2], b: [2, 3], role: "line" })), /duplicate/i);
-  const overflow = kit.create({ id: "kit-overflow", title: "A", description: "B", width: 20, height: 20 });
+  const overflow = kit.create({ id: "kit-overflow", title: "A", description: "B", width: 20, height: 20, purpose: "prompt" });
   overflow.add("geometry", kit.line({ id: "too-far", a: [1, 1], b: [21, 1], role: "line" }));
   assert.throws(() => overflow.finish(), /overflow|viewBox/i);
-  assert.throws(() => kit.create({ id: "kit-no-a11y", title: "", description: "B", width: 20, height: 20 }), /title|accessible/i);
+  assert.throws(() => kit.create({ id: "kit-no-a11y", title: "", description: "B", width: 20, height: 20, purpose: "prompt" }), /title|accessible/i);
   assert.throws(() => kit.line({ id: "kit-decorative-line", a: [1, 1], b: [2, 2], role: "decorative" }), /decorative|semantic/i);
   assert.throws(() => kit.circle({ id: "kit-infinite", center: [Infinity, 1], radius: 2, role: "circle" }), /finite/i);
+  assert.throws(() => kit.path({ id: "kit-path-nan", d: "M 0 0 L NaN 1", role: "line" }), /finite|path/i);
 });
 
 test("loads as a browser UMD script and exports the same kit", () => {
   const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../assets/js/diagram-kit.js"), "utf8");
   const context = { window: {}, console };
   vm.runInNewContext(source, context);
-  assert.equal(typeof context.window.KS.diagramKit.create, "function");
-  assert.equal(typeof context.window.KS.diagramKit.normalize, "function");
+  assert.equal(typeof context.window.KS.diagram.create, "function");
+  assert.equal(typeof context.window.KS.diagram.normalize, "function");
+});
+
+test("couples rope tangent pair and arc so both contacts are C1 and side-specific", () => {
+  for (const side of ["top", "bottom"]) {
+    const rope = kit.ropeAroundCircle({ id: "rope-asymmetric-" + side, from: [0, -10], pulley: { center: [0, 0], radius: 2 }, to: [8, 0], side });
+    for (const point of [rope.fromTangent, rope.toTangent]) close(Math.hypot(point[0], point[1]), 2, 1e-9);
+    const firstIncoming = kit.normalize([rope.fromTangent[0] - rope.from[0], rope.fromTangent[1] - rope.from[1]]);
+    const firstArc = kit.normalize([rope.arc.sweep * -(rope.fromTangent[1]), rope.arc.sweep * rope.fromTangent[0]]);
+    const lastArc = kit.normalize([rope.arc.sweep * -(rope.toTangent[1]), rope.arc.sweep * rope.toTangent[0]]);
+    const lastOutgoing = kit.normalize([rope.to[0] - rope.toTangent[0], rope.to[1] - rope.toTangent[1]]);
+    close(kit.dot(firstIncoming, firstArc), 1, 1e-7);
+    close(kit.dot(lastArc, lastOutgoing), 1, 1e-7);
+    assert.deepEqual(rope.segments[0].to, rope.segments[1].from);
+    assert.deepEqual(rope.segments[1].to, rope.segments[2].from);
+  }
+  assert.throws(() => kit.ropeAroundCircle({ id: "rope-inside", from: [0, 1], pulley: { center: [0, 0], radius: 2 }, to: [8, 0], side: "top" }), /external|tangent|inside/i);
+  assert.throws(() => kit.ropeAroundCircle({ id: "rope-side", from: [0, -10], pulley: { center: [0, 0], radius: 2 }, to: [8, 0], side: "diagonal" }), /side/i);
+});
+
+test("requires branded semantic primitives and rejects raw collision bypasses", () => {
+  const diagram = kit.create({ id: "kit-brand", title: "Brand", description: "Brand", width: 40, height: 40, purpose: "prompt" });
+  assert.throws(() => diagram.add("geometry", { kind: "line", id: "raw", a: [1, 1], b: [2, 2], role: "decorative", semantic: false }), /primitive|brand|element/i);
+  assert.throws(() => diagram.add("geometry", kit.line({ id: "negative-stroke", a: [1, 1], b: [2, 2], role: "line", strokeWidth: -1 })), /stroke|negative/i);
+});
+
+test("requires explicit purpose and globally reserves every emitted fragment id", () => {
+  assert.throws(() => kit.create({ id: "kit-purpose-missing", title: "A", description: "B", width: 10, height: 10 }), /purpose/i);
+  const first = kit.create({ id: "kit-global-foo", title: "A", description: "B", width: 20, height: 20, purpose: "prompt" });
+  first.finish();
+  assert.throws(() => kit.create({ id: "kit-global-foo-title", title: "A", description: "B", width: 20, height: 20, purpose: "prompt" }), /duplicate/i);
+  const labelDiagram = kit.create({ id: "kit-global-label", title: "A", description: "B", width: 80, height: 80, purpose: "prompt" });
+  labelDiagram.add("geometry", kit.line({ id: "owner-label", a: [10, 20], b: [70, 20], role: "line" }));
+  labelDiagram.add("labels", kit.label({ id: "opaque", at: [40, 60], text: "X", anchorId: "owner-label", background: true }));
+  const output = labelDiagram.finish();
+  assert.match(output.html, /kit-global-label-opaque-background/);
+  assert.doesNotMatch(output.html, /marker-end/);
+});
+
+test("validateManifest independently rejects tampering, unrelated IDs, and out-of-view painted extents", () => {
+  const diagram = kit.create({ id: "kit-tamper", title: "A", description: "B", width: 80, height: 80, purpose: "solution" });
+  diagram.add("geometry", kit.line({ id: "tamper-line", a: [10, 10], b: [70, 10], role: "line", strokeWidth: 2 }));
+  const result = diagram.finish();
+  const tampered = JSON.parse(JSON.stringify(result.manifest));
+  tampered.ariaLabelledby = "other-title other-desc";
+  assert.throws(() => kit.validateManifest(tampered), /aria|access/i);
+  const tamperedExtent = JSON.parse(JSON.stringify(result.manifest));
+  tamperedExtent.elements[0].bbox.width = -1;
+  assert.throws(() => kit.validateManifest(tamperedExtent), /bbox|negative|finite/i);
+  const unrelated = JSON.parse(JSON.stringify(result.manifest));
+  unrelated.paths.push({ id: "unrelated" });
+  assert.throws(() => kit.validateManifest(unrelated), /path|reconcil|ID/i);
+});
+
+test("vector outputs reject MAX_VALUE overflow and degenerate polygons", () => {
+  assert.throws(() => kit.add([Number.MAX_VALUE, 0], [Number.MAX_VALUE, 0]), /finite|overflow/i);
+  assert.throws(() => kit.scale([Number.MAX_VALUE, 1], 2), /finite|overflow/i);
+  assert.throws(() => kit.line({ id: "zero-line", a: [1, 1], b: [1, 1], role: "line" }), /zero|degenerate/i);
+  assert.throws(() => kit.polygon({ id: "flat-polygon", points: [[0, 0], [1, 1], [2, 2]], role: "shape" }), /zero|degenerate/i);
+  assert.throws(() => kit.polyline({ id: "zero-polyline", points: [[0, 0], [0, 0]], role: "line" }), /zero|degenerate/i);
+  assert.throws(() => kit.graphTransform({ xDomain: [0, 1e-14], yDomain: [0, 1], plot: { x: 0, y: 0, width: 100, height: 100 } }), /zero|degenerate/i);
 });
