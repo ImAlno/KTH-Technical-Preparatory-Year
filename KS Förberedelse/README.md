@@ -2,7 +2,15 @@
 
 Det här är en fristående övningsapp för Matematik KS2, Fysik KS1 och Kemi KS. Den behöver ingen installation, internetanslutning eller inloggning.
 
-## Öppna appen
+## Starta KS-träningen online
+
+Klicka på länken nedan för att öppna KS-träningen direkt i webbläsaren:
+
+### [Öppna KS-träningen](https://imalno.github.io/KTH-Technical-Preparatory-Year/KS%20F%C3%B6rberedelse/)
+
+Välj sedan matematik, fysik eller kemi på startsidan. Du behöver inte ladda ner eller installera något.
+
+## Öppna appen lokalt
 
 1. Öppna `index.html` i mappen `KS Förberedelse` direkt i en webbläsare.
 2. Välj ämne på startsidan. Ett nytt prov skapas automatiskt första gången.
