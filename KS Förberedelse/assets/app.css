@@ -1118,6 +1118,11 @@ dialog p {
     color: #000;
   }
 
+  .exam-page .print-exam {
+    font-size: 11pt;
+    line-height: 1.4;
+  }
+
   .print-question {
     break-inside: avoid;
     page-break-inside: avoid;
@@ -1147,7 +1152,7 @@ dialog p {
   }
 
   .print-answer-space {
-    min-height: 55mm;
+    min-height: 30mm;
     margin-top: 8mm;
     border: 1px solid #000;
   }

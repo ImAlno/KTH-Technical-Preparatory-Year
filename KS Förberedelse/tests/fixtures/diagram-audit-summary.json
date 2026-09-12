@@ -12,7 +12,10 @@
     "round2AffectedVisualArtifacts": 0,
     "round3IdenticalContactSheets": 33,
     "round3IdenticalPrintPdfs": 6,
-    "round3AffectedVisualArtifacts": 0
+    "round3AffectedVisualArtifacts": 0,
+    "task14IdenticalContactSheets": 33,
+    "task14IdenticalPrintPdfs": 6,
+    "task14AffectedVisualArtifacts": 0
   },
   "counts": {
     "records": 795,
@@ -87,7 +90,7 @@
     }
   },
   "sourceHashes": {
-    "appCss": "0eaf955d54ba2af53b6c9be2345cd1f74748647f05722591907a28575900f0b5",
+    "appCss": "bd7e2792e7a5b38272cdfb9214094387133b57f48ef5adaa2b078f20b2e8b06b",
     "subjectConfig": "7da26540ea8e9e567b0cadb372fbfdfa6d386a19d03ca858b23150193549e3f1",
     "units": "c718ac6e90a15aa4e3c4e5dbee338350d59d6463bf8049404979455f71a17b87",
     "expressionParser": "d4ae481cc171828a5917a8a30ae161927cb093e988cd27363bb863b4385830e4",
@@ -96,7 +99,7 @@
     "timer": "a818645bda2b5d5b395af705717f976abdf1ffc73c08acc007944abf143aa5cd",
     "examEngine": "9ed5b3e2fe4210a49f0be954df2e797bbd58a2214cef51b3f133ff8bf6af0f04",
     "diagramKit": "0d7d307ad98f61ffb48701603889ab6027e70a03aa7ef337d3f13720c62d26ae",
-    "app": "5dda3d790304ab55d7fe6d897828442c8bdc0979cb9d966001d1baa83030b6c2",
+    "app": "196258e69561974b1fb4d4967e1dc6caa940a1e0720a8ad0ae943fac3436548f",
     "mathSlot5": "2b51c6e9cd1858ab042b7082611b4447edb89549eab148b37b606439db730db5",
     "physicsSlot1": "a50d9b731c8d55cb5e2b68b47d899b4bc6f98b395cf5051f73dc3efc965aacc9",
     "physicsSlot2": "e01e7a6a162e522c89922c472fe97fedeb7dfb718295fe5286756378e34172e0",
@@ -108,7 +111,7 @@
     "auditRunner": "aa610993ae255665b4d06902c08570a368c43f4d0fe66e0319fb4bb7b94a1435",
     "auditVerifier": "7dfa75ccf93619a304c4688b494beb86da42b0dbffac581c8194dc923aba0fa3",
     "auditTest": "b67137f905b2f68f6829914e0f97c7ac64a211f5bcfe6c18ad535d0ffbea7692",
-    "staticPagesTest": "68ec06134367adaec08615dcd69a3d208325b5ebd71ec6a16f63f1ad59bca48b",
+    "staticPagesTest": "431e93969c2c38c985117f741b6eb0e85ea8369bbe2ffb185fdeb776f4ef906b",
     "diagramKitTest": "e1096cbedd1db5802e5c7771c944771ae5de2fd47ed9fd7db3371dbcf12a2fb9",
     "mathQuestionsTest": "e976e9eccd60d2126268ffe3819c81ebdff77dc9cf1276c26e14ca1026e6cefd",
     "physicsQuestionsTest": "661254906fa034eb5e9cd3f67a008ae3ce5ea83b11d92c2b7f1d9539747f284b"

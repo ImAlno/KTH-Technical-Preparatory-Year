@@ -895,6 +895,32 @@
       elements.formulaContent.focus();
     }
 
+    function returnFormulaFocus() {
+      if (!win || typeof win.setTimeout !== "function") {
+        if (elements.formulaOpen && !elements.formulaOpen.hidden) elements.formulaOpen.focus();
+        return;
+      }
+      win.setTimeout(function () {
+        if (elements.formulaOpen && !elements.formulaOpen.hidden) elements.formulaOpen.focus();
+      }, 0);
+    }
+
+    function trapFormulaTab(event) {
+      if (event.key !== "Tab" || !elements.formulaDialog || !elements.formulaDialog.open) return;
+      const controls = Array.from(elements.formulaDialog.querySelectorAll("button:not([disabled]), [tabindex]:not([tabindex='-1'])"))
+        .filter(function (control) { return !control.hidden; });
+      if (!controls.length) return;
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      }
+    }
+
     if (elements.formulaOpen) elements.formulaOpen.hidden = true;
     if (formulaUrl && elements.formulaOpen && elements.formulaContent && elements.formulaImage) {
       elements.formulaOpen.hidden = false;
@@ -920,6 +946,8 @@
         event.preventDefault();
         elements.formulaContent.scrollBy(movement[0], movement[1]);
       });
+      elements.formulaDialog.addEventListener("keydown", trapFormulaTab);
+      elements.formulaDialog.addEventListener("close", returnFormulaFocus);
       fitFormulaSheet();
       if (win) win.addEventListener("resize", function () {
         if (formulaZoom === 100) fitFormulaSheet();

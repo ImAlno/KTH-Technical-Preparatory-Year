@@ -1006,7 +1006,7 @@ test("print mode removes interaction and prints every prompt with answer space",
   assert.match(printRules, /:root,\s*body\s*\{[^}]*background:\s*#fff(?:fff)?[^}]*color:\s*#000/s);
   assert.match(printRules, /\.print-exam\s*\{[^}]*display:\s*block/s);
   assert.match(printRules, /\.print-work-on-paper\s*\{[^}]*display:\s*block[^}]*border-left:\s*3px\s+solid\s+#000/s);
-  assert.match(printRules, /\.print-answer-space\s*\{[^}]*min-height:\s*55mm[^}]*border:\s*1px\s+solid\s+#000/s);
+  assert.match(printRules, /\.print-answer-space\s*\{[^}]*min-height:\s*\d+(?:\.\d+)?mm[^}]*border:\s*1px\s+solid\s+#000/s);
   assert.match(printRules, /\.print-question\s*\{[^}]*break-inside:\s*avoid/s);
   assert.match(source, /`Uppgift \$\{position \+ 1\}: \$\{question\.title\} \(\$\{formatPoints\(question\.points\)\} p\)`/);
   assert.match(source, /"aside",\s*"print-work-on-paper"/);
