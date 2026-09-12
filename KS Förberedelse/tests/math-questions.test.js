@@ -79,10 +79,11 @@ function visiblePromptText(html) {
 
 function asksForComputerDerivation(html) {
   const text = visiblePromptText(html);
-  const derivationTerms = "(?:metod|beräkning|uträkning|mellanled|steg|resonemang|förklaring|bevis)";
-  return new RegExp(`\\b(?:redovisa|skriv|ange|visa)\\b[^.?!]{0,120}\\b${derivationTerms}\\b`, "i").test(text) ||
+  const derivationTerms = "(?:metod|beräkning|uträkning|mellanled|steg|resonemang|förklaring|bevis|härledning|lösningsgång|tankegång|argument)[a-zåäö]*";
+  return new RegExp(`\\b(?:redovisa|redogör|beskriv|skriv|ange|visa)\\b[^.?!]{0,120}\\b${derivationTerms}\\b`, "i").test(text) ||
     /\b(?:bevisa|förklara|motivera)\b/i.test(text) ||
-    /\bvisa\s+(?:hur|varför)\b/i.test(text);
+    /\bvisa\s+(?:hur|varför)\b/i.test(text) ||
+    /\bskriv\b[^.?!]{0,80}\b(?:hur|varför)\s+(?:du|ni|man)\b/i.test(text);
 }
 
 function close(left, right, tolerance = 1e-8) {
@@ -329,8 +330,13 @@ test("math prompt audit catches derivation requests when HTML wraps the forbidde
   const examples = [
     ["<p>Redovisa en generell <strong>metod</strong> och visa din <em>beräkning</em>.</p>", true],
     ["<p>Förklara <span>hur</span> du fick fram svaret.</p>", true],
+    ["<p>Redogör för ditt <strong>resonemang</strong>.</p>", true],
+    ["<p>Beskriv <em>metoden</em> du använde.</p>", true],
+    ["<p>Skriv <strong>hur</strong> du fick fram svaret.</p>", true],
     ["<p>Bestäm alla reella <strong>lösningar</strong>.</p>", false],
-    ["<p>Visa figuren och bestäm vinkeln.</p>", false]
+    ["<p>Visa figuren och bestäm vinkeln.</p>", false],
+    ["<p>Skriv endast slutsvaret.</p>", false],
+    ["<p>Ange svaret med rätt enhet.</p>", false]
   ];
   examples.forEach(([html, expected]) => assert.equal(asksForComputerDerivation(html), expected, html));
 });
