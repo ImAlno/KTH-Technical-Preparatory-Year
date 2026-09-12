@@ -11,6 +11,8 @@
   const EPSILON = 1e-12;
   const ORIGIN = [0, 0];
   const PRIMITIVE_BRAND = typeof Symbol === "function" ? Symbol("diagram-kit-primitive") : "__diagramKitPrimitive__";
+  const DECORATIVE_TOKEN = typeof Symbol === "function" ? Symbol("diagram-kit-decorative") : "__diagramKitDecorative__";
+  const PRIMITIVE_META = new WeakMap();
   const USED_FRAGMENT_IDS = new Set();
   const LAYERS = ["geometry", "connections", "information", "labels"];
   const ROLES = new Set([
@@ -49,6 +51,24 @@
   }
 
   function clone(v) { return [v[0], v[1]]; }
+  function snapshotValue(value) {
+    if (Array.isArray(value)) return value.map(snapshotValue);
+    if (value && typeof value === "object") {
+      const result = {};
+      Object.keys(value).sort().forEach((key) => {
+        if (key === "attrs" || key.charAt(0) === "_") return;
+        result[key] = snapshotValue(value[key]);
+      });
+      return result;
+    }
+    return value;
+  }
+  function finalizePrimitive(value, decorative) {
+    value[PRIMITIVE_BRAND] = true;
+    if (decorative) value[DECORATIVE_TOKEN] = true;
+    PRIMITIVE_META.set(value, { snapshot: snapshotValue(value), decorative: !!decorative });
+    return value;
+  }
   function safeVector(value, name) {
     return vector(value, name || "vector");
   }
@@ -120,8 +140,7 @@
     const bottomRight = add(lineUnit, half);
     const topRight = add(bottomRight, mul(outward, bodyHeight));
     const topLeft = add(bottomLeft, mul(outward, bodyHeight));
-    return {
-      [PRIMITIVE_BRAND]: true,
+    return finalizePrimitive({
       kind: "body", role: opts.role || "body", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "body.strokeWidth"),
       id: opts.id,
       line: actualLine,
@@ -136,7 +155,7 @@
       topLeft,
       corners: [bottomLeft, bottomRight, topRight, topLeft],
       polygon: [bottomLeft, bottomRight, topRight, topLeft]
-    };
+    }, false);
   }
 
   function tangentPointsFromExternalPoint(point, pulley, radius) {
@@ -183,7 +202,7 @@
     const fromCandidates = tangentPointsFromExternalPoint(from, pulley);
     const toCandidates = tangentPointsFromExternalPoint(to, pulley);
     const sideDirection = sideVector(opts.side);
-    const requestedSide = opts.side === "top" || opts.side === "bottom" || opts.side === "left" || opts.side === "right";
+    const requestedSide = opts.side !== undefined && (opts.side === "top" || opts.side === "bottom" || opts.side === "left" || opts.side === "right" || Array.isArray(opts.side));
     const solutions = [];
     for (let i = 0; i < fromCandidates.length; i += 1) for (let j = 0; j < toCandidates.length; j += 1) {
       const fromTangentCandidate = fromCandidates[i]; const toTangentCandidate = toCandidates[j];
@@ -212,8 +231,10 @@
       return a.delta - b.delta;
     });
     const selected = solutions[0];
-    const fromTangent = selected.fromTangent; const toTangent = selected.toTangent; const sweep = selected.sweep; const delta = selected.delta;
-    const arc = { kind: "arc", from: clone(fromTangent), to: clone(toTangent), center: clone(pulley.center), radius: r, sweep, largeArc: delta > Math.PI };
+    const fromTangent = selected.fromTangent; const toTangent = selected.toTangent; const sweep = selected.sweep;
+    const extraTurns = requestedSide && selected.sideScore < 0 ? 1 : 0;
+    const delta = selected.delta + extraTurns * Math.PI * 2;
+    const arc = { kind: "arc", from: clone(fromTangent), to: clone(toTangent), center: clone(pulley.center), radius: r, sweep, delta, turns: extraTurns, largeArc: selected.delta > Math.PI };
     const fromSegment = { kind: "segment", from: clone(from), to: clone(fromTangent) };
     const toSegment = { kind: "segment", from: clone(toTangent), to: clone(to) };
     [fromTangent, toTangent].forEach(function (point, index) {
@@ -221,14 +242,20 @@
       if (Math.abs(dot(sub(point, pulley.center), sub(external, point))) > 1e-6) fail("INVARIANT", "rope tangent is not orthogonal to its radius");
     });
     if (selected.firstContinuity < 1 - 1e-6 || selected.lastContinuity < 1 - 1e-6) fail("INVARIANT", "rope contacts are not C1 continuous");
-    const path = "M " + from[0] + " " + from[1] + " L " + fromTangent[0] + " " + fromTangent[1] + " A " + r + " " + r + " 0 " + (delta > Math.PI ? 1 : 0) + " " + (sweep === 1 ? 1 : 0) + " " + toTangent[0] + " " + toTangent[1] + " L " + to[0] + " " + to[1];
-    return {
-      [PRIMITIVE_BRAND]: true,
+    let path = "M " + from[0] + " " + from[1] + " L " + fromTangent[0] + " " + fromTangent[1];
+    const startAngle = Math.atan2(fromTangent[1] - pulley.center[1], fromTangent[0] - pulley.center[0]);
+    for (let turn = 1; turn <= extraTurns * 4; turn += 1) {
+      const angle = startAngle + sweep * Math.PI / 2 * turn;
+      const point = add(pulley.center, [r * Math.cos(angle), r * Math.sin(angle)]);
+      path += " A " + r + " " + r + " 0 0 " + (sweep === 1 ? 1 : 0) + " " + point[0] + " " + point[1];
+    }
+    path += " A " + r + " " + r + " 0 " + (selected.delta > Math.PI ? 1 : 0) + " " + (sweep === 1 ? 1 : 0) + " " + toTangent[0] + " " + toTangent[1] + " L " + to[0] + " " + to[1];
+    return finalizePrimitive({
       kind: "rope", role: opts.role || "rope", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "rope.strokeWidth"),
       id: opts.id, from, to, pulley: { center: clone(pulley.center), radius: r }, side: opts.side || "top", fromTangent, toTangent,
       tangentPoints: [clone(fromTangent), clone(toTangent)], start: clone(fromTangent), end: clone(toTangent), segments: [fromSegment, arc, toSegment], arc,
       path, length: length(sub(from, fromTangent)) + r * delta + length(sub(to, toTangent))
-    };
+    }, false);
   }
 
   function angleArc(options) {
@@ -244,13 +271,12 @@
     const start = add(vertex, mul(fromRay, radius));
     const end = add(vertex, mul(toRay, radius));
     const radians = Math.acos(dotValue);
-    return {
-      [PRIMITIVE_BRAND]: true,
+    return finalizePrimitive({
       kind: "angleArc", role: opts.role || "angle", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "angle.strokeWidth"),
       id: opts.id, vertex, fromRay, toRay, radius, start, end, radians,
       startPoint: clone(start), endPoint: clone(end), degrees: radians * 180 / Math.PI, sweep: crossValue >= 0 ? 1 : -1, largeArc: radians > Math.PI,
       path: "M " + start[0] + " " + start[1] + " A " + radius + " " + radius + " 0 " + (radians > Math.PI ? 1 : 0) + " " + (crossValue >= 0 ? 1 : 0) + " " + end[0] + " " + end[1]
-    };
+    }, false);
   }
 
   function dimension(options) {
@@ -265,7 +291,7 @@
     const end = add(b, mul(normal, offset));
     const extension = [{ from: clone(a), to: clone(start) }, { from: clone(b), to: clone(end) }];
     const path = "M " + start[0] + " " + start[1] + " L " + end[0] + " " + end[1] + " M " + a[0] + " " + a[1] + " L " + start[0] + " " + start[1] + " M " + b[0] + " " + b[1] + " L " + end[0] + " " + end[1];
-    return { [PRIMITIVE_BRAND]: true, kind: "dimension", role: opts.role || "dimension", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "dimension.strokeWidth"), id: opts.id, a, b, tangent, normal, offset, start, end, startAnchor: clone(start), endAnchor: clone(end), anchors: [clone(start), clone(end)], extension, path, length: length(sub(b, a)), labelAt: mul(add(start, end), 0.5) };
+    return finalizePrimitive({ kind: "dimension", role: opts.role || "dimension", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 1 : opts.strokeWidth, "dimension.strokeWidth"), id: opts.id, a, b, tangent, normal, offset, start, end, startAnchor: clone(start), endAnchor: clone(end), anchors: [clone(start), clone(end)], extension, path, length: length(sub(b, a)), labelAt: mul(add(start, end), 0.5) }, false);
   }
 
   function arrow(options) {
@@ -280,7 +306,7 @@
     const normal = [-tangent[1], tangent[0]];
     const left = add(base, mul(normal, headWidth / 2));
     const right = sub(base, mul(normal, headWidth / 2));
-    return { [PRIMITIVE_BRAND]: true, kind: "arrow", id: opts.id, role: opts.role || "arrow", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 2 : opts.strokeWidth, "arrow.strokeWidth"), from, to, tangent, base, left, right, head: [clone(left), clone(to), clone(right)], path: "M " + from[0] + " " + from[1] + " L " + to[0] + " " + to[1], headLength, headWidth };
+    return finalizePrimitive({ kind: "arrow", id: opts.id, role: opts.role || "arrow", semantic: true, strokeWidth: nonnegative(opts.strokeWidth === undefined ? 2 : opts.strokeWidth, "arrow.strokeWidth"), from, to, tangent, base, left, right, head: [clone(left), clone(to), clone(right)], path: "M " + from[0] + " " + from[1] + " L " + to[0] + " " + to[1], headLength, headWidth }, false);
   }
 
   function graphTransform(options) {
@@ -313,7 +339,6 @@
       if (kind !== "rect" || opts.decorative !== true || opts.semanticGeometry === true) fail("DECORATIVE_SEMANTIC", "decorative exemption is limited to explicit background rectangles");
     }
     const result = { kind, id: shapeId, role: selectedRole, semantic: selectedRole !== "decorative", attrs: opts };
-    result[PRIMITIVE_BRAND] = true;
     return result;
   }
 
@@ -322,21 +347,25 @@
     s.a = vector(options.a, "line.a"); s.b = vector(options.b, "line.b");
     if (length(sub(s.b, s.a)) <= EPSILON) fail("DEGENERATE", "line endpoints form a zero-length segment");
     s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "line.strokeWidth");
-    return s;
+    return finalizePrimitive(s, false);
   }
 
   function circleShape(options) {
     const s = shapeBase(options, "circle", "circle");
     s.center = vector(options.center, "circle.center"); s.radius = positiveRadius(finite(options.radius, "circle.radius")); s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "circle.strokeWidth");
-    return s;
+    return finalizePrimitive(s, false);
   }
 
   function rect(options) {
     const s = shapeBase(options, "rect", options && options.decorative ? "decorative" : "shape");
     s.x = finite(options.x, "rect.x"); s.y = finite(options.y, "rect.y"); s.width = finite(options.width, "rect.width"); s.height = finite(options.height, "rect.height");
-    if (!(s.width >= 0) || !(s.height >= 0)) fail("DEGENERATE", "rectangle dimensions must be non-negative");
+    if (!(s.width > EPSILON) || !(s.height > EPSILON)) fail("DEGENERATE", "rectangle dimensions must be positive");
+    if (options.rx !== undefined) {
+      const rx = finite(options.rx, "rect.rx");
+      if (rx < 0 || rx > Math.min(s.width, s.height) / 2 + EPSILON) fail("INVALID_GEOMETRY", "rect.rx must be finite, non-negative, and fit the rectangle");
+    }
     s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "rect.strokeWidth");
-    return s;
+    return finalizePrimitive(s, s.role === "decorative");
   }
 
   function polygon(options) {
@@ -347,7 +376,7 @@
     let area = 0; for (let i = 0; i < s.points.length; i += 1) area += cross(s.points[i], s.points[(i + 1) % s.points.length]);
     if (Math.abs(area) <= EPSILON) fail("DEGENERATE", "polygon has zero area");
     s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "polygon.strokeWidth");
-    return s;
+    return finalizePrimitive(s, false);
   }
 
   function polyline(options) {
@@ -356,7 +385,7 @@
     s.points = options.points.map((p) => vector(p, "polyline.point"));
     for (let i = 1; i < s.points.length; i += 1) if (length(sub(s.points[i], s.points[i - 1])) <= EPSILON) fail("DEGENERATE", "polyline has a zero-length segment");
     s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "polyline.strokeWidth");
-    return s;
+    return finalizePrimitive(s, false);
   }
 
   function parsePathBounds(source) {
@@ -380,8 +409,8 @@
       const first = tokens[index++]; const second = needs === 2 ? tokens[index++] : null;
       if (typeof first === "string" || (second !== null && typeof second === "string")) fail("INVALID_PATH", "path command has invalid coordinates");
       let next;
-      if (upper === "H") next = relative ? [current[0] + first, current[1]] : [first, current[1]];
-      else if (upper === "V") next = relative ? [current[0], current[1] + first] : [current[0], first];
+      if (upper === "H") next = relative ? add(current, [first, 0]) : [first, current[1]];
+      else if (upper === "V") next = relative ? add(current, [0, first]) : [current[0], first];
       else next = coordinate(relative, first, second);
       if (upper === "M") subpath = clone(next);
       current = next; points.push(clone(current));
@@ -390,7 +419,9 @@
     if (points.length < 2) fail("DEGENERATE", "path has no painted segment");
     let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
     points.forEach((point) => { minX = Math.min(minX, point[0]); minY = Math.min(minY, point[1]); maxX = Math.max(maxX, point[0]); maxY = Math.max(maxY, point[1]); });
-    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    const result = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    [result.x, result.y, result.width, result.height].forEach((value) => finite(value, "path bounds"));
+    return result;
   }
 
   function path(options) {
@@ -400,7 +431,8 @@
     s.strokeWidth = nonnegative(options.strokeWidth === undefined ? 1 : options.strokeWidth, "path.strokeWidth");
     const rawBounds = parsePathBounds(options.d); const halfStroke = s.strokeWidth / 2;
     s.bbox = { x: rawBounds.x - halfStroke, y: rawBounds.y - halfStroke, width: rawBounds.width + s.strokeWidth, height: rawBounds.height + s.strokeWidth };
-    return s;
+    Object.values(s.bbox).forEach((value) => finite(value, "path painted bounds"));
+    return finalizePrimitive(s, false);
   }
 
   function label(options) {
@@ -419,21 +451,26 @@
     s.fontSize = finite(opts.fontSize === undefined ? 14 : opts.fontSize, "label.fontSize");
     if (!(s.fontSize > 0)) fail("DEGENERATE", "label fontSize must be positive");
     s.background = opts.background === true || opts.background === "opaque" ? "opaque" : "none";
-    return s;
+    return finalizePrimitive(s, false);
   }
 
   function primitiveFromGeometry(geometry, options) {
     const opts = options || {};
-    if (geometry && geometry.kind && geometry[PRIMITIVE_BRAND] === true) {
+    const meta = geometry && PRIMITIVE_META.get(geometry);
+    if (geometry && geometry.kind && geometry[PRIMITIVE_BRAND] === true && meta && deepEqual(snapshotValue(geometry), meta.snapshot)) {
       const s = Object.assign({}, geometry);
       if (opts.id && !s.id) s.id = id(opts.id, "element.id");
       if (!s.id) s.id = id("geometry-" + geometry.kind, "element.id");
-      if (opts.role) s.role = opts.role;
+      if (opts.role) {
+        if (opts.role === "decorative" && !(meta.decorative && geometry.kind === "rect" && geometry[DECORATIVE_TOKEN] === true)) fail("DECORATIVE_SEMANTIC", "decorative role requires the explicit decorative rectangle factory");
+        s.role = opts.role;
+      }
       if (s.role && !ROLES.has(s.role)) fail("INVALID_ROLE", "unknown semantic role: " + s.role);
       if (!s.role) s.role = geometry.kind === "arrow" ? "arrow" : "shape";
+      if (s.role === "decorative" && !(meta.decorative && geometry.kind === "rect" && geometry[DECORATIVE_TOKEN] === true)) fail("DECORATIVE_SEMANTIC", "decorative role requires the explicit decorative rectangle factory");
       if (s.semantic !== false && s.role === "decorative") fail("DECORATIVE_SEMANTIC", "semantic geometry cannot use decorative role");
       s.id = id(s.id, "element.id");
-      return s;
+    return finalizePrimitive(s, false);
     }
     fail("INVALID_ELEMENT", "diagram elements must be branded kit primitives");
   }
@@ -447,7 +484,9 @@
     else if (s.kind === "rope") {
       const lineOne = bboxOf({ kind: "line", a: s.from, b: s.fromTangent, strokeWidth: s.strokeWidth });
       const lineTwo = bboxOf({ kind: "line", a: s.toTangent, b: s.to, strokeWidth: s.strokeWidth });
-      const arcBox = arcBounds(s.pulley.center, s.pulley.radius, Math.atan2(s.fromTangent[1] - s.pulley.center[1], s.fromTangent[0] - s.pulley.center[0]), Math.atan2(s.toTangent[1] - s.pulley.center[1], s.toTangent[0] - s.pulley.center[0]), s.arc.sweep, s.strokeWidth);
+      const arcBox = s.arc && s.arc.turns > 0
+        ? { x: s.pulley.center[0] - s.pulley.radius - s.strokeWidth / 2, y: s.pulley.center[1] - s.pulley.radius - s.strokeWidth / 2, width: 2 * s.pulley.radius + s.strokeWidth, height: 2 * s.pulley.radius + s.strokeWidth }
+        : arcBounds(s.pulley.center, s.pulley.radius, Math.atan2(s.fromTangent[1] - s.pulley.center[1], s.fromTangent[0] - s.pulley.center[0]), Math.atan2(s.toTangent[1] - s.pulley.center[1], s.toTangent[0] - s.pulley.center[0]), s.arc.sweep, s.strokeWidth);
       return unionBounds(unionBounds(lineOne, arcBox), lineTwo);
     }
     else if (s.kind === "circle") return { x: s.center[0] - s.radius - s.strokeWidth / 2, y: s.center[1] - s.radius - s.strokeWidth / 2, width: 2 * s.radius + s.strokeWidth, height: 2 * s.radius + s.strokeWidth };
@@ -466,6 +505,65 @@
     const minX = Math.min(...xs) - stroke; const maxX = Math.max(...xs) + stroke;
     const minY = Math.min(...ys) - stroke; const maxY = Math.max(...ys) + stroke;
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }
+
+  function canonicalGeometry(element) {
+    const strokeWidth = nonnegative(element.strokeWidth, "element.strokeWidth");
+    let shape;
+    if (element.kind === "line") shape = line({ id: element.id, a: element.a || element.from, b: element.b || element.to, role: element.role, strokeWidth });
+    else if (element.kind === "arrow") shape = arrow({ id: element.id, from: element.from, to: element.to, role: element.role, strokeWidth, headLength: element.arrowhead && element.arrowhead.headLength, headWidth: element.arrowhead && element.arrowhead.headWidth });
+    else if (element.kind === "circle") shape = circleShape({ id: element.id, center: element.center, radius: element.radius, role: element.role, strokeWidth });
+    else if (element.kind === "rect") {
+      const raw = { id: element.id, x: element.x, y: element.y, width: element.width, height: element.height, role: element.role === "decorative" ? "decorative" : "shape", decorative: element.role === "decorative", strokeWidth };
+      if (element.rx !== undefined) raw.rx = element.rx;
+      shape = rect(raw);
+    } else if (element.kind === "polygon") shape = polygon({ id: element.id, points: element.points, role: element.role, strokeWidth });
+    else if (element.kind === "polyline") shape = polyline({ id: element.id, points: element.points, role: element.role, strokeWidth });
+    else if (element.kind === "path") shape = path({ id: element.id, d: element.path, role: element.role, strokeWidth });
+    else if (element.kind === "body") shape = bodyOnLine({ id: element.id, bottomCenter: element.bottomCenter, width: element.width, height: element.height, line: element.line, outwardNormal: element.outwardNormal, role: element.role, strokeWidth });
+    else if (element.kind === "dimension") shape = dimension({ id: element.id, a: element.a, b: element.b, normal: element.normal, offset: element.offset, role: element.role, strokeWidth });
+    else if (element.kind === "angleArc") shape = angleArc({ id: element.id, vertex: element.vertex, fromRay: add(element.vertex, element.fromRay), toRay: add(element.vertex, element.toRay), radius: element.radius, role: element.role, strokeWidth });
+    else if (element.kind === "rope") shape = ropeAroundCircle({ id: element.id, from: element.from, to: element.to, pulley: element.pulley, side: element.side, role: element.role, strokeWidth });
+    else if (element.kind === "label") {
+      [element.at, element.anchorId, element.textAnchor, element.text, element.avoid, element.minClearance, element.fontSize].forEach((value) => { if (value === undefined) fail("INVALID_MANIFEST", "label geometry is incomplete"); });
+      vector(element.at, "label.at"); id(element.anchorId, "label.anchorId"); id(element.textAnchor, "label.textAnchor");
+      if (!Array.isArray(element.avoid)) fail("INVALID_MANIFEST", "label avoid must be an array");
+      element.avoid.forEach((value) => id(value, "label.avoid"));
+      finite(element.minClearance, "label.minClearance"); finite(element.fontSize, "label.fontSize");
+      if (element.background !== "none" && element.background !== "opaque") fail("INVALID_MANIFEST", "label background is invalid");
+      return { bbox: bboxOf(element), strokeWidth, geometry: { at: element.at, anchorId: element.anchorId, textAnchor: element.textAnchor, text: element.text, avoid: element.avoid, minClearance: element.minClearance, fontSize: element.fontSize, background: element.background } };
+    } else if (element.role === "label-background") {
+      [element.x, element.y, element.width, element.height].forEach((value) => finite(value, "background geometry"));
+      if (!(element.width > EPSILON) || !(element.height > EPSILON)) fail("DEGENERATE", "background dimensions must be positive");
+      return { bbox: { x: element.x, y: element.y, width: element.width, height: element.height }, strokeWidth: 0, geometry: { x: element.x, y: element.y, width: element.width, height: element.height } };
+    } else fail("INVALID_MANIFEST", "unsupported canonical element kind: " + element.kind);
+    const result = { bbox: bboxOf(shape), strokeWidth: shape.strokeWidth };
+    if (shape.kind === "line") result.geometry = { from: shape.a, to: shape.b };
+    if (shape.kind === "arrow") result.geometry = { from: shape.from, to: shape.to, head: shape.head };
+    if (shape.kind === "circle") result.geometry = { center: shape.center, radius: shape.radius };
+    if (shape.kind === "rect") result.geometry = { x: shape.x, y: shape.y, width: shape.width, height: shape.height, rx: element.rx };
+    if (shape.kind === "polygon" || shape.kind === "polyline") result.geometry = { points: shape.points };
+    if (shape.kind === "body") result.geometry = { points: shape.corners, line: shape.line, outwardNormal: shape.outwardNormal, bottomCenter: shape.bottomCenter, width: length(sub(shape.bottomRight, shape.bottomLeft)), height: length(sub(shape.topLeft, shape.bottomLeft)) };
+    if (shape.kind === "dimension") result.geometry = { a: shape.a, b: shape.b, normal: shape.normal, offset: shape.offset, extension: shape.extension };
+    if (shape.kind === "angleArc") result.geometry = { vertex: shape.vertex, fromRay: shape.fromRay, toRay: shape.toRay, radius: shape.radius, sweep: shape.sweep };
+    if (shape.kind === "rope") result.geometry = { from: shape.from, to: shape.to, pulley: shape.pulley, side: shape.side, fromTangent: shape.fromTangent, toTangent: shape.toTangent, arc: shape.arc };
+    if (["path", "angleArc", "rope", "dimension"].includes(shape.kind)) result.path = shape.d !== undefined ? shape.d : shape.path;
+    if (shape.kind === "arrow") result.arrowhead = { points: shape.head.map(clone), headLength: shape.headLength, headWidth: shape.headWidth };
+    return result;
+  }
+  function recordGeometry(element) {
+    if (element.kind === "line") return { from: element.from, to: element.to };
+    if (element.kind === "arrow") return { from: element.from, to: element.to, head: element.arrowhead && element.arrowhead.points };
+    if (element.kind === "circle") return { center: element.center, radius: element.radius };
+    if (element.kind === "rect") return { x: element.x, y: element.y, width: element.width, height: element.height, rx: element.rx };
+    if (element.kind === "polygon" || element.kind === "polyline") return { points: element.points };
+    if (element.kind === "body") return { points: element.points, line: element.line, outwardNormal: element.outwardNormal, bottomCenter: element.bottomCenter, width: element.width, height: element.height };
+    if (element.kind === "dimension") return { a: element.a, b: element.b, normal: element.normal, offset: element.offset, extension: element.extension };
+    if (element.kind === "angleArc") return { vertex: element.vertex, fromRay: element.fromRay, toRay: element.toRay, radius: element.radius, sweep: element.sweep };
+    if (element.kind === "rope") return { from: element.from, to: element.to, pulley: element.pulley, side: element.side, fromTangent: element.fromTangent, toTangent: element.toTangent, arc: element.arc };
+    if (element.kind === "label") return { at: element.at, anchorId: element.anchorId, textAnchor: element.textAnchor, text: element.text, avoid: element.avoid, minClearance: element.minClearance, fontSize: element.fontSize, background: element.background };
+    if (element.role === "label-background") return { x: element.x, y: element.y, width: element.width, height: element.height };
+    return {};
   }
 
   function escapeText(value) { return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
@@ -495,9 +593,22 @@
     if (leftKeys.length !== rightKeys.length || leftKeys.some((key, index) => key !== rightKeys[index])) return false;
     return leftKeys.every((key) => deepEqual(left[key], right[key]));
   }
+  function geometryEqual(left, right) {
+    if (typeof left === "number" && typeof right === "number") return Number.isFinite(left) && Number.isFinite(right) && Math.abs(left - right) <= 1e-10 * Math.max(1, Math.abs(left), Math.abs(right));
+    if (typeof left === "string" && typeof right === "string" && /[MLHVZ]/iu.test(left) && /[MLHVZ]/iu.test(right)) {
+      const tokenize = (value) => value.match(/[a-zA-Z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/giu) || [];
+      const a = tokenize(left); const b = tokenize(right);
+      return a.length === b.length && a.every((token, index) => /[a-zA-Z]/u.test(token) || geometryEqual(Number(token), Number(b[index])));
+    }
+    if (left === right) return true;
+    if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false;
+    const leftKeys = Object.keys(left).sort(); const rightKeys = Object.keys(right).sort();
+    if (leftKeys.length !== rightKeys.length || leftKeys.some((key, index) => key !== rightKeys[index])) return false;
+    return leftKeys.every((key) => geometryEqual(left[key], right[key]));
+  }
 
   function attrsFor(s) {
-    const data = ' data-role="' + escapeAttr(s.role) + '" data-geometry-id="' + escapeAttr(s.id) + '"';
+    const data = ' id="' + escapeAttr(s.id) + '" data-role="' + escapeAttr(s.role) + '" data-geometry-id="' + escapeAttr(s.id) + '"';
     if (s.kind === "line") return '<line x1="' + number(s.a[0]) + '" y1="' + number(s.a[1]) + '" x2="' + number(s.b[0]) + '" y2="' + number(s.b[1]) + '" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></line>';
     if (s.kind === "circle") return '<circle cx="' + number(s.center[0]) + '" cy="' + number(s.center[1]) + '" r="' + number(s.radius) + '" stroke="currentColor" fill="none" stroke-width="' + number(s.strokeWidth) + '"' + data + '></circle>';
     if (s.kind === "rect") return '<rect x="' + number(s.x) + '" y="' + number(s.y) + '" width="' + number(s.width) + '" height="' + number(s.height) + '"' + (s.attrs.rx !== undefined ? ' rx="' + number(nonnegative(s.attrs.rx, "rect.rx")) + '"' : "") + ' fill="' + (s.role === "decorative" ? "#FBF8EF" : "none") + '" stroke="currentColor" stroke-width="' + number(s.strokeWidth) + '"' + data + '></rect>';
@@ -559,8 +670,19 @@
       layerElements.push(Object.assign({ layer: layer.name }, element));
     });
     });
+    layerElements.forEach((element) => {
+      const canonical = canonicalGeometry(element);
+      if (!geometryEqual(element.bbox, canonical.bbox) || !geometryEqual(element.strokeWidth, canonical.strokeWidth)) fail("INVALID_MANIFEST", "canonical geometry extents were tampered: " + element.id);
+      if (!geometryEqual(recordGeometry(element), canonical.geometry)) fail("INVALID_MANIFEST", "canonical geometry was tampered: " + element.id);
+      if (canonical.path !== undefined && !geometryEqual(element.path, canonical.path)) fail("INVALID_MANIFEST", "canonical path was tampered: " + element.id);
+      if (canonical.arrowhead !== undefined) {
+        const arrowhead = Object.assign({}, element.arrowhead);
+        delete arrowhead.markerId; delete arrowhead.markerPathId;
+        if (!geometryEqual(arrowhead, canonical.arrowhead)) fail("INVALID_MANIFEST", "canonical arrowhead was tampered: " + element.id);
+      }
+    });
     if (!Array.isArray(manifest.elements)) fail("INVALID_MANIFEST", "manifest elements are required");
-    const expectedElements = layerElements.concat((manifest.backgrounds || []).map((background) => Object.assign({ layer: "labels", kind: "rect", collision: true, strokeWidth: 0 }, background)));
+    const expectedElements = layerElements.concat((manifest.backgrounds || []).map((background) => Object.assign({ layer: "labels", kind: "rect", collision: true, strokeWidth: 0, x: background.x, y: background.y, width: background.width, height: background.height }, background)));
     if (manifest.elements.length !== expectedElements.length) fail("INVALID_MANIFEST", "manifest elements do not reconcile with painted layers");
     const byId = new Map(manifest.elements.map((element) => [element.id, element]));
     expectedElements.forEach((element) => {
@@ -576,6 +698,10 @@
       [element.bbox.x, element.bbox.y, element.bbox.width, element.bbox.height].forEach((value) => nonnegative(value, "painted element bbox"));
       finite(element.strokeWidth, "painted element stroke width");
       if (element.bbox.x + element.bbox.width > manifest.width + EPSILON || element.bbox.y + element.bbox.height > manifest.height + EPSILON) fail("VIEWBOX_OVERFLOW", "painted element overflows the viewBox: " + element.id);
+    });
+    manifest.elements.filter((element) => element.role === "label-background").forEach((element) => {
+      const canonical = canonicalGeometry(element);
+      if (!geometryEqual(element.bbox, canonical.bbox) || !geometryEqual(element.strokeWidth, canonical.strokeWidth)) fail("INVALID_MANIFEST", "canonical background was tampered: " + element.id);
     });
     manifest.elements.filter((element) => element.kind === "label").forEach((element) => {
       const anchor = byId.get(element.anchorId);
@@ -605,14 +731,14 @@
     if (!deepEqual(manifest.paths, canonicalPaths)) fail("INVALID_MANIFEST", "path records were tampered");
     const canonicalArrows = manifest.elements.filter((element) => element.arrowhead).map((element) => Object.assign({ id: element.id, layer: element.layer }, element.arrowhead));
     if (!deepEqual(manifest.arrowheads, canonicalArrows)) fail("INVALID_MANIFEST", "arrowhead records were tampered");
-    const canonicalBackgrounds = manifest.elements.filter((element) => element.role === "label-background").map((element) => ({ id: element.id, labelId: element.labelId, bbox: element.bbox, role: element.role, collision: true, fill: element.fill }));
+    const canonicalBackgrounds = manifest.elements.filter((element) => element.role === "label-background").map((element) => ({ id: element.id, labelId: element.labelId, x: element.x, y: element.y, width: element.width, height: element.height, bbox: element.bbox, role: element.role, collision: true, fill: element.fill }));
     if (!deepEqual(manifest.backgrounds, canonicalBackgrounds)) fail("INVALID_MANIFEST", "background records were tampered");
     if (new Set(manifest.paths.map((item) => item.id)).size !== pathIds.size || manifest.paths.some((item) => !pathIds.has(item.id))) fail("INVALID_MANIFEST", "paths do not reconcile with painted paths");
     if (new Set(manifest.strokes.map((item) => item.id)).size !== strokeIds.size || manifest.strokes.some((item) => !strokeIds.has(item.id))) fail("INVALID_MANIFEST", "strokes do not reconcile with painted strokes");
     if (new Set(manifest.arrowheads.map((item) => item.id)).size !== arrowIds.size || manifest.arrowheads.some((item) => !arrowIds.has(item.id))) fail("INVALID_MANIFEST", "arrowheads do not reconcile with painted arrows");
     if (new Set(manifest.backgrounds.map((item) => item.id)).size !== backgroundIds.size || manifest.backgrounds.some((item) => !backgroundIds.has(item.id))) fail("INVALID_MANIFEST", "backgrounds do not reconcile with painted backgrounds");
     if (!Array.isArray(manifest.domIds)) fail("INVALID_MANIFEST", "domIds are required");
-    if (manifest.arrowheads.some((item) => !item.markerId || !(manifest.fragmentIds || []).includes(item.markerId))) fail("INVALID_MANIFEST", "arrowhead marker ID is not declared");
+    if (manifest.arrowheads.some((item) => !item.markerId || !item.markerPathId || !(manifest.fragmentIds || []).includes(item.markerId) || !(manifest.fragmentIds || []).includes(item.markerPathId))) fail("INVALID_MANIFEST", "arrowhead marker IDs are not declared");
     const domIds = new Set(manifest.domIds); const declaredIds = new Set([manifest.id, titleId, descriptionId].concat(manifest.elements.map((element) => element.id), manifest.fragmentIds || []));
     if (domIds.size !== manifest.domIds.length || domIds.size !== declaredIds.size || !manifest.domIds.every((fragmentId) => declaredIds.has(fragmentId)) || !domIds.has(manifest.id) || !domIds.has(titleId) || !domIds.has(descriptionId)) fail("DUPLICATE_ID", "manifest DOM IDs are not unique or complete");
     if (manifest.fragmentIds !== undefined && !Array.isArray(manifest.fragmentIds)) fail("INVALID_MANIFEST", "fragmentIds must be an array");
@@ -623,7 +749,7 @@
         seen.add(fragmentId);
       });
     }
-    const expectedFragments = new Set(manifest.elements.filter((element) => element.role === "label-background").map((element) => element.id).concat(manifest.arrowheads.map((item) => item.markerId)));
+    const expectedFragments = new Set(manifest.elements.filter((element) => element.role === "label-background").map((element) => element.id).concat(manifest.arrowheads.flatMap((item) => [item.markerId, item.markerPathId])));
     if (expectedFragments.size !== (manifest.fragmentIds || []).length || (manifest.fragmentIds || []).some((fragmentId) => !expectedFragments.has(fragmentId))) fail("INVALID_MANIFEST", "fragment IDs do not reconcile with painted marker/background fragments");
     return true;
   }
@@ -652,30 +778,26 @@
         if (finished) fail("FINISHED", "diagram has already been finished");
         const fragmentIds = [];
         layers.forEach((layer) => layer.elements.forEach((element) => {
-          if (element.kind === "arrow") { element._markerId = diagramId + "-marker-" + element.id; fragmentIds.push(element._markerId); }
+          if (element.kind === "arrow") { element._markerId = diagramId + "-marker-" + element.id; element._markerPathId = element._markerId + "-path"; fragmentIds.push(element._markerId, element._markerPathId); }
           if (element.kind === "label" && element.background === "opaque") { element._backgroundId = diagramId + "-" + element.id + "-background"; fragmentIds.push(element._backgroundId); }
         }));
         const allDomIds = rootIds.concat(layers.flatMap((layer) => layer.elements.map((element) => element.id)), fragmentIds);
-        const localIds = new Set();
-        allDomIds.forEach((fragmentId) => {
-          id(fragmentId, "fragment.id");
-          if (localIds.has(fragmentId)) fail("DUPLICATE_ID", "duplicate emitted DOM ID: " + fragmentId);
-          if (USED_FRAGMENT_IDS.has(fragmentId)) fail("DUPLICATE_ID", "duplicate fragment ID: " + fragmentId);
-          localIds.add(fragmentId);
-        });
         const manifestLayers = layers.map((layer) => ({ name: layer.name, elements: layer.elements.map((element) => {
           const record = { id: element.id, kind: element.kind, role: element.role, bbox: bboxOf(element), collision: element.semantic !== false, strokeWidth: element.strokeWidth || 0 };
           if (element.kind === "line" || element.kind === "arrow") Object.assign(record, { from: clone(element.from || element.a), to: clone(element.to || element.b) });
-          if (element.kind === "arrow") Object.assign(record, { arrowhead: { points: element.head.map(clone), headLength: element.headLength, headWidth: element.headWidth, markerId: element._markerId } });
+          if (element.kind === "arrow") Object.assign(record, { arrowhead: { points: element.head.map(clone), headLength: element.headLength, headWidth: element.headWidth, markerId: element._markerId, markerPathId: element._markerPathId } });
           if (element.kind === "circle") Object.assign(record, { center: clone(element.center), radius: element.radius });
-          if (element.kind === "body") Object.assign(record, { points: element.corners.map(clone) });
+          if (element.kind === "body") Object.assign(record, { points: element.corners.map(clone), line: { a: clone(element.line.a), b: clone(element.line.b) }, outwardNormal: clone(element.outwardNormal), bottomCenter: clone(element.bottomCenter), width: length(sub(element.bottomRight, element.bottomLeft)), height: length(sub(element.topLeft, element.bottomLeft)) });
           if (element.kind === "polygon" || element.kind === "polyline") Object.assign(record, { points: element.points.map(clone) });
+          if (element.kind === "rect") Object.assign(record, { x: element.x, y: element.y, width: element.width, height: element.height, rx: element.attrs.rx });
           if (element.kind === "path" || element.kind === "angleArc" || element.kind === "rope" || element.kind === "dimension") Object.assign(record, { path: element.d || element.path, segments: element.segments || null });
-          if (element.kind === "dimension") Object.assign(record, { anchors: element.anchors.map(clone), extension: element.extension });
-          if (element.kind === "label") Object.assign(record, { at: clone(element.at), anchorId: element.anchorId, textAnchor: element.textAnchor, text: element.text, avoid: element.avoid.slice(), minClearance: element.minClearance, background: element.background });
+          if (element.kind === "dimension") Object.assign(record, { a: clone(element.a), b: clone(element.b), normal: clone(element.normal), offset: element.offset, anchors: element.anchors.map(clone), extension: element.extension });
+          if (element.kind === "angleArc") Object.assign(record, { vertex: clone(element.vertex), fromRay: clone(element.fromRay), toRay: clone(element.toRay), radius: element.radius, sweep: element.sweep });
+          if (element.kind === "rope") Object.assign(record, { from: clone(element.from), to: clone(element.to), pulley: { center: clone(element.pulley.center), radius: element.pulley.radius }, side: element.side, fromTangent: clone(element.fromTangent), toTangent: clone(element.toTangent), arc: Object.assign({}, element.arc) });
+          if (element.kind === "label") Object.assign(record, { at: clone(element.at), anchorId: element.anchorId, textAnchor: element.textAnchor, text: element.text, avoid: element.avoid.slice(), minClearance: element.minClearance, fontSize: element.fontSize, background: element.background });
           return record;
         }) }));
-        const backgroundRecords = manifestLayers[3].elements.filter((element) => element.background === "opaque").map((element) => ({ id: element._backgroundId || diagramId + "-" + element.id + "-background", kind: "rect", role: "label-background", bbox: element.bbox, collision: true, strokeWidth: 0, fill: "#FBF8EF", labelId: element.id }));
+        const backgroundRecords = manifestLayers[3].elements.filter((element) => element.background === "opaque").map((element) => ({ id: element._backgroundId || diagramId + "-" + element.id + "-background", kind: "rect", role: "label-background", x: element.bbox.x, y: element.bbox.y, width: element.bbox.width, height: element.bbox.height, bbox: element.bbox, collision: true, strokeWidth: 0, fill: "#FBF8EF", labelId: element.id }));
         const paintedElements = manifestLayers.flatMap((layer) => layer.elements.map((element) => Object.assign({ layer: layer.name }, element))).concat(backgroundRecords.map((element) => Object.assign({ layer: "labels" }, element)));
         const manifest = {
           id: diagramId, title, description, purpose, width, height, viewBox: [0, 0, width, height],
@@ -686,18 +808,28 @@
           strokes: manifestLayers.flatMap((layer) => layer.elements.filter((element) => element.strokeWidth > 0).map((element) => ({ id: element.id, layer: layer.name, width: element.strokeWidth }))),
           paths: manifestLayers.flatMap((layer) => layer.elements.filter((element) => element.path).map((element) => ({ id: element.id, layer: layer.name, path: element.path }))),
           arrowheads: manifestLayers.flatMap((layer) => layer.elements.filter((element) => element.arrowhead).map((element) => Object.assign({ id: element.id, layer: layer.name }, element.arrowhead))),
-          backgrounds: backgroundRecords.map((element) => ({ id: element.id, labelId: element.labelId, bbox: element.bbox, role: element.role, collision: true, fill: element.fill })),
+          backgrounds: backgroundRecords.map((element) => ({ id: element.id, labelId: element.labelId, x: element.x, y: element.y, width: element.width, height: element.height, bbox: element.bbox, role: element.role, collision: true, fill: element.fill })),
           collisions: paintedElements.filter((element) => element.collision).map((element) => ({ id: element.id, role: element.role, bbox: element.bbox, layer: element.layer, minClearance: element.minClearance || 0 })),
           fragmentIds: Array.from(new Set(fragmentIds))
         };
         manifest.domIds = allDomIds;
         validateManifest(manifest);
-        finished = true;
-        allDomIds.forEach((fragmentId) => USED_FRAGMENT_IDS.add(fragmentId));
         const body = layers.map((layer) => '<g data-layer="' + layer.name + '">' + layer.elements.map(attrsFor).join("") + "</g>").join("");
         const arrowElements = layers.flatMap((layer) => layer.elements).filter((element) => element.kind === "arrow");
-        const marker = arrowElements.length ? '<defs>' + arrowElements.map((arrowElement) => '<marker id="' + escapeAttr(arrowElement._markerId) + '" markerWidth="' + number(arrowElement.headLength) + '" markerHeight="' + number(arrowElement.headWidth) + '" markerUnits="userSpaceOnUse" refX="' + number(arrowElement.headLength) + '" refY="' + number(arrowElement.headWidth / 2) + '" orient="auto"><path d="M0,0 L' + number(arrowElement.headLength) + ',' + number(arrowElement.headWidth / 2) + ' L0,' + number(arrowElement.headWidth) + ' z" fill="currentColor" data-role="marker" data-geometry-id="' + escapeAttr(arrowElement._markerId) + '"></path></marker>').join("") + '</defs>' : "";
+        const marker = arrowElements.length ? '<defs>' + arrowElements.map((arrowElement) => '<marker id="' + escapeAttr(arrowElement._markerId) + '" viewBox="0 0 ' + number(arrowElement.headLength) + ' ' + number(arrowElement.headWidth) + '" markerWidth="' + number(arrowElement.headLength) + '" markerHeight="' + number(arrowElement.headWidth) + '" markerUnits="userSpaceOnUse" refX="' + number(arrowElement.headLength) + '" refY="' + number(arrowElement.headWidth / 2) + '" orient="auto"><path id="' + escapeAttr(arrowElement._markerPathId) + '" d="M0,0 L' + number(arrowElement.headLength) + ',' + number(arrowElement.headWidth / 2) + ' L0,' + number(arrowElement.headWidth) + ' z" fill="currentColor" data-role="marker" data-geometry-id="' + escapeAttr(arrowElement._markerPathId) + '"></path></marker>').join("") + '</defs>' : "";
         const html = '<svg id="' + escapeAttr(diagramId) + '" viewBox="0 0 ' + number(width) + ' ' + number(height) + '" role="img" aria-labelledby="' + escapeAttr(diagramId + "-title " + diagramId + "-desc") + '"><title id="' + escapeAttr(diagramId + "-title") + '">' + escapeText(title) + '</title><desc id="' + escapeAttr(diagramId + "-desc") + '">' + escapeText(description) + '</desc>' + marker + body + '</svg>';
+        const parsedIds = [];
+        const idPattern = /\sid="([A-Za-z_][A-Za-z0-9_.:-]*)"/gu; let idMatch;
+        while ((idMatch = idPattern.exec(html))) parsedIds.push(idMatch[1]);
+        if (new Set(parsedIds).size !== parsedIds.length || parsedIds.length !== allDomIds.length || parsedIds.some((value) => !allDomIds.includes(value))) fail("INVALID_MANIFEST", "serialized DOM IDs do not reconcile with manifest.domIds");
+        const localIds = new Set();
+        allDomIds.forEach((fragmentId) => {
+          id(fragmentId, "fragment.id");
+          if (localIds.has(fragmentId) || USED_FRAGMENT_IDS.has(fragmentId)) fail("DUPLICATE_ID", "duplicate emitted DOM ID: " + fragmentId);
+          localIds.add(fragmentId);
+        });
+        finished = true;
+        allDomIds.forEach((fragmentId) => USED_FRAGMENT_IDS.add(fragmentId));
         return { html, manifest };
       }
     };

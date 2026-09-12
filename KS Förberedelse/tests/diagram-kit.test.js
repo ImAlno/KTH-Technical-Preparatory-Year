@@ -149,9 +149,24 @@ test("couples rope tangent pair and arc so both contacts are C1 and side-specifi
   assert.throws(() => kit.ropeAroundCircle({ id: "rope-side", from: [0, -10], pulley: { center: [0, 0], radius: 2 }, to: [8, 0], side: "diagonal" }), /side/i);
 });
 
+test("vector rope sides select sampled arc on the requested side", () => {
+  const top = kit.ropeAroundCircle({ id: "rope-vector-top", from: [0, -10], pulley: { center: [0, 0], radius: 2 }, to: [8, 0], side: [0, -1] });
+  const bottom = kit.ropeAroundCircle({ id: "rope-vector-bottom", from: [0, -10], pulley: { center: [0, 0], radius: 2 }, to: [8, 0], side: [0, 1] });
+  const midpoint = (rope) => {
+    const angle = Math.atan2(rope.fromTangent[1], rope.fromTangent[0]) + rope.arc.sweep * rope.arc.delta / 2;
+    return [Math.cos(angle), Math.sin(angle)];
+  };
+  assert.notDeepEqual(top.tangentPoints, bottom.tangentPoints);
+  assert.ok(kit.dot(midpoint(top), [0, -1]) > 0);
+  assert.ok(kit.dot(midpoint(bottom), [0, 1]) > 0);
+});
+
 test("requires branded semantic primitives and rejects raw collision bypasses", () => {
   const diagram = kit.create({ id: "kit-brand", title: "Brand", description: "Brand", width: 40, height: 40, purpose: "prompt" });
   assert.throws(() => diagram.add("geometry", { kind: "line", id: "raw", a: [1, 1], b: [2, 2], role: "decorative", semantic: false }), /primitive|brand|element/i);
+  const mutated = kit.line({ id: "mutated-line", a: [1, 1], b: [2, 2], role: "line" });
+  mutated.role = "decorative"; mutated.semantic = false;
+  assert.throws(() => diagram.add("geometry", mutated), /decorative|primitive|brand|semantic/i);
   assert.throws(() => diagram.add("geometry", kit.line({ id: "negative-stroke", a: [1, 1], b: [2, 2], role: "line", strokeWidth: -1 })), /stroke|negative/i);
 });
 
@@ -201,6 +216,17 @@ test("uses distinct arrow markers with exact custom head geometry and reconciled
   assert.match(output.html, /markerUnits="userSpaceOnUse"/g);
   assert.equal(output.manifest.arrowheads.length, 2);
   assert.throws(() => { const far = kit.create({ id: "kit-arrow-overflow", title: "A", description: "B", width: 20, height: 20, purpose: "prompt" }); far.add("information", kit.arrow({ id: "far-arrow", from: [5, 5], to: [21, 5], headLength: 8, headWidth: 8 })); far.finish(); }, /viewBox|overflow/i);
+});
+
+test("emits an exact DOM ID set and rejects path/rectangle overflow before reservation", () => {
+  const diagram = kit.create({ id: "kit-dom-id-set", title: "A", description: "B", width: 100, height: 100, purpose: "prompt" });
+  diagram.add("geometry", kit.rect({ id: "rounded", x: 10, y: 10, width: 20, height: 20, rx: 4 }));
+  diagram.add("information", kit.arrow({ id: "id-arrow", from: [20, 50], to: [80, 50] }));
+  const result = diagram.finish();
+  const parsed = [...result.html.matchAll(/\sid="([A-Za-z_][A-Za-z0-9_.:-]*)"/g)].map((match) => match[1]);
+  assert.deepEqual(new Set(parsed), new Set(result.manifest.domIds));
+  assert.throws(() => kit.path({ id: "path-overflow", d: "M 1e308 0 L -1e308 0", strokeWidth: 1 }), /finite|overflow/i);
+  assert.throws(() => kit.rect({ id: "zero-rect", x: 0, y: 0, width: 1e-14, height: 1, rx: Infinity }), /finite|degenerate|rectangle/i);
 });
 
 test("path and dimension paint records include exact stroke extents and one dimension path", () => {
