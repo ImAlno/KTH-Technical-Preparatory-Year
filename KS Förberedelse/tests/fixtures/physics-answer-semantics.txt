@@ -1,5 +1,5 @@
 # baselineCommit=3c05c0a
-# projection=canonical question slot/id + numeric answer field excluding points + solutionHtml + rubric
+# projection=canonical question slot/id + numeric answer field excluding points + solutionHtml normalized without kit-generated solution diagram + rubric
 1	physics-s1-graph-01	ffb650e7e80351345d34e941564ab98985c1a4699b25f7dd3187d7b3b7fc555d
 1	physics-s1-graph-02	b04ba165c01f49918c3b8085d0544971a26ecc3e7590538d316ec962f41c784c
 1	physics-s1-graph-03	4095efe1e97b317c22a97e42256b8ef332f78fd803f2a831b7f4863faa70ec36

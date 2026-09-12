@@ -1,12 +1,19 @@
 (function (root, factory) {
-  const bank = factory();
+  const diagramKit = typeof module === "object" && module.exports
+    ? require("../../assets/js/diagram-kit.js")
+    : root && root.KS && root.KS.diagram;
+  const bank = factory(diagramKit);
   if (typeof module === "object" && module.exports) module.exports = bank;
   if (root) {
     root.KS_PHYSICS_SLOTS = root.KS_PHYSICS_SLOTS || {};
     root.KS_PHYSICS_SLOTS[3] = bank;
   }
-})(typeof window !== "undefined" ? window : null, function () {
+})(typeof window !== "undefined" ? window : null, function (diagramKit) {
   "use strict";
+
+  if (!diagramKit || typeof diagramKit.create !== "function" || typeof diagramKit.validateManifest !== "function") {
+    throw new Error("diagram-kit dependency is required before constructing physics slot 3");
+  }
 
   const G = 9.82;
   const SKILL = "vertical-motion";

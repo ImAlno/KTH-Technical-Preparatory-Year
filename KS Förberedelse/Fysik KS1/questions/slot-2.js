@@ -1,12 +1,19 @@
 (function (root, factory) {
-  const bank = factory();
+  const diagramKit = typeof module === "object" && module.exports
+    ? require("../../assets/js/diagram-kit.js")
+    : root && root.KS && root.KS.diagram;
+  const bank = factory(diagramKit);
   if (typeof module === "object" && module.exports) module.exports = bank;
   if (root) {
     root.KS_PHYSICS_SLOTS = root.KS_PHYSICS_SLOTS || {};
     root.KS_PHYSICS_SLOTS[2] = bank;
   }
-})(typeof window !== "undefined" ? window : null, function () {
+})(typeof window !== "undefined" ? window : null, function (diagramKit) {
   "use strict";
+
+  if (!diagramKit || typeof diagramKit.create !== "function" || typeof diagramKit.validateManifest !== "function") {
+    throw new Error("diagram-kit dependency is required before constructing physics slot 2");
+  }
 
   const SKILL = "density-and-geometric-bodies";
   const HEXAGON_FACTOR = 3 * Math.sqrt(3) / 2;
@@ -135,15 +142,113 @@
     return values.join(", ");
   }
 
-  function bodySvg(id, family, row) {
-    const label = givensText(row);
-    let shape;
-    if (family === "sphere") shape = '<circle data-role="sphere-body" cx="260" cy="92" r="55" fill="#dbeafe" stroke="#1d1d1f"/><path d="M205 92 Q260 122 315 92" fill="none" stroke="#6e6e73" stroke-dasharray="5 5"/>' + (row.unknown === "diameter" ? '<line data-role="diameter" x1="205" y1="92" x2="315" y2="92" stroke="#0071e3" stroke-width="3"/><text data-role="diameter-label" x="260" y="82" text-anchor="middle">d</text>' : "");
-    else if (family === "cone") shape = '<ellipse cx="260" cy="145" rx="70" ry="18" fill="#dbeafe" stroke="#1d1d1f"/><path d="M190 145 L260 30 L330 145" fill="#dbeafe" stroke="#1d1d1f"/>';
-    else if (family === "prism" && row.baseShape === "regular-hexagon") shape = '<path data-role="hex-prism-outline" d="M205 70 L240 48 L285 58 L315 95 L280 118 L235 108 Z M235 108 L235 158 M280 118 L280 168 M315 95 L315 145 M235 158 L280 168 L315 145" fill="#dbeafe" stroke="#1d1d1f"/><line data-role="circumradius" x1="260" y1="83" x2="315" y2="95" stroke="#0071e3" stroke-width="3"/><text data-role="circumradius-label" x="286" y="82">r</text>';
-    else if (family === "prism") shape = '<path d="M180 75 L310 75 L350 45 L220 45 Z M180 75 L180 155 L310 155 L310 75 M310 155 L350 125 L350 45" fill="#dbeafe" stroke="#1d1d1f"/>';
-    else shape = '<ellipse cx="260" cy="45" rx="65" ry="17" fill="#dbeafe" stroke="#1d1d1f"/><path d="M195 45 L195 145 Q260 178 325 145 L325 45" fill="#dbeafe" stroke="#1d1d1f"/><ellipse cx="260" cy="145" rx="65" ry="17" fill="none" stroke="#1d1d1f"/>';
-    return '<svg viewBox="0 0 520 245" role="img" aria-labelledby="' + id + "-svg-title " + id + '-svg-desc"><title id="' + id + '-svg-title">' + row.scenario + ": geometrisk modell</title><desc id=\"" + id + '-svg-desc">Schematisk modell av ' + row.object + ". Angivna data: " + label + '. Måtten kan inte avläsas ur figuren.</desc>' + shape + '<text x="260" y="205" text-anchor="middle">' + label + '</text><text x="260" y="229" text-anchor="middle">Schematisk och inte skalenlig</text></svg>';
+  function addShape(diagram, shapes, layer, shape) {
+    shapes.push(shape);
+    diagram.add(layer, shape);
+    return shape;
+  }
+
+  function addLabel(diagram, shapes, options) {
+    const label = diagramKit.label({
+      id: options.id,
+      at: options.at,
+      text: options.text,
+      anchorId: options.anchorId,
+      avoid: shapes.filter(function (shape) { return shape.id !== options.anchorId; }).map(function (shape) { return shape.id; }),
+      minClearance: 6,
+      textAnchor: options.textAnchor || "middle",
+      fontSize: options.fontSize || 14,
+      background: true
+    });
+    diagram.add("labels", label);
+    return label;
+  }
+
+  function dimensionText(row, key, symbol) {
+    if (row.givens[key] === undefined) return row.unknown === key.replace("M", "") ? symbol + " = ?" : symbol;
+    const unitKey = key.replace("M", "");
+    return symbol + " = " + displayed(row.givens[key], row.displayUnits[unitKey]);
+  }
+
+  function bodyFigure(id, family, row) {
+    const diagram = diagramKit.create({
+      id: id + "-diagram",
+      title: row.scenario + ": geometrisk modell",
+      description: "Schematisk modell av " + row.object + ". Angivna data: " + givensText(row) + ". Måtten kan inte avläsas ur figuren.",
+      purpose: "prompt",
+      width: 620,
+      height: 390
+    });
+    const shapes = [];
+    const dimensionSpecs = [];
+    const sourcePoints = [];
+    function remember(points) { points.forEach(function (point) { sourcePoints.push(point.slice()); }); }
+    function addDimension(name, a, b, offset, text) {
+      const dimension = addShape(diagram, shapes, "information", diagramKit.dimension({ id: id + "-" + name, a: a, b: b, offset: offset, role: "dimension", strokeWidth: 1.5 }));
+      dimensionSpecs.push({ id: dimension.id, a: a.slice(), b: b.slice() });
+      remember([a, b]);
+      return { dimension: dimension, text: text };
+    }
+    let solid;
+    const dimensions = [];
+    if (family === "sphere") {
+      const center = [280, 165];
+      const radius = 82;
+      solid = addShape(diagram, shapes, "geometry", diagramKit.circle({ id: id + "-sphere-body", center: center, radius: radius, role: "body", strokeWidth: 2.5 }));
+      const diameter = addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-diameter", a: [center[0] - radius, center[1]], b: [center[0] + radius, center[1]], role: "measure", strokeWidth: 2 }));
+      remember([diameter.a, diameter.b, center]);
+      if (row.unknown === "diameter") {
+        dimensions.push(addDimension("diameter-dimension", diameter.a, diameter.b, -108, "d = ?"));
+      } else {
+        const radiusLine = addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-radius", a: center, b: diameter.b, role: "measure", strokeWidth: 2 }));
+        dimensions.push(addDimension("radius-dimension", radiusLine.a, radiusLine.b, -108, dimensionText(row, "radiusM", "r")));
+      }
+    } else if (family === "cone") {
+      const apex = [285, 48]; const left = [205, 250]; const right = [365, 250]; const baseCenter = [285, 250];
+      solid = addShape(diagram, shapes, "geometry", diagramKit.polygon({ id: id + "-solid", points: [apex, left, right], role: "body", strokeWidth: 2.5 }));
+      remember([apex, left, right, baseCenter]);
+      dimensions.push(addDimension("height-dimension", apex, baseCenter, 112, dimensionText(row, "heightM", "h")));
+      dimensions.push(addDimension("radius-dimension", baseCenter, right, 34, dimensionText(row, "radiusM", "r")));
+    } else if (family === "prism" && row.baseShape === "regular-hexagon") {
+      const center = [250, 175]; const radius = 65; const extrusion = [82, -58];
+      const face = Array.from({ length: 6 }, function (_, index) {
+        const angle = index * Math.PI / 3;
+        return [center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle)];
+      });
+      const backFace = face.map(function (point) { return [point[0] + extrusion[0], point[1] + extrusion[1]]; });
+      solid = addShape(diagram, shapes, "geometry", diagramKit.polygon({ id: id + "-hex-face", points: face, role: "body", strokeWidth: 2.5 }));
+      addShape(diagram, shapes, "geometry", diagramKit.polygon({ id: id + "-hex-back-face", points: backFace, role: "body", strokeWidth: 2 }));
+      [0, 1, 5].forEach(function (index) {
+        addShape(diagram, shapes, "connections", diagramKit.line({ id: id + "-hex-edge-" + index, a: face[index], b: backFace[index], role: "connection", strokeWidth: 2 }));
+      });
+      remember(face.concat(backFace, [center]));
+      addShape(diagram, shapes, "information", diagramKit.line({ id: id + "-circumradius", a: center, b: face[0], role: "measure", strokeWidth: 2 }));
+      dimensions.push(addDimension("height-dimension", face[1], backFace[1], 80, dimensionText(row, "heightM", "h")));
+    } else if (family === "prism") {
+      const topLeft = [190, 80]; const topRight = [380, 80]; const bottomRight = [380, 250]; const bottomLeft = [190, 250];
+      solid = addShape(diagram, shapes, "geometry", diagramKit.polygon({ id: id + "-solid", points: [topLeft, topRight, bottomRight, bottomLeft], role: "body", strokeWidth: 2.5 }));
+      remember([topLeft, topRight, bottomRight, bottomLeft]);
+      dimensions.push(addDimension("length-dimension", bottomLeft, bottomRight, 38, dimensionText(row, "lengthM", "l")));
+      dimensions.push(addDimension("height-dimension", topLeft, bottomLeft, 48, dimensionText(row, "heightM", "h")));
+      dimensions.push(addDimension("width-dimension", topLeft, topRight, -38, dimensionText(row, "widthM", "b")));
+    } else {
+      const topLeft = [210, 72]; const topRight = [360, 72]; const bottomRight = [360, 250]; const bottomLeft = [210, 250]; const topCenter = [285, 72];
+      solid = addShape(diagram, shapes, "geometry", diagramKit.rect({ id: id + "-solid", x: topLeft[0], y: topLeft[1], width: topRight[0] - topLeft[0], height: bottomLeft[1] - topLeft[1], role: "body", strokeWidth: 2.5, rx: family === "liquid-column" ? 3 : 0 }));
+      remember([topLeft, topRight, bottomRight, bottomLeft, topCenter]);
+      dimensions.push(addDimension("height-dimension", topLeft, bottomLeft, 54, dimensionText(row, "heightM", "h")));
+      dimensions.push(addDimension("radius-dimension", topCenter, topRight, -38, dimensionText(row, "radiusM", "r")));
+    }
+    dimensions.forEach(function (entry) {
+      const midpoint = [(entry.dimension.start[0] + entry.dimension.end[0]) / 2, (entry.dimension.start[1] + entry.dimension.end[1]) / 2];
+      addLabel(diagram, shapes, { id: entry.dimension.id + "-label", at: [midpoint[0], midpoint[1] + 5], text: entry.text, anchorId: entry.dimension.id, fontSize: 13, textAnchor: "middle" });
+    });
+    if (family === "prism" && row.baseShape === "regular-hexagon") {
+      addLabel(diagram, shapes, { id: id + "-circumradius-label", at: [250, 175], text: "r = ?", anchorId: id + "-circumradius", fontSize: 13, textAnchor: "middle" });
+    }
+    if (row.givens.massKg !== undefined) addLabel(diagram, shapes, { id: id + "-mass-label", at: [590, 105], text: "m = " + displayed(row.givens.massKg, row.displayUnits.mass), anchorId: solid.id, textAnchor: "end", fontSize: 13 });
+    if (row.givens.densityKgM3 !== undefined) addLabel(diagram, shapes, { id: id + "-density-label", at: [590, 142], text: "ρ = " + displayed(row.givens.densityKgM3, row.displayUnits.density), anchorId: solid.id, textAnchor: "end", fontSize: 13 });
+    const result = diagram.finish();
+    return { html: result.html, manifest: result.manifest, geometry: { dimensions: dimensionSpecs, sourcePoints: sourcePoints } };
   }
 
   function solutionText(family, row, exactSI, expected, figures) {
@@ -195,6 +300,7 @@
     const exactTarget = exactSI / UNIT_FACTORS[row.targetUnit];
     const expected = roundSignificant(exactTarget, figures);
     const requestedUnitLabel = UNIT_LABELS[row.targetUnit];
+    const figure = bodyFigure(id, family, row);
     const quantityPrompt = row.radiusDefinition === "circumradius-center-to-vertex"
       ? "den omskrivna cirkelns radie från sexkantens centrum till ett hörn"
       : QUANTITY_NAMES[row.unknown];
@@ -204,7 +310,7 @@
       slot: 2,
       title: row.scenario,
       points: 2,
-      promptHtml: "<p>" + row.object.charAt(0).toUpperCase() + row.object.slice(1) + " har " + givensText(row) + ". Bestäm " + quantityPrompt + ". Använd den idealiserade geometrin i figuren.</p>" + bodySvg(id, family, row) + "<p><small>Figuren är schematisk och inte skalenlig; använd enbart de utskrivna måtten.</small></p><p>Svara i " + requestedUnitLabel + ". Avrunda till " + figures + " värdesiffror.</p>",
+      promptHtml: "<p>" + row.object.charAt(0).toUpperCase() + row.object.slice(1) + " har " + givensText(row) + ". Bestäm " + quantityPrompt + ". Använd den idealiserade geometrin i figuren.</p>" + figure.html + "<p><small>Figuren är schematisk och inte skalenlig; använd enbart de utskrivna måtten.</small></p><p>Svara i " + requestedUnitLabel + ". Avrunda till " + figures + " värdesiffror.</p>",
       fields: [{ id: "answer", label: answerLabel + " (" + requestedUnitLabel + "; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: row.targetUnit, tolerance: tolerance(expected, figures), help: "Ange ett tal i den begärda enheten." }],
       workOnPaper: geometryWorkOnPaper(family, row),
       solutionHtml: solutionText(family, row, exactSI, expected, figures),
@@ -225,7 +331,9 @@
         significantFigures: figures,
         targetUnit: row.targetUnit,
         requestedUnitLabel: requestedUnitLabel,
-        scenario: row.scenario
+        scenario: row.scenario,
+        diagram: figure.manifest,
+        diagramGeometry: figure.geometry
       }
     };
   }

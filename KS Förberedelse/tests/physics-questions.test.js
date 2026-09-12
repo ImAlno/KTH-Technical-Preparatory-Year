@@ -3,9 +3,12 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const childProcess = require("node:child_process");
+const crypto = require("node:crypto");
 const exam = require("../assets/js/exam-engine.js");
 const grading = require("../assets/js/grading.js");
 const units = require("../assets/js/units.js");
+const diagramKit = require("../assets/js/diagram-kit.js");
 
 const PHYSICS_ROOT = path.join(__dirname, "../Fysik KS1");
 const G = 9.82;
@@ -31,10 +34,9 @@ function allPhysicsQuestions() {
 }
 
 function loadSubjectDataFresh() {
-  const files = [1, 2, 3, 4, 5].map((slot) => path.join(PHYSICS_ROOT, `questions/slot-${slot}.js`));
-  files.push(path.join(PHYSICS_ROOT, "questions.js"));
-  files.forEach((file) => { delete require.cache[require.resolve(file)]; });
-  return require(path.join(PHYSICS_ROOT, "questions.js"));
+  const assembly = path.join(PHYSICS_ROOT, "questions.js");
+  delete require.cache[require.resolve(assembly)];
+  return require(assembly);
 }
 
 function close(actual, expected, tolerance = 1e-9) {
@@ -228,6 +230,109 @@ function attributesForRole(html, tag, role) {
   return Object.fromEntries(Array.from(element[0].matchAll(/([\w-]+)="([^"]*)"/g), (match) => [match[1], match[2]]));
 }
 
+function manifestElement(manifest, id) {
+  const element = manifest.elements.find((candidate) => candidate.id === id);
+  assert.ok(element, `missing semantic diagram element ${id}`);
+  return element;
+}
+
+function assertPoint(actual, expected, message) {
+  assert.equal(actual.length, 2, message);
+  actual.forEach((value, index) => assert.ok(close(value, expected[index]), `${message}: ${actual} != ${expected}`));
+}
+
+function pointLineDistance(point, start, end) {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  return Math.abs(dx * (start[1] - point[1]) - (start[0] - point[0]) * dy) / Math.hypot(dx, dy);
+}
+
+function subtractPoints(left, right) {
+  return [left[0] - right[0], left[1] - right[1]];
+}
+
+function boxCenter(box) {
+  return [box.x + box.width / 2, box.y + box.height / 2];
+}
+
+function expandedBox(box, amount) {
+  return { x: box.x - amount, y: box.y - amount, width: box.width + amount * 2, height: box.height + amount * 2 };
+}
+
+function boxesOverlap(left, right) {
+  return left.x < right.x + right.width && left.x + left.width > right.x && left.y < right.y + right.height && left.y + left.height > right.y;
+}
+
+function pointInsideBox(point, box) {
+  return point[0] >= box.x && point[0] <= box.x + box.width && point[1] >= box.y && point[1] <= box.y + box.height;
+}
+
+function segmentIntersectsBox(from, to, box) {
+  if (pointInsideBox(from, box) || pointInsideBox(to, box)) return true;
+  const delta = subtractPoints(to, from);
+  let minimum = 0;
+  let maximum = 1;
+  for (const [direction, distance] of [[-delta[0], from[0] - box.x], [delta[0], box.x + box.width - from[0]], [-delta[1], from[1] - box.y], [delta[1], box.y + box.height - from[1]]]) {
+    if (Math.abs(direction) <= 1e-12) {
+      if (distance < 0) return false;
+    } else {
+      const ratio = distance / direction;
+      if (direction < 0) minimum = Math.max(minimum, ratio);
+      else maximum = Math.min(maximum, ratio);
+      if (minimum > maximum) return false;
+    }
+  }
+  return true;
+}
+
+function paintedParts(element) {
+  const width = element.strokeWidth || 0;
+  if (element.kind === "line") return [{ kind: "segment", from: element.from, to: element.to, width }];
+  if (element.kind === "arrow") {
+    const head = element.arrowhead.points;
+    return [
+      { kind: "segment", from: element.from, to: element.to, width },
+      { kind: "segment", from: head[0], to: head[1], width: 0 },
+      { kind: "segment", from: head[1], to: head[2], width: 0 },
+      { kind: "segment", from: head[2], to: head[0], width: 0 }
+    ];
+  }
+  if (element.kind === "circle") return [{ kind: "circle", center: element.center, radius: element.radius, width }];
+  if (element.kind === "rect") {
+    const a = [element.x, element.y]; const b = [element.x + element.width, element.y]; const c = [element.x + element.width, element.y + element.height]; const d = [element.x, element.y + element.height];
+    return [[a, b], [b, c], [c, d], [d, a]].map(([from, to]) => ({ kind: "segment", from, to, width }));
+  }
+  if (element.kind === "body" || element.kind === "polygon" || element.kind === "polyline") {
+    const points = element.points;
+    const count = element.kind === "polyline" ? points.length - 1 : points.length;
+    return Array.from({ length: count }, (_, index) => ({ kind: "segment", from: points[index], to: points[(index + 1) % points.length], width }));
+  }
+  if (element.kind === "dimension") {
+    return [
+      { kind: "segment", from: element.anchors[0], to: element.anchors[1], width },
+      { kind: "segment", from: element.a, to: element.anchors[0], width },
+      { kind: "segment", from: element.b, to: element.anchors[1], width }
+    ];
+  }
+  assert.fail(`unsupported painted primitive ${element.id}/${element.kind}`);
+}
+
+function paintedPartIntersectsBox(part, box, clearance) {
+  if (part.kind === "segment") return segmentIntersectsBox(part.from, part.to, expandedBox(box, clearance + part.width / 2));
+  const protectedBox = expandedBox(box, clearance);
+  const closestX = Math.max(protectedBox.x, Math.min(part.center[0], protectedBox.x + protectedBox.width));
+  const closestY = Math.max(protectedBox.y, Math.min(part.center[1], protectedBox.y + protectedBox.height));
+  return Math.hypot(part.center[0] - closestX, part.center[1] - closestY) <= part.radius + part.width / 2;
+}
+
+function serializedBackgroundBox(html, id) {
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const tag = html.match(new RegExp(`<rect\\b(?=[^>]*\\bid="${escaped}")[^>]*>`, "u"));
+  assert.ok(tag, `missing serialized background ${id}`);
+  const attributes = Object.fromEntries(Array.from(tag[0].matchAll(/([\w-]+)="([^"]*)"/gu), (entry) => [entry[1], entry[2]]));
+  return { x: Number(attributes.x), y: Number(attributes.y), width: Number(attributes.width), height: Number(attributes.height) };
+}
+
 function visiblePromptText(html) {
   const entities = {
     nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
@@ -303,14 +408,14 @@ function memoryStore() {
 test("physics has exactly 125 complete, deterministic, unique two-point questions", () => {
   const first = loadSlots();
   const serialized = JSON.stringify(first);
-  Object.values(first).flat().forEach((question) => delete require.cache[require.resolve(path.join(PHYSICS_ROOT, `questions/slot-${question.slot}.js`))]);
-  const second = loadSlots();
+  const freshScript = `const path = require("node:path"); const crypto = require("node:crypto"); const root = ${JSON.stringify(PHYSICS_ROOT)}; const slots = Object.fromEntries([1,2,3,4,5].map((slot) => [slot, require(path.join(root, "questions", "slot-" + slot + ".js"))])); process.stdout.write(crypto.createHash("sha256").update(JSON.stringify(slots)).digest("hex"));`;
+  const secondHash = childProcess.execFileSync(process.execPath, ["-e", freshScript], { encoding: "utf8" });
   const questions = Object.values(first).flat();
 
   assert.deepEqual(Object.values(first).map((slot) => slot.length), [25, 25, 25, 25, 25]);
   assert.equal(questions.length, 125);
   assert.equal(new Set(questions.map((question) => question.id)).size, 125);
-  assert.equal(serialized, JSON.stringify(second), "fresh loads must reproduce every authored ID and value");
+  assert.equal(crypto.createHash("sha256").update(serialized).digest("hex"), secondHash, "fresh loads must reproduce every authored ID and value");
   questions.forEach((question) => {
     assert.match(question.id, new RegExp(`^physics-s${question.slot}-[a-z0-9-]+-\\d{2}$`));
     assert.equal(question.points, 2, question.id);
@@ -563,30 +668,225 @@ test("sphere diameter and regular-hexagon circumradius are explicit in data, wor
   assert.match(numericField(sphere).label, /^Diameter \(/);
   assert.match(sphere.solutionHtml, /diametern d/i);
   assert.match(sphere.solutionHtml, /d = 2/);
-  const sphereBody = attributesForRole(sphere.promptHtml, "circle", "sphere-body");
-  const diameter = attributesForRole(sphere.promptHtml, "line", "diameter");
-  assert.ok(close(Number(diameter.y1), Number(sphereBody.cy)) && close(Number(diameter.y2), Number(sphereBody.cy)));
-  assert.ok(close(Number(diameter.x1), Number(sphereBody.cx) - Number(sphereBody.r)));
-  assert.ok(close(Number(diameter.x2), Number(sphereBody.cx) + Number(sphereBody.r)));
-  assert.match(sphere.promptHtml, /<text\b(?=[^>]*data-role="diameter-label")[^>]*>d<\/text>/);
+  const sphereBody = manifestElement(sphere.sourceData.diagram, `${sphere.id}-sphere-body`);
+  const diameter = manifestElement(sphere.sourceData.diagram, `${sphere.id}-diameter`);
+  assert.ok(close(diameter.from[1], sphereBody.center[1]) && close(diameter.to[1], sphereBody.center[1]));
+  assert.ok(close(diameter.from[0], sphereBody.center[0] - sphereBody.radius));
+  assert.ok(close(diameter.to[0], sphereBody.center[0] + sphereBody.radius));
+  assert.ok(sphere.sourceData.diagram.labels.some((label) => /diameter.*label/u.test(label.id)));
 
   const prism = slot.find((question) => question.id === "physics-s2-prism-05");
   assert.equal(prism.sourceData.radiusDefinition, "circumradius-center-to-vertex");
   assert.match(prism.promptHtml, /omskrivna cirkelns radie från sexkantens centrum till ett hörn/i);
   assert.match(prism.solutionHtml, /omskrivna cirkelns radie, mätt från centrum till hörn/i);
-  const outline = attributesForRole(prism.promptHtml, "path", "hex-prism-outline");
-  const radius = attributesForRole(prism.promptHtml, "line", "circumradius");
-  const face = outline.d.match(/^M([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+) L([\d.]+) ([\d.]+) Z/);
-  assert.ok(face, "front hexagon must expose six vertices");
-  const values = face.slice(1).map(Number);
-  const vertices = Array.from({ length: 6 }, (_, index) => ({ x: values[index * 2], y: values[index * 2 + 1] }));
-  const center = {
-    x: vertices.reduce((sum, vertex) => sum + vertex.x, 0) / vertices.length,
-    y: vertices.reduce((sum, vertex) => sum + vertex.y, 0) / vertices.length
-  };
-  assert.ok(Math.abs(Number(radius.x1) - center.x) < 0.5 && Math.abs(Number(radius.y1) - center.y) < 0.5, "r must start at hexagon center");
-  assert.ok(vertices.some((vertex) => close(Number(radius.x2), vertex.x) && close(Number(radius.y2), vertex.y)), "r must end at a vertex");
-  assert.match(prism.promptHtml, /<text\b(?=[^>]*data-role="circumradius-label")[^>]*>r<\/text>/);
+  const outline = manifestElement(prism.sourceData.diagram, `${prism.id}-hex-face`);
+  const radius = manifestElement(prism.sourceData.diagram, `${prism.id}-circumradius`);
+  const center = [outline.points.reduce((sum, point) => sum + point[0], 0) / 6, outline.points.reduce((sum, point) => sum + point[1], 0) / 6];
+  assertPoint(radius.from, center, "r must start at hexagon center");
+  assert.ok(outline.points.some((vertex) => close(radius.to[0], vertex[0]) && close(radius.to[1], vertex[1])), "r must end at a vertex");
+});
+
+test("all slot-one and slot-two prompt figures and contact solutions expose valid unique manifests", () => {
+  const slots = loadSlots();
+  const promptQuestions = slots[1].concat(slots[2]);
+  const contactQuestions = slots[1].filter((question) => question.sourceData.family === "contact-equilibrium");
+  const manifests = [];
+
+  assert.equal(promptQuestions.length, 50);
+  assert.equal(contactQuestions.length, 15);
+  promptQuestions.forEach((question) => {
+    const manifest = question.sourceData.diagram;
+    assert.doesNotThrow(() => diagramKit.validateManifest(manifest), question.id);
+    assert.equal(manifest.purpose, "prompt", question.id);
+    assert.equal(manifest.id, `${question.id}-diagram`, question.id);
+    assert.equal(manifest.titleId, `${question.id}-diagram-title`, question.id);
+    assert.equal(manifest.descriptionId, `${question.id}-diagram-desc`, question.id);
+    assert.ok(question.promptHtml.includes(manifest.ariaLabelledby), question.id);
+    manifests.push(manifest);
+  });
+  contactQuestions.forEach((question) => {
+    const manifest = question.sourceData.solutionDiagram;
+    assert.doesNotThrow(() => diagramKit.validateManifest(manifest), question.id);
+    assert.equal(manifest.purpose, "solution", question.id);
+    assert.equal(manifest.id, `${question.id}-solution-diagram`, question.id);
+    assert.ok(question.solutionHtml.includes(manifest.ariaLabelledby), question.id);
+    assert.equal((question.solutionHtml.match(/<svg\b/gu) || []).length, 1, question.id);
+    manifests.push(manifest);
+  });
+  const ids = manifests.flatMap((manifest) => manifest.domIds);
+  assert.equal(new Set(ids).size, ids.length, "all 65 Task 9 figures need globally unique DOM IDs");
+});
+
+test("graph points, breakpoints, axes, ticks and labels follow independently checked reserved geometry", () => {
+  loadSlots()[1].filter((question) => question.sourceData.family === "graph-interpretation").forEach((question) => {
+    const data = question.sourceData;
+    const manifest = data.diagram;
+    const layout = data.diagramLayout;
+    assert.deepEqual(layout, {
+      plot: { x: 82, y: 34, width: 438, height: 232 },
+      xTickZone: { x: 74, y: 274, width: 456, height: 26 },
+      yTickZone: { x: 18, y: 24, width: 52, height: 250 },
+      xTitleZone: { x: 436, y: 316, width: 92, height: 26 },
+      yTitleZone: { x: 224, y: 4, width: 92, height: 22 }
+    }, question.id);
+    const expected = data.points.map((point) => [
+      layout.plot.x + point.t / data.axis.xMax * layout.plot.width,
+      layout.plot.y + layout.plot.height - point.y / data.axis.yMax * layout.plot.height
+    ]);
+    const polyline = manifestElement(manifest, `${question.id}-data-line`);
+    assert.deepEqual(polyline.points.length, expected.length, question.id);
+    polyline.points.forEach((point, index) => assertPoint(point, expected[index], `${question.id}: breakpoint ${index}`));
+    expected.forEach((point, index) => {
+      assertPoint(manifestElement(manifest, `${question.id}-point-${index}`).center, point, `${question.id}: point ${index}`);
+    });
+    assertPoint(manifestElement(manifest, `${question.id}-x-axis`).from, [layout.plot.x, layout.plot.y + layout.plot.height], `${question.id}: x axis start`);
+    assertPoint(manifestElement(manifest, `${question.id}-x-axis`).to, [layout.plot.x + layout.plot.width, layout.plot.y + layout.plot.height], `${question.id}: x axis end`);
+    assertPoint(manifestElement(manifest, `${question.id}-y-axis`).from, [layout.plot.x, layout.plot.y], `${question.id}: y axis start`);
+    assertPoint(manifestElement(manifest, `${question.id}-y-axis`).to, [layout.plot.x, layout.plot.y + layout.plot.height], `${question.id}: y axis end`);
+    manifest.labels.filter((label) => label.id.includes("-x-tick-label-")).forEach((label) => {
+      assert.ok(label.bbox.x >= layout.xTickZone.x && label.bbox.x + label.bbox.width <= layout.xTickZone.x + layout.xTickZone.width, label.id);
+      assert.ok(label.bbox.y >= layout.xTickZone.y && label.bbox.y + label.bbox.height <= layout.xTickZone.y + layout.xTickZone.height, label.id);
+    });
+    manifest.labels.filter((label) => label.id.includes("-y-tick-label-")).forEach((label) => {
+      assert.ok(label.bbox.x >= layout.yTickZone.x && label.bbox.x + label.bbox.width <= layout.yTickZone.x + layout.yTickZone.width, label.id);
+      assert.ok(label.bbox.y >= layout.yTickZone.y && label.bbox.y + label.bbox.height <= layout.yTickZone.y + layout.yTickZone.height, label.id);
+    });
+    const xTitle = manifestElement(manifest, `${question.id}-x-title`);
+    const yTitle = manifestElement(manifest, `${question.id}-y-title`);
+    [xTitle, yTitle].forEach((label, index) => {
+      const zone = index === 0 ? layout.xTitleZone : layout.yTitleZone;
+      assert.ok(label.bbox.x >= zone.x && label.bbox.y >= zone.y && label.bbox.x + label.bbox.width <= zone.x + zone.width && label.bbox.y + label.bbox.height <= zone.y + zone.height, label.id);
+    });
+  });
+});
+
+test("contact prompts preserve exact floor/support contact and reserve full force sets for solutions", () => {
+  loadSlots()[1].filter((question) => question.sourceData.family === "contact-equilibrium").forEach((question) => {
+    const data = question.sourceData;
+    const prompt = data.diagram;
+    const solution = data.solutionDiagram;
+    const body = manifestElement(prompt, `${question.id}-body`);
+    const promptForces = prompt.elements.filter((element) => element.role === "force");
+    const solutionForces = solution.elements.filter((element) => element.role === "force");
+    assert.equal(promptForces.length, 1, `${question.id}: prompt shows only the given force`);
+    assert.equal(solutionForces.length, 3, `${question.id}: solution has the complete three-force diagram`);
+    assert.equal((question.promptHtml.match(/data-role="force"/gu) || []).length, 1, question.id);
+    assert.ok(!question.promptHtml.includes("force-weight") && !question.promptHtml.includes("force-normal") && !question.promptHtml.includes("force-support-right"), question.id);
+
+    if (data.contactType === "two-support") {
+      const [leftSupport, rightSupport] = data.diagramGeometry.supportPoints;
+      assert.ok(body.points.some((point) => close(point[1], leftSupport[1])) && body.points.some((point) => close(point[1], rightSupport[1])), question.id);
+      assert.ok(leftSupport[0] > Math.min(...body.points.map((point) => point[0])) && rightSupport[0] < Math.max(...body.points.map((point) => point[0])), question.id);
+      assertPoint(manifestElement(prompt, `${question.id}-left-support`).points[0], leftSupport, `${question.id}: left support contact`);
+      assertPoint(manifestElement(prompt, `${question.id}-right-support`).points[0], rightSupport, `${question.id}: right support contact`);
+    } else {
+      const ground = manifestElement(prompt, `${question.id}-ground`);
+      body.points.slice(0, 2).forEach((point) => {
+        assert.ok(close(pointLineDistance(point, ground.from, ground.to), 0), `${question.id}: body bottom touches ground`);
+      });
+      body.points.slice(2).forEach((point) => assert.ok(point[1] < ground.from[1], `${question.id}: body stays above ground`));
+    }
+
+    const isolated = manifestElement(solution, `${question.id}-isolated-body`);
+    solutionForces.forEach((force) => {
+      assert.ok(force.from[0] >= isolated.bbox.x && force.from[0] <= isolated.bbox.x + isolated.bbox.width && force.from[1] >= isolated.bbox.y && force.from[1] <= isolated.bbox.y + isolated.bbox.height, `${force.id}: force anchored to isolated body`);
+    });
+    const weight = manifestElement(solution, `${question.id}-force-weight`);
+    assert.ok(weight.to[1] > weight.from[1], `${question.id}: weight downward`);
+    if (data.contactType === "two-support") {
+      assert.ok(manifestElement(solution, `${question.id}-force-support-left`).to[1] < weight.from[1], question.id);
+      assert.ok(manifestElement(solution, `${question.id}-force-support-right`).to[1] < weight.from[1], question.id);
+    } else {
+      assert.ok(manifestElement(solution, `${question.id}-force-normal`).to[1] < weight.from[1], question.id);
+      const applied = manifestElement(solution, `${question.id}-force-applied`);
+      assert.equal(applied.to[1] < applied.from[1], data.contactType === "floor-pull", question.id);
+    }
+  });
+});
+
+test("body dimensions are outside their solids and use exact source anchors", () => {
+  loadSlots()[2].forEach((question) => {
+    const data = question.sourceData;
+    const manifest = data.diagram;
+    assert.ok(data.diagramGeometry.dimensions.length >= 1, question.id);
+    data.diagramGeometry.dimensions.forEach((specification) => {
+      const dimension = manifestElement(manifest, specification.id);
+      assertPoint(dimension.a, specification.a, `${specification.id}: source start`);
+      assertPoint(dimension.b, specification.b, `${specification.id}: source end`);
+      assert.ok(Math.abs(dimension.offset) >= 18, `${specification.id}: dimension must be outside solid`);
+      assert.ok(data.diagramGeometry.sourcePoints.some((point) => close(point[0], dimension.a[0]) && close(point[1], dimension.a[1])), `${specification.id}: start belongs to source geometry`);
+      assert.ok(data.diagramGeometry.sourcePoints.some((point) => close(point[0], dimension.b[0]) && close(point[1], dimension.b[1])), `${specification.id}: end belongs to source geometry`);
+    });
+    if (data.family === "sphere") {
+      const sphere = manifestElement(manifest, `${question.id}-sphere-body`);
+      const diameter = manifestElement(manifest, `${question.id}-diameter`);
+      assertPoint(diameter.from, [sphere.center[0] - sphere.radius, sphere.center[1]], `${question.id}: diameter start`);
+      assertPoint(diameter.to, [sphere.center[0] + sphere.radius, sphere.center[1]], `${question.id}: diameter end`);
+    }
+    if (data.baseShape === "regular-hexagon") {
+      const face = manifestElement(manifest, `${question.id}-hex-face`);
+      const radius = manifestElement(manifest, `${question.id}-circumradius`);
+      const center = [face.points.reduce((sum, point) => sum + point[0], 0) / 6, face.points.reduce((sum, point) => sum + point[1], 0) / 6];
+      assertPoint(radius.from, center, `${question.id}: circumradius center`);
+      assert.ok(face.points.some((point) => close(point[0], radius.to[0]) && close(point[1], radius.to[1])), `${question.id}: circumradius ends at vertex`);
+    }
+  });
+});
+
+test("all 65 Task 9 figures keep exact opaque labels clear of every non-owner stroke", () => {
+  const slots = loadSlots();
+  const figures = slots[1].concat(slots[2]).map((question) => ({ question, manifest: question.sourceData.diagram, html: question.promptHtml }))
+    .concat(slots[1].filter((question) => question.sourceData.solutionDiagram).map((question) => ({ question, manifest: question.sourceData.solutionDiagram, html: question.solutionHtml })));
+  const failures = [];
+  assert.equal(figures.length, 65);
+  figures.forEach(({ question, manifest, html }) => {
+    const geometry = manifest.elements.filter((element) => !["label", "label-background"].includes(element.role));
+    const labelBoxes = manifest.labels.map((label) => {
+      const background = manifest.backgrounds.find((candidate) => candidate.labelId === label.id);
+      assert.ok(background, `${label.id}: opaque background`);
+      const serialized = serializedBackgroundBox(html, background.id);
+      for (const key of ["x", "y", "width", "height"]) assert.ok(close(serialized[key], background.bbox[key]), `${label.id}: exact serialized ${key}`);
+      return { label, box: serialized };
+    });
+    labelBoxes.forEach(({ label, box }, index) => {
+      if (!(box.x >= 0 && box.y >= 0 && box.x + box.width <= manifest.width && box.y + box.height <= manifest.height)) failures.push(`${label.id}: outside viewBox`);
+      labelBoxes.slice(index + 1).forEach(({ label: other, box: otherBox }) => {
+        if (boxesOverlap(expandedBox(box, 6), otherBox)) failures.push(`${label.id}: lacks 6px clearance from ${other.id}`);
+      });
+      const nonOwner = geometry.filter((element) => element.id !== label.anchorId);
+      assert.deepEqual(label.avoid.slice().sort(), nonOwner.map((element) => element.id).sort(), `${label.id}: complete non-owner avoid set`);
+      assert.ok(label.minClearance >= 6, label.id);
+      nonOwner.forEach((element) => paintedParts(element).forEach((part) => {
+        if (paintedPartIntersectsBox(part, box, label.minClearance)) failures.push(`${question.id}: ${label.id} intersects ${element.id}`);
+      }));
+      const center = boxCenter(box);
+      const owner = geometry.find((element) => element.id === label.anchorId);
+      assert.ok(owner, `${label.id}: semantic owner`);
+      if (label.id.includes("-tick-label-") || label.id.endsWith("-title")) {
+        assert.equal(question.sourceData.family, "graph-interpretation", label.id);
+      } else if (owner.kind === "dimension") {
+        const dimensionCenter = [(owner.anchors[0][0] + owner.anchors[1][0]) / 2, (owner.anchors[0][1] + owner.anchors[1][1]) / 2];
+        assert.ok(Math.hypot(center[0] - dimensionCenter[0], center[1] - dimensionCenter[1]) <= 32, `${label.id}: constrained dimension zone`);
+      } else if (owner.kind === "arrow") {
+        const distances = [owner.from, owner.to].map((point) => Math.hypot(center[0] - point[0], center[1] - point[1]));
+        assert.ok(Math.min(...distances) <= 95, `${label.id}: constrained force zone`);
+      } else if (owner.kind === "line" && owner.role === "measure") {
+        const measureCenter = [(owner.from[0] + owner.to[0]) / 2, (owner.from[1] + owner.to[1]) / 2];
+        assert.ok(Math.hypot(center[0] - measureCenter[0], center[1] - measureCenter[1]) <= 45, `${label.id}: constrained measure zone`);
+      } else if (label.id.endsWith("-mass-label") || label.id.endsWith("-density-label")) {
+        assert.ok(center[0] >= 470 && center[0] <= 595, `${label.id}: constrained givens zone`);
+      } else assert.fail(`${label.id}: missing local semantic placement type`);
+    });
+  });
+  assert.deepEqual(failures, []);
+});
+
+test("every physics slot fails with a controlled error when diagram-kit is absent", () => {
+  [1, 2, 3, 4, 5].forEach((slot) => {
+    const source = fs.readFileSync(path.join(PHYSICS_ROOT, `questions/slot-${slot}.js`), "utf8");
+    assert.throws(() => vm.runInNewContext(source, { window: {} }), /diagram.?kit|diagram dependency/i, `browser slot ${slot}`);
+    assert.throws(() => vm.runInNewContext(source, { module: { exports: {} }, require() { return undefined; } }), /diagram.?kit|diagram dependency/i, `CommonJS slot ${slot}`);
+  });
 });
 
 test("wall-contact and pulley-rope SVG topology matches the stated force models", () => {
@@ -773,6 +1073,7 @@ test("subject assembly supports CommonJS and ordered file scripts", () => {
   const context = vm.createContext({ window: {} });
   [
     "../assets/js/subject-config.js",
+    "../assets/js/diagram-kit.js",
     "questions/slot-1.js", "questions/slot-2.js", "questions/slot-3.js", "questions/slot-4.js", "questions/slot-5.js", "questions.js"
   ].forEach((relative) => {
     const filename = path.resolve(PHYSICS_ROOT, relative);

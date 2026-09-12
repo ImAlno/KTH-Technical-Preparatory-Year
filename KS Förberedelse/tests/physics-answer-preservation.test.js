@@ -23,11 +23,21 @@ function answerProjection(question) {
   const field = question.fields.find((candidate) => candidate.kind === "numeric");
   assert.ok(field, `${question.id}: missing numeric answer field`);
   const numericField = Object.fromEntries(Object.entries(field).filter(([key]) => key !== "points"));
+  let stableSolutionHtml = question.solutionHtml;
+  if (question.sourceData && question.sourceData.solutionDiagram) {
+    const expectedId = `${question.id}-solution-diagram`;
+    assert.equal(question.sourceData.solutionDiagram.id, expectedId, `${question.id}: solution diagram identity`);
+    assert.equal(question.sourceData.solutionDiagram.purpose, "solution", `${question.id}: solution diagram purpose`);
+    const escapedId = expectedId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const generatedDiagram = new RegExp(`<svg\\b(?=[^>]*\\bid="${escapedId}")[\\s\\S]*?<\\/svg>`, "u");
+    assert.equal((stableSolutionHtml.match(generatedDiagram) || []).length, 1, `${question.id}: one generated solution diagram`);
+    stableSolutionHtml = stableSolutionHtml.replace(generatedDiagram, "");
+  }
   return canonical({
     slot: question.slot,
     id: question.id,
     field: numericField,
-    solutionHtml: question.solutionHtml,
+    solutionHtml: stableSolutionHtml,
     rubric: question.rubric
   });
 }

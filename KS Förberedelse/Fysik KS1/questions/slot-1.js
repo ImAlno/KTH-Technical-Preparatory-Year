@@ -1,12 +1,19 @@
 (function (root, factory) {
-  const bank = factory();
+  const diagramKit = typeof module === "object" && module.exports
+    ? require("../../assets/js/diagram-kit.js")
+    : root && root.KS && root.KS.diagram;
+  const bank = factory(diagramKit);
   if (typeof module === "object" && module.exports) module.exports = bank;
   if (root) {
     root.KS_PHYSICS_SLOTS = root.KS_PHYSICS_SLOTS || {};
     root.KS_PHYSICS_SLOTS[1] = bank;
   }
-})(typeof window !== "undefined" ? window : null, function () {
+})(typeof window !== "undefined" ? window : null, function (diagramKit) {
   "use strict";
+
+  if (!diagramKit || typeof diagramKit.create !== "function" || typeof diagramKit.validateManifest !== "function") {
+    throw new Error("diagram-kit dependency is required before constructing physics slot 1");
+  }
 
   const G = 9.82;
   const SKILL = "graphs-and-contact-equilibrium";
@@ -68,6 +75,33 @@
     return { absolute: 0.500001 * Math.pow(10, exponent) };
   }
 
+  function addShape(diagram, shapes, layer, shape) {
+    shapes.push(shape);
+    diagram.add(layer, shape);
+    return shape;
+  }
+
+  function addLabel(diagram, shapes, labels, options) {
+    const label = diagramKit.label({
+      id: options.id,
+      at: options.at,
+      text: options.text,
+      anchorId: options.anchorId,
+      avoid: shapes.filter(function (shape) { return shape.id !== options.anchorId; }).map(function (shape) { return shape.id; }),
+      minClearance: 6,
+      textAnchor: options.textAnchor || "middle",
+      fontSize: options.fontSize || 13,
+      background: true
+    });
+    labels.push(label);
+    diagram.add("labels", label);
+    return label;
+  }
+
+  function makeDiagram(id, title, description, purpose, width, height) {
+    return diagramKit.create({ id: id, title: title, description: description, purpose: purpose, width: width, height: height });
+  }
+
   function graphAnswer(row) {
     if (row.graphTask === "slope" || row.graphTask === "acceleration") {
       const left = row.points[row.segmentIndex];
@@ -91,30 +125,50 @@
     return ["m/s", "m/s"];
   }
 
-  function graphSvg(id, row) {
-    const width = 520;
-    const height = 292;
-    const left = 58;
-    const right = 492;
-    const top = 20;
-    const bottom = 242;
-    const x = function (value) { return left + value / row.axis.xMax * (right - left); };
-    const y = function (value) { return bottom - value / row.axis.yMax * (bottom - top); };
-    let grid = "";
+  function graphFigure(id, row) {
+    const width = 560;
+    const height = 350;
+    const layout = {
+      plot: { x: 82, y: 34, width: 438, height: 232 },
+      xTickZone: { x: 74, y: 274, width: 456, height: 26 },
+      yTickZone: { x: 18, y: 24, width: 52, height: 250 },
+      xTitleZone: { x: 436, y: 316, width: 92, height: 26 },
+      yTitleZone: { x: 224, y: 4, width: 92, height: 22 }
+    };
+    const transform = diagramKit.graphTransform({ xDomain: [0, row.axis.xMax], yDomain: [0, row.axis.yMax], plot: layout.plot });
+    const diagram = makeDiagram(
+      id + "-diagram",
+      row.scenario + ": " + row.graphType + "-graf",
+      "Styckvis linjär graf med exakt graderade axlar. Punkterna är " + row.points.map(function (point) { return "(" + point.t + ", " + point.y + ")"; }).join(", ") + ".",
+      "prompt", width, height
+    );
+    const shapes = [];
+    const labels = [];
+    for (let value = row.axis.xStep; value < row.axis.xMax; value += row.axis.xStep) {
+      const screenX = transform.xToScreen(value);
+      addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-x-grid-" + value, a: [screenX, layout.plot.y], b: [screenX, layout.plot.y + layout.plot.height], role: "grid", strokeWidth: 1 }));
+    }
+    for (let value = row.axis.yStep; value < row.axis.yMax; value += row.axis.yStep) {
+      const screenY = transform.yToScreen(value);
+      addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-y-grid-" + value, a: [layout.plot.x, screenY], b: [layout.plot.x + layout.plot.width, screenY], role: "grid", strokeWidth: 1 }));
+    }
+    const xAxis = addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-x-axis", a: [layout.plot.x, layout.plot.y + layout.plot.height], b: [layout.plot.x + layout.plot.width, layout.plot.y + layout.plot.height], role: "axis", strokeWidth: 2 }));
+    const yAxis = addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-y-axis", a: [layout.plot.x, layout.plot.y], b: [layout.plot.x, layout.plot.y + layout.plot.height], role: "axis", strokeWidth: 2 }));
+    const dataPoints = row.points.map(function (point) { return transform.toScreen([point.t, point.y]); });
+    addShape(diagram, shapes, "information", diagramKit.polyline({ id: id + "-data-line", points: dataPoints, role: "line", strokeWidth: 4 }));
+    dataPoints.forEach(function (point, index) {
+      addShape(diagram, shapes, "information", diagramKit.circle({ id: id + "-point-" + index, center: point, radius: 4, role: "point", strokeWidth: 2 }));
+    });
     for (let value = 0; value <= row.axis.xMax; value += row.axis.xStep) {
-      grid += '<line x1="' + x(value) + '" y1="' + top + '" x2="' + x(value) + '" y2="' + bottom + '" stroke="#d2d2d7"/><text x="' + x(value) + '" y="262" text-anchor="middle">' + value + "</text>";
+      addLabel(diagram, shapes, labels, { id: id + "-x-tick-label-" + value, at: [transform.xToScreen(value), 294], text: String(value), anchorId: xAxis.id, fontSize: 12 });
     }
     for (let value = 0; value <= row.axis.yMax; value += row.axis.yStep) {
-      grid += '<line x1="' + left + '" y1="' + y(value) + '" x2="' + right + '" y2="' + y(value) + '" stroke="#d2d2d7"/><text x="48" y="' + (y(value) + 4) + '" text-anchor="end">' + value + "</text>";
+      addLabel(diagram, shapes, labels, { id: id + "-y-tick-label-" + value, at: [66, Math.min(transform.yToScreen(value) + 5, 269)], text: String(value), anchorId: yAxis.id, textAnchor: "end", fontSize: 12 });
     }
-    const polyline = row.points.map(function (point) { return x(point.t) + "," + y(point.y); }).join(" ");
-    const yLabel = row.graphType === "s-t" ? "s (m)" : "v (m/s)";
-    return '<svg viewBox="0 0 ' + width + " " + height + '" role="img" aria-labelledby="' + id + "-svg-title " + id + '-svg-desc" data-scale="exact" data-x-max="' + row.axis.xMax + '" data-y-max="' + row.axis.yMax + '">' +
-      '<title id="' + id + '-svg-title">' + row.scenario + ": " + row.graphType + "-graf</title>" +
-      '<desc id="' + id + '-svg-desc">Styckvis linjär graf med exakt graderade axlar. Punkterna är ' + row.points.map(function (point) { return "(" + point.t + ", " + point.y + ")"; }).join(", ") + ".</desc>" +
-      grid + '<line x1="' + left + '" y1="' + bottom + '" x2="' + right + '" y2="' + bottom + '" stroke="#1d1d1f" stroke-width="2"/><line x1="' + left + '" y1="' + top + '" x2="' + left + '" y2="' + bottom + '" stroke="#1d1d1f" stroke-width="2"/>' +
-      '<polyline points="' + polyline + '" fill="none" stroke="#0071e3" stroke-width="4" stroke-linejoin="round"/>' +
-      '<text x="' + right + '" y="284" text-anchor="end">t (s)</text><text x="10" y="16">' + yLabel + "</text></svg>";
+    addLabel(diagram, shapes, labels, { id: id + "-x-title", at: [520, 336], text: "t (s)", anchorId: xAxis.id, textAnchor: "end", fontSize: 13 });
+    addLabel(diagram, shapes, labels, { id: id + "-y-title", at: [226, 19], text: row.graphType === "s-t" ? "s (m)" : "v (m/s)", anchorId: yAxis.id, textAnchor: "start", fontSize: 13 });
+    const result = diagram.finish();
+    return { html: result.html.replace("<svg ", '<svg data-scale="exact" data-x-max="' + row.axis.xMax + '" data-y-max="' + row.axis.yMax + '" '), manifest: result.manifest, layout: layout };
   }
 
   function graphSolution(row, exact, rendered, unitLabel) {
@@ -149,20 +203,23 @@
     const unit = requestedUnit(row);
     const exact = graphAnswer(row);
     const expected = roundSignificant(exact, figures);
+    const figure = graphFigure(id, row);
     const data = Object.assign({}, row, {
       skill: SKILL,
       family: "graph-interpretation",
       caseNumber: index + 1,
       significantFigures: figures,
       targetUnit: unit[0],
-      requestedUnitLabel: unit[1]
+      requestedUnitLabel: unit[1],
+      diagram: figure.manifest,
+      diagramLayout: figure.layout
     });
     return {
       id: id,
       slot: 1,
       title: row.scenario,
       points: 2,
-      promptHtml: "<p>Diagrammet visar " + (row.graphType === "s-t" ? "läge s" : "hastighet v") + " som funktion av tiden för " + row.scenario.toLowerCase() + ". " + row.prompt + "</p>" + graphSvg(id, row) + "<p><small>Grafens rutnät, brytpunkter och axelvärden är exakt skalenliga.</small></p><p>Svara i " + unit[1] + ". Avrunda till " + figures + " värdesiffror.</p>",
+      promptHtml: "<p>Diagrammet visar " + (row.graphType === "s-t" ? "läge s" : "hastighet v") + " som funktion av tiden för " + row.scenario.toLowerCase() + ". " + row.prompt + "</p>" + figure.html + "<p><small>Grafens rutnät, brytpunkter och axelvärden är exakt skalenliga.</small></p><p>Svara i " + unit[1] + ". Avrunda till " + figures + " värdesiffror.</p>",
       fields: [{ id: "answer", label: "Svar (" + unit[1] + "; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: unit[0], tolerance: tolerance(expected, figures), help: "Du kan skriva talet med eller utan den angivna enheten." }],
       workOnPaper: graphWorkOnPaper(row),
       solutionHtml: graphSolution(row, exact, formatSignificant(expected, figures), unit[1]),
@@ -180,18 +237,71 @@
     return row.massKg * G - row.knownSupportN;
   }
 
-  function contactSvg(id, row) {
+  function contactFigure(id, row) {
     const isBeam = row.contactType === "two-support";
     const applied = row.appliedForceN === undefined ? row.knownSupportN : row.appliedForceN;
     const title = row.scenario + ": kontaktsituation";
     const desc = isBeam
       ? "En horisontell kropp vilar på två stöd. Den vänstra stödreaktionen är " + applied + " newton; storleken kan inte avläsas ur pilen."
       : "En kropp ligger kvar mot ett horisontellt golv medan en yttre kraft på " + applied + " newton verkar " + (row.contactType === "floor-pull" ? "uppåt" : "nedåt") + ". Pilarnas längder kodar inte storlek.";
+    const diagram = makeDiagram(id + "-diagram", title, desc + " Figuren är schematisk och inte skalenlig.", "prompt", 600, 300);
+    const shapes = [];
+    const labels = [];
+    const baseline = { a: [80, 190], b: [520, 190] };
+    const body = addShape(diagram, shapes, "geometry", diagramKit.bodyOnLine({ id: id + "-body", line: baseline, bottomCenter: [300, 190], width: isBeam ? 360 : 120, height: isBeam ? 50 : 70, outwardNormal: [0, -1], role: "body", strokeWidth: 2 }));
+    let geometry;
     if (isBeam) {
-      return '<svg viewBox="0 0 520 210" role="img" aria-labelledby="' + id + "-svg-title " + id + '-svg-desc"><title id="' + id + '-svg-title">' + title + '</title><desc id="' + id + '-svg-desc">' + desc + '</desc><rect x="100" y="72" width="320" height="35" fill="#dbeafe" stroke="#1d1d1f"/><path d="M145 145 L180 107 L215 145 Z M305 145 L340 107 L375 145 Z" fill="#f5f5f7" stroke="#1d1d1f"/><line x1="180" y1="108" x2="180" y2="42" stroke="#0071e3" stroke-width="4"/><path d="M180 42 l-8 15 h16 z" fill="#0071e3"/><text x="190" y="48">F₁ = ' + applied + ' N</text><text x="260" y="184" text-anchor="middle">Schematisk och inte skalenlig</text></svg>';
+      const leftContact = [180, 190];
+      const rightContact = [420, 190];
+      addShape(diagram, shapes, "connections", diagramKit.polygon({ id: id + "-left-support", points: [leftContact, [154, 230], [206, 230]], role: "support", strokeWidth: 2 }));
+      addShape(diagram, shapes, "connections", diagramKit.polygon({ id: id + "-right-support", points: [rightContact, [394, 230], [446, 230]], role: "support", strokeWidth: 2 }));
+      const force = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-given-force", from: leftContact, to: [180, 70], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      addLabel(diagram, shapes, labels, { id: id + "-given-force-label", at: [245, 67], text: "F₁ = " + clean(applied) + " N", anchorId: force.id, fontSize: 14 });
+      geometry = { supportPoints: [leftContact, rightContact] };
+    } else {
+      const ground = addShape(diagram, shapes, "geometry", diagramKit.line({ id: id + "-ground", a: baseline.a, b: baseline.b, role: "ground", strokeWidth: 3 }));
+      const upward = row.contactType === "floor-pull";
+      const force = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-given-force", from: [300, upward ? 120 : 82], to: [300, upward ? 45 : 120], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+      addLabel(diagram, shapes, labels, { id: id + "-given-force-label", at: [385, 58], text: "F = " + clean(applied) + " N", anchorId: force.id, fontSize: 14 });
+      geometry = { ground: [ground.from, ground.to], bodyBottom: body.bottomCorners };
     }
-    const upward = row.contactType === "floor-pull";
-    return '<svg viewBox="0 0 520 210" role="img" aria-labelledby="' + id + "-svg-title " + id + '-svg-desc"><title id="' + id + '-svg-title">' + title + '</title><desc id="' + id + '-svg-desc">' + desc + '</desc><line x1="90" y1="145" x2="430" y2="145" stroke="#1d1d1f" stroke-width="3"/><rect x="205" y="82" width="110" height="63" rx="4" fill="#dbeafe" stroke="#1d1d1f"/><line x1="260" y1="' + (upward ? 82 : 30) + '" x2="260" y2="' + (upward ? 30 : 82) + '" stroke="#0071e3" stroke-width="4"/><path d="M260 ' + (upward ? 28 : 84) + " l-8 " + (upward ? 15 : -15) + " h16 z\" fill=\"#0071e3\"/><text x=\"278\" y=\"58\">F = " + applied + ' N</text><text x="260" y="184" text-anchor="middle">Schematisk och inte skalenlig</text></svg>';
+    const result = diagram.finish();
+    return { html: result.html, manifest: result.manifest, geometry: geometry };
+  }
+
+  function contactSolutionFigure(id, row) {
+    const isBeam = row.contactType === "two-support";
+    const diagram = makeDiagram(
+      id + "-solution-diagram",
+      row.scenario + ": fullständig kraftfigur",
+      isBeam
+        ? "Frilagd balk med tyngdkraft nedåt och två stödreaktioner uppåt."
+        : "Frilagd kropp med tyngdkraft, normalkraft och den givna yttre kraften i rätt riktning.",
+      "solution", 600, 330
+    );
+    const shapes = [];
+    const labels = [];
+    const baseline = { a: [100, 190], b: [500, 190] };
+    const body = addShape(diagram, shapes, "geometry", diagramKit.bodyOnLine({ id: id + "-isolated-body", line: baseline, bottomCenter: [300, 190], width: isBeam ? 300 : 130, height: 60, outwardNormal: [0, -1], role: "body", strokeWidth: 2 }));
+    const weight = addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-weight", from: [300, 160], to: [300, 286], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 }));
+    const forces = [weight];
+    if (isBeam) {
+      forces.push(addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-support-left", from: [190, 160], to: [190, 55], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 })));
+      forces.push(addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-support-right", from: [410, 160], to: [410, 55], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 })));
+    } else {
+      forces.push(addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-normal", from: [270, 160], to: [270, 50], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 })));
+      const upward = row.contactType === "floor-pull";
+      forces.push(addShape(diagram, shapes, "information", diagramKit.arrow({ id: id + "-force-applied", from: [330, 160], to: [330, upward ? 65 : 270], role: "force", strokeWidth: 3, headLength: 12, headWidth: 10 })));
+    }
+    addLabel(diagram, shapes, labels, { id: id + "-force-weight-label", at: [365, 286], text: "mg", anchorId: weight.id, fontSize: 15 });
+    if (isBeam) {
+      addLabel(diagram, shapes, labels, { id: id + "-force-support-left-label", at: [145, 48], text: "F₁", anchorId: forces[1].id, fontSize: 15 });
+      addLabel(diagram, shapes, labels, { id: id + "-force-support-right-label", at: [455, 48], text: "F₂", anchorId: forces[2].id, fontSize: 15 });
+    } else {
+      addLabel(diagram, shapes, labels, { id: id + "-force-normal-label", at: [225, 45], text: "N", anchorId: forces[1].id, fontSize: 15 });
+      addLabel(diagram, shapes, labels, { id: id + "-force-applied-label", at: [row.contactType === "floor-pull" ? 380 : 415, row.contactType === "floor-pull" ? 60 : 250], text: "F", anchorId: forces[2].id, fontSize: 15 });
+    }
+    return diagram.finish();
   }
 
   function contactPrompt(row) {
@@ -222,20 +332,22 @@
     const figures = 2;
     const exact = contactAnswer(row);
     const expected = roundSignificant(exact, figures);
+    const promptFigure = contactFigure(id, row);
+    const solutionFigure = contactSolutionFigure(id, row);
     return {
       id: id,
       slot: 1,
       title: row.scenario,
       points: 2,
-      promptHtml: "<p>" + contactPrompt(row) + "</p>" + contactSvg(id, row) + "<p><small>Figuren är schematisk och inte skalenlig; pilarnas längder får inte användas för mätning.</small></p><p>Rita först en kraftfigur. Svara sedan i N. Avrunda till " + figures + " värdesiffror.</p>",
+      promptHtml: "<p>" + contactPrompt(row) + "</p>" + promptFigure.html + "<p><small>Figuren är schematisk och inte skalenlig; pilarnas längder får inte användas för mätning.</small></p><p>Rita först en kraftfigur. Svara sedan i N. Avrunda till " + figures + " värdesiffror.</p>",
       fields: [{ id: "answer", label: "Svar (N; " + figures + " värdesiffror)", kind: "numeric", points: 2, expected: expected, targetUnit: "N", tolerance: tolerance(expected, figures), help: "Ange normalkraftens eller stödreaktionens storlek." }],
       workOnPaper: contactWorkOnPaper(row),
-      solutionHtml: contactSolution(row, exact, formatSignificant(expected, figures)),
+      solutionHtml: contactSolution(row, exact, formatSignificant(expected, figures)) + solutionFigure.html,
       rubric: [
         { points: 1, text: "Kraftfiguren visar tyngdkraft och samtliga kontakt-/yttre krafter på rätt kropp med rätt riktning." },
         { points: 1, text: "Newtons första lag i vertikalled är korrekt och ger rätt storlek, riktning, enhet och avrundning." }
       ],
-      sourceData: Object.assign({}, row, { skill: SKILL, family: "contact-equilibrium", caseNumber: index + 1, g: G, significantFigures: figures, targetUnit: "N", requestedUnitLabel: "N" })
+      sourceData: Object.assign({}, row, { skill: SKILL, family: "contact-equilibrium", caseNumber: index + 1, g: G, significantFigures: figures, targetUnit: "N", requestedUnitLabel: "N", diagram: promptFigure.manifest, solutionDiagram: solutionFigure.manifest, diagramGeometry: promptFigure.geometry })
     };
   }
 
