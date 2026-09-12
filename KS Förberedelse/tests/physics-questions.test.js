@@ -257,11 +257,14 @@ function asksForComputerDerivation(html) {
 }
 
 function asksForComputerDrawing(text) {
-  const drawVerb = "(?:rit(?:a|ar|as|ad|ade|at|ades|ning)|skiss(?:a|ar|as|ad|ade|at|ades|ning))";
-  const workAction = `(?:${drawVerb}|redovisa|redogör|beskriv|skriv(?:\\s+in)?|ange|visa(?:r|de)?)`;
+  const drawVerb = "(?:rit(?:a|ar|as|ad|ade|at|ades|ning)|skiss(?:a|ar|as|ad|ade|at|ades|ning)|teck(?:na|nar|nas|nad|nade|nat|nades|ning)|frilägg(?:a|er|s|ning|ningen|ningar|ningarna)?|frilag(?:d|da|de|t))";
+  const submissionAction = "(?:redovisa|redogör|beskriv|skriv(?:\\s+in)?|ange|ladda\\s+upp)";
   const forceWork = "(?:kraftfigur(?:en|er|erna)?|kraftdiagram(?:met|mer|men)?|frilägg(?:ning|ningen|ningar|ningarna)?|skiss(?:en|er|erna|ar|arna)?|vektorfigur(?:en|er|erna)?|diagram(?:met|mer|men)?)";
   const workTerm = new RegExp(`\\b(?:${forceWork}|${drawVerb})\\b`, "i");
-  const drawingAction = new RegExp(`\\b${workAction}\\b`, "i");
+  const drawingAction = new RegExp(`\\b${drawVerb}\\b`, "i");
+  const studentWorkObject = `(?:din|ditt|dina|egen|eget|egna|skapad(?:e|t)?|genererad(?:e|t)?)\\s+${forceWork}`;
+  const studentShowAction = new RegExp(`\\bvisa(?:r|de)?\\b[^.?!;,]{0,80}\\b(?:den\\s+)?${studentWorkObject}\\b`, "i");
+  const submission = new RegExp(`\\b${submissionAction}\\b`, "i");
   const computerDestination = /\b(?:på\s+(?:skärmen|datorn)|digitalt|online|här)\b/i;
   const answerBoxDestination = /\b(?:i\s+(?:svarsfältet|svarsrutan|rutan|formuläret))\b/i;
   const cleanFinalAnswer = /\b(?:sluts?svaret?|svar(?:et|a)?|resultatet)\b/i;
@@ -271,10 +274,11 @@ function asksForComputerDrawing(text) {
     const hasWorkTerm = workTerm.test(segment);
     const isCleanFinalAnswer = cleanFinalAnswer.test(segment) && finalAnswerAction.test(segment) && !hasWorkTerm;
     if (isCleanFinalAnswer || !hasWorkTerm) return false;
-    if (computerDestination.test(segment)) return drawingAction.test(segment);
+    if (computerDestination.test(segment)) return drawingAction.test(segment) || submission.test(segment) || studentShowAction.test(segment);
     if (answerBoxDestination.test(segment)) {
-      return drawingAction.test(segment) || finalAnswerAction.test(segment);
+      return drawingAction.test(segment) || submission.test(segment) || studentShowAction.test(segment) || finalAnswerAction.test(segment);
     }
+    if (submission.test(segment) || studentShowAction.test(segment)) return true;
     return false;
   });
 }
@@ -722,6 +726,9 @@ test("physics prompt audit catches wrapped derivation and computer-directed forc
     ["<p>Kraftdiagrammet visas på skärmen.</p>", false],
     ["<p>Diagrammen visas på skärmen.</p>", false],
     ["<p>Skissen visas på skärmen.</p>", false],
+    ["<p>Visa diagrammet på skärmen.</p>", false],
+    ["<p>Visa figuren digitalt.</p>", false],
+    ["<p>Programmet visar kraftdiagrammet på skärmen.</p>", false],
     ["<p>På skärmen ritar du en kraftfigur.</p>", true],
     ["<p>Digitalt: rita en kraftfigur.</p>", true],
     ["<p>Rita en kraftfigur på datorn.</p>", true],
@@ -736,6 +743,10 @@ test("physics prompt audit catches wrapped derivation and computer-directed forc
     ["<p>Friläggningarna ritas på skärmen.</p>", true],
     ["<p>Skisser ritas på skärmen.</p>", true],
     ["<p>Skisserna ritas på skärmen.</p>", true],
+    ["<p>Visa din kraftfigur i svarsrutan.</p>", true],
+    ["<p>Ladda upp din skiss.</p>", true],
+    ["<p>Redovisa din friläggning digitalt.</p>", true],
+    ["<p>Frilägg kraftfiguren digitalt.</p>", true],
     ["<p>I räknehäftet gör du beräkningen; på skärmen ritar du kraftfiguren.</p>", true],
     ["<p>Digitalt ritar du kraftfiguren; i räknehäftet gör du beräkningen.</p>", true],
     ["<p>Beräkna kraftfiguren i räknehäftet innan du anger slutsvaret.</p>", false],
